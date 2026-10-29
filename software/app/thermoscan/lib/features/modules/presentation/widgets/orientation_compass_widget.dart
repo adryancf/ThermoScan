@@ -10,6 +10,7 @@ class OrientationCompassWidget extends StatefulWidget {
     super.key,
     required this.reading,
     required this.onCapture,
+    this.onRecapture,
     this.isCapturing = false,
     this.isLocked = false,
     this.lockedAzimuth,
@@ -18,6 +19,7 @@ class OrientationCompassWidget extends StatefulWidget {
 
   final SurfaceOrientationReading? reading;
   final VoidCallback onCapture;
+  final VoidCallback? onRecapture;
   final bool isCapturing;
   final bool isLocked;
   final double? lockedAzimuth;
@@ -41,6 +43,12 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
     return _lastAngle;
   }
 
+  String _cardinalDirection(double deg) {
+    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    final idx = ((deg + 22.5) % 360 / 45).floor();
+    return directions[idx % 8];
+  }
+
   @override
   Widget build(BuildContext context) {
     final liveAzimuth = widget.reading?.azimuthDeg ?? 0.0;
@@ -54,7 +62,7 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
         ? widget.lockedTilt!
         : liveTilt;
 
-    final cardinal = widget.reading?.cardinalDirection ?? 'N';
+    final cardinal = _cardinalDirection(displayAzimuth);
     final continuousAngle = _getContinuousAngle(displayAzimuth);
 
     return Container(
@@ -130,7 +138,7 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
                     Text(
                       widget.isLocked
                           ? 'Captured'
-                          : (hasMag ? 'Compass 60Hz' : 'Tilt 60Hz'),
+                          : (hasMag ? 'Compass Active' : 'Tilt Sensor'),
                       style: AppTypography.chip.copyWith(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
@@ -349,11 +357,15 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
                     ),
               label: Text(
                 widget.isLocked
-                    ? 'Recapture Orientation (${displayAzimuth.toStringAsFixed(1)}° / ${displayTilt.toStringAsFixed(1)}°)'
-                    : 'Capture Orientation (${displayAzimuth.toStringAsFixed(1)}° / ${displayTilt.toStringAsFixed(1)}°)',
+                    ? 'Recapture (Return to Live)'
+                    : 'Capture Orientation (${liveAzimuth.toStringAsFixed(1)}° / ${liveTilt.toStringAsFixed(1)}°)',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              onPressed: widget.isCapturing ? null : widget.onCapture,
+              onPressed: widget.isCapturing
+                  ? null
+                  : (widget.isLocked
+                      ? (widget.onRecapture ?? widget.onCapture)
+                      : widget.onCapture),
             ),
           ),
         ],

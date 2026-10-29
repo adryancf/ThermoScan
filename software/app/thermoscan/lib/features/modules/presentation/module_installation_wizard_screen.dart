@@ -62,6 +62,7 @@ class _ModuleInstallationWizardScreenState
   String? _orientationNotice;
   bool _capturingOrientation = false;
   bool _showManualOrientationFields = false;
+  bool _isOrientationLocked = false;
   SurfaceOrientationReading? _liveOrientation;
   StreamSubscription<SurfaceOrientationReading>? _orientationSub;
 
@@ -134,6 +135,9 @@ class _ModuleInstallationWizardScreenState
     if (mod.elevationM != null) _elevCtrl.text = mod.elevationM.toString();
     if (mod.azimuthDeg != null) _azimuthCtrl.text = mod.azimuthDeg.toString();
     if (mod.tiltDeg != null) _tiltCtrl.text = mod.tiltDeg.toString();
+    if (mod.azimuthDeg != null && mod.tiltDeg != null) {
+      _isOrientationLocked = true;
+    }
     _azimuthSource = mod.azimuthSource ?? 'manual';
     _tiltSource = mod.tiltSource ?? 'manual';
 
@@ -291,6 +295,7 @@ class _ModuleInstallationWizardScreenState
         _tiltCtrl.text = reading.tiltDeg.toStringAsFixed(1);
         _azimuthSource = reading.hasMagnetometer ? 'sensor' : 'manual';
         _tiltSource = 'sensor';
+        _isOrientationLocked = true;
         _orientationNotice = reading.hasMagnetometer
             ? 'Surface alignment captured from device motion & compass (Source: SENSOR).'
             : 'Tilt captured from accelerometer (Source: SENSOR). Compass unavailable on this device: verify Azimuth manually.';
@@ -306,6 +311,15 @@ class _ModuleInstallationWizardScreenState
         setState(() => _capturingOrientation = false);
       }
     }
+  }
+
+  void _unlockOrientation() {
+    setState(() {
+      _isOrientationLocked = false;
+      _azimuthCtrl.clear();
+      _tiltCtrl.clear();
+      _orientationNotice = null;
+    });
   }
 
   Future<void> _submitFullInstallation() async {
@@ -834,8 +848,9 @@ class _ModuleInstallationWizardScreenState
 
   /// SCR-18: Panel Surface Orientation (Azimuth & Tilt)
   Widget _buildStep3() {
-    final hasRecordedOrientation =
-        _azimuthCtrl.text.trim().isNotEmpty && _tiltCtrl.text.trim().isNotEmpty;
+    final hasRecordedOrientation = _isOrientationLocked &&
+        _azimuthCtrl.text.trim().isNotEmpty &&
+        _tiltCtrl.text.trim().isNotEmpty;
     final lockedAzimuth = double.tryParse(_azimuthCtrl.text.trim());
     final lockedTilt = double.tryParse(_tiltCtrl.text.trim());
 
@@ -861,6 +876,7 @@ class _ModuleInstallationWizardScreenState
             lockedAzimuth: lockedAzimuth,
             lockedTilt: lockedTilt,
             onCapture: _acquireDeviceOrientationSample,
+            onRecapture: _unlockOrientation,
           ),
           const SizedBox(height: 14),
 

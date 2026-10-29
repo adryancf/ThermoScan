@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,9 +9,11 @@ import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/app_text_field.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
+import 'package:thermoscan/features/modules/data/device_sensor_service.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/orientation_compass_widget.dart';
 
 /// SCR-16 to SCR-20: Technician 5-Step Module Installation Wizard
 class ModuleInstallationWizardScreen extends ConsumerStatefulWidget {
@@ -41,11 +45,14 @@ class _ModuleInstallationWizardScreenState
   final _macCtrl = TextEditingController();
   final Set<String> _selectedManagerIds = {};
 
+  final _sensorService = const DeviceSensorService();
+
   // Step 2 (SCR-17): Location
   final _latCtrl = TextEditingController();
   final _lngCtrl = TextEditingController();
   final _elevCtrl = TextEditingController();
   String? _locationNotice;
+  bool _acquiringLocation = false;
 
   // Step 3 (SCR-18): Orientation
   final _azimuthCtrl = TextEditingController();
@@ -53,6 +60,9 @@ class _ModuleInstallationWizardScreenState
   String _azimuthSource = 'manual';
   String _tiltSource = 'manual';
   String? _orientationNotice;
+  bool _capturingOrientation = false;
+  SurfaceOrientationReading? _liveOrientation;
+  StreamSubscription<SurfaceOrientationReading>? _orientationSub;
 
   // Step 4 (SCR-19): Array Configuration
   final _lengthCtrl = TextEditingController();
@@ -74,10 +84,22 @@ class _ModuleInstallationWizardScreenState
   void initState() {
     super.initState();
     _persistedModuleId = widget.existingModuleId;
+    _orientationSub = _sensorService.watchSurfaceOrientation().listen(
+      (reading) {
+        if (!mounted) return;
+        if (_currentStep == 2) {
+          setState(() => _liveOrientation = reading);
+        } else {
+          _liveOrientation = reading;
+        }
+      },
+      onError: (_) {},
+    );
   }
 
   @override
   void dispose() {
+    _orientationSub?.cancel();
     _nameCtrl.dispose();
     _macCtrl.dispose();
     _latCtrl.dispose();
@@ -218,27 +240,63 @@ class _ModuleInstallationWizardScreenState
     setState(() => _currentStep = 4);
   }
 
-  void _acquireDeviceLocationSample() {
-    // Populates acquired site coordinates and marks ready for Technician confirmation (SFR03 & SFR05)
+  Future<void> _acquireDeviceLocationSample() async {
     setState(() {
-      if (_latCtrl.text.trim().isEmpty) _latCtrl.text = '-25.43950';
-      if (_lngCtrl.text.trim().isEmpty) _lngCtrl.text = '-49.26870';
-      if (_elevCtrl.text.trim().isEmpty) _elevCtrl.text = '934.0';
-      _locationNotice =
-          'Coordinates acquired. Review and adjust any value manually before continuing.';
+      _acquiringLocation = true;
+      _locationNotice = null;
     });
+    try {
+      final loc = await _sensorService.acquireGpsLocation();
+      if (!mounted) return;
+      setState(() {
+        _latCtrl.text = loc.latitude.toStringAsFixed(6);
+        _lngCtrl.text = loc.longitude.toStringAsFixed(6);
+        _elevCtrl.text = loc.elevationM.toStringAsFixed(1);
+        _locationNotice =
+            'Coordinates acquired from GPS hardware. Review and adjust any value manually if needed.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _locationNotice =
+            'GPS Notice: ${e.toString().replaceAll('Exception: ', '')}';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _acquiringLocation = false);
+      }
+    }
   }
 
-  void _acquireDeviceOrientationSample() {
-    // Populates surface alignment reading from device sensors and sets source = 'sensor' (SFR04 & SFR05)
+  Future<void> _acquireDeviceOrientationSample() async {
     setState(() {
-      _azimuthCtrl.text = '15.0';
-      _tiltCtrl.text = '23.5';
-      _azimuthSource = 'sensor';
-      _tiltSource = 'sensor';
-      _orientationNotice =
-          'Surface alignment captured (Source: SENSOR). Editing a field manually will switch its source to MANUAL.';
+      _capturingOrientation = true;
+      _orientationNotice = null;
     });
+    try {
+      final reading = _liveOrientation ??
+          await _sensorService.captureSurfaceOrientation();
+      if (!mounted) return;
+      setState(() {
+        _azimuthCtrl.text = reading.azimuthDeg.toStringAsFixed(1);
+        _tiltCtrl.text = reading.tiltDeg.toStringAsFixed(1);
+        _azimuthSource = reading.hasMagnetometer ? 'sensor' : 'manual';
+        _tiltSource = 'sensor';
+        _orientationNotice = reading.hasMagnetometer
+            ? 'Surface alignment captured from device motion & compass (Source: SENSOR).'
+            : 'Tilt captured from accelerometer (Source: SENSOR). Compass unavailable on this device: verify Azimuth manually.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _orientationNotice =
+            'Sensor Notice: ${e.toString().replaceAll('Exception: ', '')}';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _capturingOrientation = false);
+      }
+    }
   }
 
   Future<void> _submitFullInstallation() async {
@@ -673,6 +731,7 @@ class _ModuleInstallationWizardScreenState
                 SecondaryButton(
                   label: 'Acquire Location from Device GPS',
                   icon: Icons.my_location_outlined,
+                  isLoading: _acquiringLocation,
                   onPressed: _acquireDeviceLocationSample,
                 ),
                 if (_locationNotice != null) ...[
@@ -777,8 +836,14 @@ class _ModuleInstallationWizardScreenState
           ),
           const SizedBox(height: 4),
           Text(
-            'Place your phone flat and aligned with the panel surface to capture azimuth and tilt, or enter values manually.',
+            'Place your phone flat and aligned with the panel surface to capture azimuth and tilt in real time, or enter values manually.',
             style: AppTypography.bodySmall,
+          ),
+          const SizedBox(height: 16),
+          OrientationCompassWidget(
+            reading: _liveOrientation,
+            isCapturing: _capturingOrientation,
+            onCapture: _acquireDeviceOrientationSample,
           ),
           const SizedBox(height: 16),
           Container(
@@ -791,42 +856,9 @@ class _ModuleInstallationWizardScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.screen_rotation_outlined,
-                        color: AppColors.primary,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Place your phone flat and aligned with the panel surface.',
-                          style: AppTypography.bodySmall.copyWith(
-                            color: AppColors.textPrimary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 14),
-                SecondaryButton(
-                  label: 'Capture Azimuth & Tilt from Sensors',
-                  icon: Icons.explore_outlined,
-                  onPressed: _acquireDeviceOrientationSample,
-                ),
                 if (_orientationNotice != null) ...[
-                  const SizedBox(height: 12),
                   Container(
+                    width: double.infinity,
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: AppColors.primarySoft.withValues(alpha: 0.4),
@@ -839,8 +871,8 @@ class _ModuleInstallationWizardScreenState
                       ),
                     ),
                   ),
+                  const SizedBox(height: 14),
                 ],
-                const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [

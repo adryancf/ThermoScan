@@ -117,4 +117,12 @@ class UserRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<void> deleteUser({required String userId}) async {
+    try {
+      await dio.delete('/users/$userId');
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

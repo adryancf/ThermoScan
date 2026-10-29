@@ -44,6 +44,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Put("/{moduleID}/technicians/{technicianID}", h.handleSetTechnicianAccess)
 		r.Put("/{moduleID}/clients", h.handleSetModuleClients)
 		r.Patch("/{moduleID}/email-preferences", h.handleUpdateClientEmailPreference)
+		r.Delete("/{moduleID}", h.handleDeleteModule)
 	})
 }
 
@@ -570,6 +571,37 @@ func (h *Handler) handleUpdateClientEmailPreference(w http.ResponseWriter, r *ht
 	}
 
 	httpjson.WriteJSON(w, http.StatusOK, details)
+}
+
+func (h *Handler) handleDeleteModule(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module id", "INVALID_INPUT")
+		return
+	}
+
+	err = h.service.DeleteModule(r.Context(), principal, moduleID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "you do not have permission to delete this module", "FORBIDDEN")
+		case errors.Is(err, ErrModuleHasOperationalHistory):
+			httpjson.WriteError(w, http.StatusConflict, "module cannot be deleted because it contains operational history or pending operations; deactivate it instead", "MODULE_HAS_OPERATIONAL_HISTORY")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func parsePositiveInt32(s string, defaultVal int32) int32 {

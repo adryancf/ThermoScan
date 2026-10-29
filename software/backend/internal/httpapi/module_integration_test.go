@@ -464,4 +464,103 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 when linking invalid client, got %d", rec.Code)
 	}
+
+	// 14. Aditivo de negócio: Exclusão de módulos e cadastros
+	// A) Módulo com histórico operacional (modCreated possui logs de intervalo do passo 10) não pode ser excluído
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modCreated.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when deleting module with operational history, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// B) Módulo elegível sem histórico operacional (modWithClient):
+	// Client não pode excluir (403)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modWithClient.Module.ID, client1Auth.AccessToken, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when Client tries to delete module, got %d", rec.Code)
+	}
+
+	// Técnico com acesso compartilhado (Tech 2) não pode excluir (403)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modWithClient.Module.ID, tech2Auth.AccessToken, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when Shared Technician tries to delete module, got %d", rec.Code)
+	}
+
+	// Usuário de outra empresa não pode excluir (404 / isolamento de tenant)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modWithClient.Module.ID, mgrBAuth.AccessToken, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when user from Company B tries to delete Company A module, got %d", rec.Code)
+	}
+
+	// Técnico instalador com acesso efetivo (Tech 1) pode excluir com sucesso (204)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modWithClient.Module.ID, tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 when installer technician deletes eligible module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Confirmar que o módulo foi realmente removido
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modWithClient.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after module was deleted, got %d", rec.Code)
+	}
+
+	// C) Manager exclui módulo elegível criado por engano:
+	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":        "Accidental Module",
+		"mac_address": "11:22:33:44:55:66",
+		"manager_ids": []string{compA.DefaultManager.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating accidental module, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var accMod struct {
+		Module struct {
+			ID string `json:"id"`
+		} `json:"module"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &accMod)
+
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+accMod.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 when manager deletes eligible module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// D) Exclusão de usuários:
+	// Technician que instalou módulo (Tech 1 é instalador de modCreated) não pode ser excluído (409)
+	rec = doJSON(http.MethodDelete, "/api/v1/users/"+tech1Res.User.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when deleting technician with installed modules, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Manager tenta excluir outro Manager (403)
+	rec = doJSON(http.MethodDelete, "/api/v1/users/"+compA.DefaultManager.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when deleting a manager, got %d", rec.Code)
+	}
+
+	// Manager exclui Client elegível sem histórico operacional (204)
+	rec = doJSON(http.MethodPost, "/api/v1/users", mgrAAuth.AccessToken, map[string]any{
+		"name":  "Disposable Client",
+		"email": "disposable.client@company-a.local",
+		"role":  auth.RoleClient,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating disposable client, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var dispClient struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &dispClient)
+
+	rec = doJSON(http.MethodDelete, "/api/v1/users/"+dispClient.User.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 deleting eligible client, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Confirmar que o usuário foi deletado
+	rec = doJSON(http.MethodGet, "/api/v1/users/"+dispClient.User.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after client was deleted, got %d", rec.Code)
+	}
 }

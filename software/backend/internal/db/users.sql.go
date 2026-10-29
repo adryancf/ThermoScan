@@ -12,6 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const checkUserOperationalHistory = `-- name: CheckUserOperationalHistory :one
+SELECT
+    (SELECT COUNT(*) FROM modules m WHERE m.company_id = $1 AND m.installer_technician_id = $2) AS installed_modules_count,
+    (SELECT COUNT(*) FROM interval_change_logs l WHERE l.company_id = $1 AND l.author_user_id = $2) AS authored_interval_logs_count
+`
+
+type CheckUserOperationalHistoryParams struct {
+	CompanyID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+type CheckUserOperationalHistoryRow struct {
+	InstalledModulesCount     int64
+	AuthoredIntervalLogsCount int64
+}
+
+func (q *Queries) CheckUserOperationalHistory(ctx context.Context, arg CheckUserOperationalHistoryParams) (CheckUserOperationalHistoryRow, error) {
+	row := q.db.QueryRow(ctx, checkUserOperationalHistory, arg.CompanyID, arg.UserID)
+	var i CheckUserOperationalHistoryRow
+	err := row.Scan(&i.InstalledModulesCount, &i.AuthoredIntervalLogsCount)
+	return i, err
+}
+
 const countSystemAdmins = `-- name: CountSystemAdmins :one
 SELECT count(*)
 FROM users
@@ -85,6 +108,88 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const deleteAllModuleAssignmentsForClient = `-- name: DeleteAllModuleAssignmentsForClient :exec
+DELETE FROM module_clients
+WHERE company_id = $1 AND client_id = $2
+`
+
+type DeleteAllModuleAssignmentsForClientParams struct {
+	CompanyID pgtype.UUID
+	ClientID  pgtype.UUID
+}
+
+func (q *Queries) DeleteAllModuleAssignmentsForClient(ctx context.Context, arg DeleteAllModuleAssignmentsForClientParams) error {
+	_, err := q.db.Exec(ctx, deleteAllModuleAssignmentsForClient, arg.CompanyID, arg.ClientID)
+	return err
+}
+
+const deleteAllModuleAssignmentsForTechnician = `-- name: DeleteAllModuleAssignmentsForTechnician :exec
+DELETE FROM module_technicians
+WHERE company_id = $1 AND technician_id = $2
+`
+
+type DeleteAllModuleAssignmentsForTechnicianParams struct {
+	CompanyID    pgtype.UUID
+	TechnicianID pgtype.UUID
+}
+
+func (q *Queries) DeleteAllModuleAssignmentsForTechnician(ctx context.Context, arg DeleteAllModuleAssignmentsForTechnicianParams) error {
+	_, err := q.db.Exec(ctx, deleteAllModuleAssignmentsForTechnician, arg.CompanyID, arg.TechnicianID)
+	return err
+}
+
+const deleteAllNotificationsForUser = `-- name: DeleteAllNotificationsForUser :exec
+DELETE FROM notifications
+WHERE company_id = $1 AND user_id = $2
+`
+
+type DeleteAllNotificationsForUserParams struct {
+	CompanyID pgtype.UUID
+	UserID    pgtype.UUID
+}
+
+func (q *Queries) DeleteAllNotificationsForUser(ctx context.Context, arg DeleteAllNotificationsForUserParams) error {
+	_, err := q.db.Exec(ctx, deleteAllNotificationsForUser, arg.CompanyID, arg.UserID)
+	return err
+}
+
+const deleteAllUserAuthSessions = `-- name: DeleteAllUserAuthSessions :exec
+DELETE FROM auth_sessions
+WHERE user_id = $1
+`
+
+func (q *Queries) DeleteAllUserAuthSessions(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllUserAuthSessions, userID)
+	return err
+}
+
+const deleteAllUserDevices = `-- name: DeleteAllUserDevices :exec
+DELETE FROM user_devices
+WHERE user_id = $1
+`
+
+func (q *Queries) DeleteAllUserDevices(ctx context.Context, userID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllUserDevices, userID)
+	return err
+}
+
+const deleteCompanyUser = `-- name: DeleteCompanyUser :exec
+DELETE FROM users
+WHERE company_id = $1
+  AND id = $2
+  AND role IN ('technician', 'client')
+`
+
+type DeleteCompanyUserParams struct {
+	CompanyID pgtype.UUID
+	ID        pgtype.UUID
+}
+
+func (q *Queries) DeleteCompanyUser(ctx context.Context, arg DeleteCompanyUserParams) error {
+	_, err := q.db.Exec(ctx, deleteCompanyUser, arg.CompanyID, arg.ID)
+	return err
 }
 
 const getCompanyUserByID = `-- name: GetCompanyUserByID :one

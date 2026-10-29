@@ -250,6 +250,13 @@ class _CompanyUsersScreenState extends ConsumerState<CompanyUsersScreen> {
                                     targetUser: item,
                                   )
                               : null,
+                          onDelete: (item.isTechnician || item.isClient)
+                              ? () => confirmAndDeleteUser(
+                                    context: context,
+                                    ref: ref,
+                                    targetUser: item,
+                                  )
+                              : null,
                         );
                       },
                     ),
@@ -307,6 +314,7 @@ class _TeamUserCard extends StatelessWidget {
     this.onManageManagers,
     this.onResetPassword,
     this.onToggleStatus,
+    this.onDelete,
   });
 
   final CompanyUser user;
@@ -314,6 +322,7 @@ class _TeamUserCard extends StatelessWidget {
   final VoidCallback? onManageManagers;
   final VoidCallback? onResetPassword;
   final VoidCallback? onToggleStatus;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -460,6 +469,18 @@ class _TeamUserCard extends StatelessWidget {
                     onTap: onToggleStatus,
                   ),
                 ),
+                if (onDelete != null) ...[
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'Delete User',
+                    icon: const Icon(
+                      Icons.delete_outline,
+                      size: 20,
+                      color: AppColors.error,
+                    ),
+                    onPressed: onDelete,
+                  ),
+                ],
               ],
             ),
           ],

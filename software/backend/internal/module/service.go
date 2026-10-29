@@ -38,8 +38,9 @@ var (
 	ErrForbidden             = errors.New("insufficient permissions for this module operation")
 	ErrMACConflict           = errors.New("a module with this MAC address is already registered")
 	ErrManagerRequired       = errors.New("at least one active responsible manager from the same company is required")
-	ErrTargetNotTechnician   = errors.New("target user is not a technician in this company")
-	ErrTargetNotClient       = errors.New("one or more target users are not active clients in this company")
+	ErrTargetNotTechnician         = errors.New("target user is not a technician in this company")
+	ErrTargetNotClient             = errors.New("one or more target users are not active clients in this company")
+	ErrModuleHasOperationalHistory = errors.New("module contains operational history or pending operations and cannot be deleted; deactivate it instead")
 )
 
 type ModulePermissionsDTO struct {
@@ -47,6 +48,7 @@ type ModulePermissionsDTO struct {
 	CanEditSolarAngle          bool `json:"can_edit_solar_angle"`
 	CanEditInterval            bool `json:"can_edit_interval"`
 	CanManageAccess            bool `json:"can_manage_access"`
+	CanDelete                  bool `json:"can_delete"`
 }
 
 type ModuleDTO struct {
@@ -1153,6 +1155,114 @@ func (s *Service) UpdateClientEmailPreference(ctx context.Context, principal aut
 	return s.GetModuleDetails(ctx, principal, moduleID)
 }
 
+func (s *Service) DeleteModule(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) error {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return ErrInvalidInput
+	}
+	if !principal.IsActive {
+		return ErrForbidden
+	}
+
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	mod, err := qtx.GetModuleByIDForUpdate(ctx, db.GetModuleByIDForUpdateParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	switch principal.Role {
+	case auth.RoleManager:
+		// Manager of the same company is authorized.
+	case auth.RoleTechnician:
+		// Must be the recorded installer technician.
+		if mod.InstallerTechnicianID.Bytes != principal.ID.Bytes {
+			return ErrForbidden
+		}
+		// AND must currently have active effective access (can_view = true).
+		techAccess, err := qtx.GetModuleTechnicianAccess(ctx, db.GetModuleTechnicianAccessParams{
+			CompanyID:    principal.CompanyID,
+			ModuleID:     moduleID,
+			TechnicianID: principal.ID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrForbidden
+			}
+			return err
+		}
+		if !techAccess.CanView {
+			return ErrForbidden
+		}
+	default:
+		return ErrForbidden
+	}
+
+	history, err := qtx.CheckModuleOperationalHistory(ctx, moduleID)
+	if err != nil {
+		return err
+	}
+
+	if history.InspectionsCount > 0 ||
+		history.MeasurementsCount > 0 ||
+		history.AnomaliesCount > 0 ||
+		history.CleaningsCount > 0 ||
+		history.ReservoirReadingsCount > 0 ||
+		history.IntervalChangeLogsCount > 0 ||
+		history.PendingInspectionsCount > 0 ||
+		history.PendingCleaningsCount > 0 {
+		return ErrModuleHasOperationalHistory
+	}
+
+	if err := qtx.DeleteAllManagersForModule(ctx, db.DeleteAllManagersForModuleParams{
+		CompanyID: principal.CompanyID,
+		ModuleID:  moduleID,
+	}); err != nil {
+		return err
+	}
+
+	if err := qtx.DeleteAllTechniciansForModule(ctx, db.DeleteAllTechniciansForModuleParams{
+		CompanyID: principal.CompanyID,
+		ModuleID:  moduleID,
+	}); err != nil {
+		return err
+	}
+
+	if err := qtx.DeleteAllClientsForModule(ctx, db.DeleteAllClientsForModuleParams{
+		CompanyID: principal.CompanyID,
+		ModuleID:  moduleID,
+	}); err != nil {
+		return err
+	}
+
+	if err := qtx.DeleteAllNotificationsForModule(ctx, db.DeleteAllNotificationsForModuleParams{
+		CompanyID: principal.CompanyID,
+		ModuleID:  moduleID,
+	}); err != nil {
+		return err
+	}
+
+	if err := qtx.DeleteModule(ctx, db.DeleteModuleParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (s *Service) resolveUserModuleRelationship(ctx context.Context, q *db.Queries, principal auth.Principal, moduleID, installerID pgtype.UUID) (string, *bool, error) {
 	switch principal.Role {
 	case auth.RoleManager:
@@ -1203,6 +1313,7 @@ func permissionsForRelationship(rel string) ModulePermissionsDTO {
 			CanEditSolarAngle:          true,
 			CanEditInterval:            true,
 			CanManageAccess:            true,
+			CanDelete:                  true,
 		}
 	case RelInstallerTechnician:
 		return ModulePermissionsDTO{
@@ -1210,6 +1321,7 @@ func permissionsForRelationship(rel string) ModulePermissionsDTO {
 			CanEditSolarAngle:          true,
 			CanEditInterval:            true,
 			CanManageAccess:            false,
+			CanDelete:                  true,
 		}
 	case RelSharedTechnician:
 		return ModulePermissionsDTO{
@@ -1217,6 +1329,7 @@ func permissionsForRelationship(rel string) ModulePermissionsDTO {
 			CanEditSolarAngle:          true,
 			CanEditInterval:            false,
 			CanManageAccess:            false,
+			CanDelete:                  false,
 		}
 	case RelAssignedClient:
 		return ModulePermissionsDTO{
@@ -1224,6 +1337,7 @@ func permissionsForRelationship(rel string) ModulePermissionsDTO {
 			CanEditSolarAngle:          false,
 			CanEditInterval:            true,
 			CanManageAccess:            false,
+			CanDelete:                  false,
 		}
 	default:
 		return ModulePermissionsDTO{}

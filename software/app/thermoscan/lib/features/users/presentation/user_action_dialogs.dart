@@ -246,6 +246,118 @@ Future<void> confirmAndToggleUserStatus({
   }
 }
 
+/// Aditivo — Exclusão de contas (Technician e Client)
+Future<void> confirmAndDeleteUser({
+  required BuildContext context,
+  required WidgetRef ref,
+  required CompanyUser targetUser,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: AppColors.errorBackground,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.errorBorder),
+                  ),
+                  child: const Icon(
+                    Icons.person_remove_outlined,
+                    color: AppColors.error,
+                    size: 20,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Delete Account?',
+                    style: AppTypography.h3,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Permanently delete ${targetUser.name} (${targetUser.email})?',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'This action is permanent and invalidates all active sessions. Users with associated operational history or installed modules cannot be deleted and must be deactivated instead.',
+              style: AppTypography.caption,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: SecondaryButton(
+                    label: 'Cancel',
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: DangerButton(
+                    label: 'Delete',
+                    outlined: false,
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  if (confirmed != true || !context.mounted) return;
+
+  try {
+    await ref.read(userRepositoryProvider).deleteUser(userId: targetUser.id);
+    ref.invalidate(companyUsersProvider);
+
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${targetUser.name} deleted successfully.'),
+        backgroundColor: AppColors.success,
+      ),
+    );
+  } on ApiException catch (err) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(err.message),
+        backgroundColor: AppColors.error,
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  } catch (_) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Failed to delete user.'),
+        backgroundColor: AppColors.error,
+      ),
+    );
+  }
+}
+
 /// Dialog to view and update a Technician's responsible Managers (>= 1 required)
 Future<void> showTechnicianManagersDialog({
   required BuildContext context,

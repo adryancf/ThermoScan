@@ -39,6 +39,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Patch("/{userID}/status", h.handleSetUserStatus)
 		r.Post("/{userID}/reset-password", h.handleResetUserPassword)
 		r.Put("/{userID}/managers", h.handleSetTechnicianManagers)
+		r.Delete("/{userID}", h.handleDeleteUser)
 	})
 }
 
@@ -267,6 +268,37 @@ func (h *Handler) handleSetTechnicianManagers(w http.ResponseWriter, r *http.Req
 	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
 		"managers": managers,
 	})
+}
+
+func (h *Handler) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	userUUID, err := auth.ParseUUID(chi.URLParam(r, "userID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid user id", "INVALID_INPUT")
+		return
+	}
+
+	err = h.service.DeleteUser(r.Context(), principal.CompanyID, userUUID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "user not found", "NOT_FOUND")
+		case errors.Is(err, ErrCannotModifyManager):
+			httpjson.WriteError(w, http.StatusForbidden, "managers cannot be deleted", "CANNOT_DELETE_MANAGER")
+		case errors.Is(err, ErrUserHasOperationalHistory):
+			httpjson.WriteError(w, http.StatusConflict, "user cannot be deleted because they have associated operational history or installed modules; deactivate the account instead", "USER_HAS_OPERATIONAL_HISTORY")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func parsePositiveInt32(s string, defaultVal int32) int32 {

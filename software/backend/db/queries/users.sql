@@ -135,3 +135,35 @@ RETURNING id, company_id, name, email, role, is_active, is_default_manager, must
 SELECT count(*)
 FROM users
 WHERE role = 'system_admin';
+
+-- name: CheckUserOperationalHistory :one
+SELECT
+    (SELECT COUNT(*) FROM modules m WHERE m.company_id = sqlc.arg('company_id') AND m.installer_technician_id = sqlc.arg('user_id')) AS installed_modules_count,
+    (SELECT COUNT(*) FROM interval_change_logs l WHERE l.company_id = sqlc.arg('company_id') AND l.author_user_id = sqlc.arg('user_id')) AS authored_interval_logs_count;
+
+-- name: DeleteAllUserAuthSessions :exec
+DELETE FROM auth_sessions
+WHERE user_id = $1;
+
+-- name: DeleteAllUserDevices :exec
+DELETE FROM user_devices
+WHERE user_id = $1;
+
+-- name: DeleteAllModuleAssignmentsForTechnician :exec
+DELETE FROM module_technicians
+WHERE company_id = $1 AND technician_id = $2;
+
+-- name: DeleteAllModuleAssignmentsForClient :exec
+DELETE FROM module_clients
+WHERE company_id = $1 AND client_id = $2;
+
+-- name: DeleteAllNotificationsForUser :exec
+DELETE FROM notifications
+WHERE company_id = $1 AND user_id = $2;
+
+-- name: DeleteCompanyUser :exec
+DELETE FROM users
+WHERE company_id = $1
+  AND id = $2
+  AND role IN ('technician', 'client');
+

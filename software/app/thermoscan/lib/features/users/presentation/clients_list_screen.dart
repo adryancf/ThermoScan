@@ -280,6 +280,11 @@ class _ClientsListScreenState extends ConsumerState<ClientsListScreen> {
                             ref: ref,
                             targetUser: client,
                           ),
+                          onDelete: () => confirmAndDeleteUser(
+                            context: context,
+                            ref: ref,
+                            targetUser: client,
+                          ),
                         );
                       },
                     ),
@@ -335,11 +340,13 @@ class _ClientCard extends StatelessWidget {
     required this.client,
     required this.onResetPassword,
     required this.onToggleStatus,
+    required this.onDelete,
   });
 
   final CompanyUser client;
   final VoidCallback onResetPassword;
   final VoidCallback onToggleStatus;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -466,6 +473,16 @@ class _ClientCard extends StatelessWidget {
                     ),
                   ),
                 ),
+              ),
+              const SizedBox(width: 6),
+              IconButton(
+                tooltip: 'Delete Client',
+                icon: const Icon(
+                  Icons.delete_outline,
+                  size: 20,
+                  color: AppColors.error,
+                ),
+                onPressed: onDelete,
               ),
             ],
           ),

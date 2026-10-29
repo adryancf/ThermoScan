@@ -225,4 +225,12 @@ class ModuleRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<void> deleteModule({required String moduleId}) async {
+    try {
+      await dio.delete('/modules/$moduleId');
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

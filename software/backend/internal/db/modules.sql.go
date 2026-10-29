@@ -86,6 +86,45 @@ func (q *Queries) AddModuleManager(ctx context.Context, arg AddModuleManagerPara
 	return i, err
 }
 
+const checkModuleOperationalHistory = `-- name: CheckModuleOperationalHistory :one
+SELECT
+    (SELECT COUNT(*) FROM inspections insp WHERE insp.module_id = $1) AS inspections_count,
+    (SELECT COUNT(*) FROM measurements meas WHERE meas.module_id = $1) AS measurements_count,
+    (SELECT COUNT(*) FROM anomaly_events anom WHERE anom.module_id = $1) AS anomalies_count,
+    (SELECT COUNT(*) FROM cleaning_operations cln WHERE cln.module_id = $1) AS cleanings_count,
+    (SELECT COUNT(*) FROM reservoir_readings resv WHERE resv.module_id = $1) AS reservoir_readings_count,
+    (SELECT COUNT(*) FROM interval_change_logs intv WHERE intv.module_id = $1) AS interval_change_logs_count,
+    (SELECT COUNT(*) FROM inspections insp2 WHERE insp2.module_id = $1 AND insp2.status IN ('scheduled', 'in_progress')) AS pending_inspections_count,
+    (SELECT COUNT(*) FROM cleaning_operations cln2 WHERE cln2.module_id = $1 AND cln2.status IN ('scheduled', 'in_progress')) AS pending_cleanings_count
+`
+
+type CheckModuleOperationalHistoryRow struct {
+	InspectionsCount        int64
+	MeasurementsCount       int64
+	AnomaliesCount          int64
+	CleaningsCount          int64
+	ReservoirReadingsCount  int64
+	IntervalChangeLogsCount int64
+	PendingInspectionsCount int64
+	PendingCleaningsCount   int64
+}
+
+func (q *Queries) CheckModuleOperationalHistory(ctx context.Context, moduleID pgtype.UUID) (CheckModuleOperationalHistoryRow, error) {
+	row := q.db.QueryRow(ctx, checkModuleOperationalHistory, moduleID)
+	var i CheckModuleOperationalHistoryRow
+	err := row.Scan(
+		&i.InspectionsCount,
+		&i.MeasurementsCount,
+		&i.AnomaliesCount,
+		&i.CleaningsCount,
+		&i.ReservoirReadingsCount,
+		&i.IntervalChangeLogsCount,
+		&i.PendingInspectionsCount,
+		&i.PendingCleaningsCount,
+	)
+	return i, err
+}
+
 const createIntervalChangeLog = `-- name: CreateIntervalChangeLog :one
 INSERT INTO interval_change_logs (
     company_id,
@@ -339,6 +378,54 @@ type DeleteAllManagersForModuleParams struct {
 
 func (q *Queries) DeleteAllManagersForModule(ctx context.Context, arg DeleteAllManagersForModuleParams) error {
 	_, err := q.db.Exec(ctx, deleteAllManagersForModule, arg.CompanyID, arg.ModuleID)
+	return err
+}
+
+const deleteAllNotificationsForModule = `-- name: DeleteAllNotificationsForModule :exec
+DELETE FROM notifications
+WHERE company_id = $1
+  AND module_id = $2
+`
+
+type DeleteAllNotificationsForModuleParams struct {
+	CompanyID pgtype.UUID
+	ModuleID  pgtype.UUID
+}
+
+func (q *Queries) DeleteAllNotificationsForModule(ctx context.Context, arg DeleteAllNotificationsForModuleParams) error {
+	_, err := q.db.Exec(ctx, deleteAllNotificationsForModule, arg.CompanyID, arg.ModuleID)
+	return err
+}
+
+const deleteAllTechniciansForModule = `-- name: DeleteAllTechniciansForModule :exec
+DELETE FROM module_technicians
+WHERE company_id = $1
+  AND module_id = $2
+`
+
+type DeleteAllTechniciansForModuleParams struct {
+	CompanyID pgtype.UUID
+	ModuleID  pgtype.UUID
+}
+
+func (q *Queries) DeleteAllTechniciansForModule(ctx context.Context, arg DeleteAllTechniciansForModuleParams) error {
+	_, err := q.db.Exec(ctx, deleteAllTechniciansForModule, arg.CompanyID, arg.ModuleID)
+	return err
+}
+
+const deleteModule = `-- name: DeleteModule :exec
+DELETE FROM modules
+WHERE company_id = $1
+  AND id = $2
+`
+
+type DeleteModuleParams struct {
+	CompanyID pgtype.UUID
+	ID        pgtype.UUID
+}
+
+func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) error {
+	_, err := q.db.Exec(ctx, deleteModule, arg.CompanyID, arg.ID)
 	return err
 }
 

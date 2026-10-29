@@ -4,12 +4,14 @@ class ModulePermissions {
     required this.canEditSolarAngle,
     required this.canEditInterval,
     required this.canManageAccess,
+    this.canDelete = false,
   });
 
   final bool canEditGeometryAndLocation;
   final bool canEditSolarAngle;
   final bool canEditInterval;
   final bool canManageAccess;
+  final bool canDelete;
 
   bool get canEditAnyField =>
       canEditGeometryAndLocation || canEditSolarAngle || canEditInterval;
@@ -21,6 +23,7 @@ class ModulePermissions {
       canEditSolarAngle: json['can_edit_solar_angle'] as bool? ?? false,
       canEditInterval: json['can_edit_interval'] as bool? ?? false,
       canManageAccess: json['can_manage_access'] as bool? ?? false,
+      canDelete: json['can_delete'] as bool? ?? false,
     );
   }
 }

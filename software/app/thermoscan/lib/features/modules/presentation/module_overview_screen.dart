@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:thermoscan/core/network/api_exception.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
@@ -58,6 +59,123 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
     } finally {
       if (mounted) {
         setState(() => _updatingEmailPref = false);
+      }
+    }
+  }
+
+  bool _deletingModule = false;
+
+  Future<void> _confirmAndDeleteModule(String moduleName) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: AppColors.errorBackground,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.errorBorder),
+                    ),
+                    child: const Icon(
+                      Icons.delete_forever_outlined,
+                      color: AppColors.error,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'Delete Module?',
+                      style: AppTypography.h3,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Are you sure you want to permanently delete "$moduleName"?',
+                style: AppTypography.body.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'This action is irreversible. All administrative manager, technician, and client assignments for this module will be removed. Modules with operational history cannot be deleted.',
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'Cancel',
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: DangerButton(
+                      label: 'Delete',
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _deletingModule = true);
+    try {
+      await ref
+          .read(moduleRepositoryProvider)
+          .deleteModule(moduleId: widget.moduleId);
+      ref.invalidate(modulesListProvider);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Module deleted successfully.'),
+          backgroundColor: AppColors.success,
+        ),
+      );
+      final user = ref.read(authControllerProvider).user;
+      context.go((user?.isManager ?? false) ? '/modules' : '/home');
+    } on ApiException catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err.message),
+          backgroundColor: AppColors.error,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete module: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _deletingModule = false);
       }
     }
   }
@@ -609,6 +727,55 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                                   ),
                                 ),
                               ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    // 8. Module Deletion (Aditivo — Exclusão de cadastros e módulos)
+                    if (perms.canDelete) ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: AppColors.errorBorder),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.delete_outline,
+                                  color: AppColors.error,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'Danger Zone',
+                                  style: AppTypography.h3.copyWith(
+                                    fontSize: 16,
+                                    color: AppColors.error,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Permanently delete this module and all its administrative assignments. Only modules without operational history (inspections, telemetry, anomalies, or logs) can be deleted.',
+                              style: AppTypography.bodySmall,
+                            ),
+                            const SizedBox(height: 16),
+                            DangerButton(
+                              label: 'Delete Module',
+                              icon: Icons.delete_forever_outlined,
+                              isLoading: _deletingModule,
+                              onPressed: () =>
+                                  _confirmAndDeleteModule(mod.name),
                             ),
                           ],
                         ),

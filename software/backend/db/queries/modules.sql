@@ -494,3 +494,30 @@ WHERE l.company_id = $1
   AND l.module_id = $2
 ORDER BY l.changed_at DESC
 LIMIT $3 OFFSET $4;
+
+-- name: CheckModuleOperationalHistory :one
+SELECT
+    (SELECT COUNT(*) FROM inspections insp WHERE insp.module_id = sqlc.arg('module_id')) AS inspections_count,
+    (SELECT COUNT(*) FROM measurements meas WHERE meas.module_id = sqlc.arg('module_id')) AS measurements_count,
+    (SELECT COUNT(*) FROM anomaly_events anom WHERE anom.module_id = sqlc.arg('module_id')) AS anomalies_count,
+    (SELECT COUNT(*) FROM cleaning_operations cln WHERE cln.module_id = sqlc.arg('module_id')) AS cleanings_count,
+    (SELECT COUNT(*) FROM reservoir_readings resv WHERE resv.module_id = sqlc.arg('module_id')) AS reservoir_readings_count,
+    (SELECT COUNT(*) FROM interval_change_logs intv WHERE intv.module_id = sqlc.arg('module_id')) AS interval_change_logs_count,
+    (SELECT COUNT(*) FROM inspections insp2 WHERE insp2.module_id = sqlc.arg('module_id') AND insp2.status IN ('scheduled', 'in_progress')) AS pending_inspections_count,
+    (SELECT COUNT(*) FROM cleaning_operations cln2 WHERE cln2.module_id = sqlc.arg('module_id') AND cln2.status IN ('scheduled', 'in_progress')) AS pending_cleanings_count;
+
+-- name: DeleteAllTechniciansForModule :exec
+DELETE FROM module_technicians
+WHERE company_id = $1
+  AND module_id = $2;
+
+-- name: DeleteAllNotificationsForModule :exec
+DELETE FROM notifications
+WHERE company_id = $1
+  AND module_id = $2;
+
+-- name: DeleteModule :exec
+DELETE FROM modules
+WHERE company_id = $1
+  AND id = $2;
+

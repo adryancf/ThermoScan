@@ -19,8 +19,9 @@ var (
 	ErrNotFound              = errors.New("user not found")
 	ErrEmailConflict         = errors.New("email is already in use")
 	ErrInvalidManagerLink    = errors.New("technician must have at least one active manager from the same company")
-	ErrCannotModifyManager   = errors.New("managers cannot deactivate or reset passwords of other managers")
-	ErrTargetNotTechnician   = errors.New("target user is not a technician")
+	ErrCannotModifyManager        = errors.New("managers cannot deactivate or reset passwords of other managers")
+	ErrTargetNotTechnician        = errors.New("target user is not a technician")
+	ErrUserHasOperationalHistory = errors.New("user has associated operational history or installed modules and cannot be deleted; deactivate the account instead")
 )
 
 type ManagerSummaryDTO struct {
@@ -507,4 +508,95 @@ func deduplicateUUIDs(in []pgtype.UUID) []pgtype.UUID {
 		out = append(out, id)
 	}
 	return out
+}
+
+func (s *Service) DeleteUser(ctx context.Context, companyID, userID pgtype.UUID) error {
+	if !companyID.Valid || !userID.Valid {
+		return ErrInvalidInput
+	}
+
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	target, err := qtx.GetCompanyUserByIDForUpdate(ctx, db.GetCompanyUserByIDForUpdateParams{
+		CompanyID: companyID,
+		ID:        userID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	// Aditivo: Manager pode excluir definitivamente Technicians e Clients da própria empresa.
+	// Managers e System Admins não podem ser excluídos por este aditivo.
+	if target.Role != auth.RoleTechnician && target.Role != auth.RoleClient {
+		return ErrCannotModifyManager
+	}
+
+	// Check operational history
+	history, err := qtx.CheckUserOperationalHistory(ctx, db.CheckUserOperationalHistoryParams{
+		CompanyID: companyID,
+		UserID:    userID,
+	})
+	if err != nil {
+		return err
+	}
+
+	if history.InstalledModulesCount > 0 || history.AuthoredIntervalLogsCount > 0 {
+		return ErrUserHasOperationalHistory
+	}
+
+	// Invalidate/delete sessions and devices
+	if err := qtx.DeleteAllUserAuthSessions(ctx, userID); err != nil {
+		return err
+	}
+	if err := qtx.DeleteAllUserDevices(ctx, userID); err != nil {
+		return err
+	}
+
+	// Remove administrative associations
+	if target.Role == auth.RoleTechnician {
+		if err := qtx.DeleteAllManagersForTechnician(ctx, db.DeleteAllManagersForTechnicianParams{
+			CompanyID:    companyID,
+			TechnicianID: userID,
+		}); err != nil {
+			return err
+		}
+		if err := qtx.DeleteAllModuleAssignmentsForTechnician(ctx, db.DeleteAllModuleAssignmentsForTechnicianParams{
+			CompanyID:    companyID,
+			TechnicianID: userID,
+		}); err != nil {
+			return err
+		}
+	} else if target.Role == auth.RoleClient {
+		if err := qtx.DeleteAllModuleAssignmentsForClient(ctx, db.DeleteAllModuleAssignmentsForClientParams{
+			CompanyID: companyID,
+			ClientID:  userID,
+		}); err != nil {
+			return err
+		}
+	}
+
+	if err := qtx.DeleteAllNotificationsForUser(ctx, db.DeleteAllNotificationsForUserParams{
+		CompanyID: companyID,
+		UserID:    userID,
+	}); err != nil {
+		return err
+	}
+
+	if err := qtx.DeleteCompanyUser(ctx, db.DeleteCompanyUserParams{
+		CompanyID: companyID,
+		ID:        userID,
+	}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

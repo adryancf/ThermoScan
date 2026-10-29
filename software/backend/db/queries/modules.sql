@@ -13,6 +13,20 @@ WHERE company_id = $1
   AND is_active = true
 ORDER BY is_default_manager DESC, name ASC;
 
+-- name: ListActiveCompanyClients :many
+SELECT
+    id,
+    company_id,
+    name,
+    email,
+    is_active,
+    created_at
+FROM users
+WHERE company_id = $1
+  AND role = 'client'
+  AND is_active = true
+ORDER BY name ASC;
+
 -- name: CreateModule :one
 INSERT INTO modules (
     company_id,

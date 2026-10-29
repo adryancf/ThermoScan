@@ -40,3 +40,9 @@ final companyManagersOptionsProvider =
   final repo = ref.watch(moduleRepositoryProvider);
   return repo.listCompanyManagers();
 });
+
+final companyClientsOptionsProvider =
+    FutureProvider.autoDispose<List<ModuleClientItem>>((ref) {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.listCompanyClientOptions();
+});

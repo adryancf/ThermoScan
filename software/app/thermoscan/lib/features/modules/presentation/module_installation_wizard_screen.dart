@@ -75,6 +75,10 @@ class _ModuleInstallationWizardScreenState
   final _intervalCtrl = TextEditingController(text: '7');
   final _reservoirCtrl = TextEditingController();
 
+  // Step 5 (SCR-19B): Client Access Assignment (Optional)
+  final Set<String> _selectedClientIds = {};
+  final _clientSearchCtrl = TextEditingController();
+
   bool _saving = false;
   String? _errorMsg;
 
@@ -116,6 +120,7 @@ class _ModuleInstallationWizardScreenState
     _solarAngleCtrl.dispose();
     _intervalCtrl.dispose();
     _reservoirCtrl.dispose();
+    _clientSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -129,6 +134,11 @@ class _ModuleInstallationWizardScreenState
     _selectedManagerIds
       ..clear()
       ..addAll(details.responsibleManagers.map((m) => m.id));
+    _selectedClientIds
+      ..clear()
+      ..addAll(
+        details.companyClients.where((c) => c.isAssigned).map((c) => c.id),
+      );
 
     if (mod.latitude != null) _latCtrl.text = mod.latitude.toString();
     if (mod.longitude != null) _lngCtrl.text = mod.longitude.toString();
@@ -181,12 +191,16 @@ class _ModuleInstallationWizardScreenState
           name: _nameCtrl.text.trim(),
           macAddress: _macCtrl.text.trim(),
           managerIds: _selectedManagerIds.toList(),
+          clientIds: _selectedClientIds.toList(),
         );
         _persistedModuleId = created.module.id;
       } else {
         await repo.updateConfiguration(
           moduleId: _persistedModuleId!,
-          payload: {'name': _nameCtrl.text.trim()},
+          payload: {
+            'name': _nameCtrl.text.trim(),
+            'client_ids': _selectedClientIds.toList(),
+          },
         );
       }
 
@@ -251,6 +265,13 @@ class _ModuleInstallationWizardScreenState
     setState(() => _errorMsg = null);
     if (!(_step4FormKey.currentState?.validate() ?? false)) return;
     setState(() => _currentStep = 4);
+  }
+
+  void _nextFromStep5() {
+    setState(() {
+      _errorMsg = null;
+      _currentStep = 5;
+    });
   }
 
   Future<void> _acquireDeviceLocationSample() async {
@@ -353,6 +374,7 @@ class _ModuleInstallationWizardScreenState
           name: name,
           macAddress: mac,
           managerIds: _selectedManagerIds.toList(),
+          clientIds: _selectedClientIds.toList(),
           panelLengthCm: length,
           panelWidthCm: width,
           panelCount: count,
@@ -387,7 +409,8 @@ class _ModuleInstallationWizardScreenState
             'tilt_source': _tiltSource,
             'minimum_solar_angle_deg': solarAngle,
             'inspection_interval_days': interval,
-            'reservoir_nominal_capacity_ml': ?reservoir,
+            'reservoir_nominal_capacity_ml': reservoir,
+            'client_ids': _selectedClientIds.toList(),
           },
         );
         targetModuleId = updated.module.id;
@@ -421,6 +444,7 @@ class _ModuleInstallationWizardScreenState
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
     final managersAsync = ref.watch(companyManagersOptionsProvider);
+    final clientsAsync = ref.watch(companyClientsOptionsProvider);
 
     if (widget.existingModuleId != null && !_hydratedExisting) {
       final existingAsync =
@@ -457,11 +481,12 @@ class _ModuleInstallationWizardScreenState
     }
 
     final stepTitles = [
-      'Step 1 of 5 · Module & Device',
-      'Step 2 of 5 · Site Location',
-      'Step 3 of 5 · Surface Orientation',
-      'Step 4 of 5 · Array Configuration',
-      'Step 5 of 5 · Review & Save',
+      'Step 1 of 6 · Module & Device',
+      'Step 2 of 6 · Site Location',
+      'Step 3 of 6 · Surface Orientation',
+      'Step 4 of 6 · Array Configuration',
+      'Step 5 of 6 · Client Access',
+      'Step 6 of 6 · Review & Save',
     ];
 
     return Scaffold(
@@ -498,12 +523,12 @@ class _ModuleInstallationWizardScreenState
               ),
               const SizedBox(height: 8),
               Row(
-                children: List.generate(5, (index) {
+                children: List.generate(6, (index) {
                   final active = index <= _currentStep;
                   return Expanded(
                     child: Container(
                       height: 6,
-                      margin: EdgeInsets.only(right: index < 4 ? 6 : 0),
+                      margin: EdgeInsets.only(right: index < 5 ? 6 : 0),
                       decoration: BoxDecoration(
                         color: active ? AppColors.primary : AppColors.border,
                         borderRadius: BorderRadius.circular(999),
@@ -537,7 +562,12 @@ class _ModuleInstallationWizardScreenState
               if (_currentStep == 1) _buildStep2(),
               if (_currentStep == 2) _buildStep3(),
               if (_currentStep == 3) _buildStep4(),
-              if (_currentStep == 4) _buildStep5(managersAsync.valueOrNull ?? []),
+              if (_currentStep == 4) _buildStep5ClientAccess(clientsAsync),
+              if (_currentStep == 5)
+                _buildStep6Review(
+                  managersAsync.valueOrNull ?? [],
+                  clientsAsync.valueOrNull ?? [],
+                ),
             ],
           ),
         ),
@@ -1266,8 +1296,8 @@ class _ModuleInstallationWizardScreenState
           ),
           const SizedBox(height: 20),
           PrimaryButton(
-            label: 'Review Configuration',
-            icon: Icons.fact_check_outlined,
+            label: 'Continue to Client Access',
+            icon: Icons.arrow_forward,
             onPressed: _nextFromStep4,
           ),
         ],
@@ -1275,11 +1305,229 @@ class _ModuleInstallationWizardScreenState
     );
   }
 
+  /// SCR-19B: Client Access Assignment (Optional)
+  Widget _buildStep5ClientAccess(
+    AsyncValue<List<ModuleClientItem>> clientsAsync,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Client Access Assignment',
+          style: AppTypography.h2,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Optionally link active company clients to grant them read-only monitoring access to this module. (A Manager can also assign or modify clients later).',
+          style: AppTypography.bodySmall,
+        ),
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              clientsAsync.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(
+                    child: CircularProgressIndicator(color: AppColors.primary),
+                  ),
+                ),
+                error: (err, _) => Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: AppColors.errorBackground,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.errorBorder),
+                  ),
+                  child: Text(
+                    err.toString(),
+                    style:
+                        AppTypography.caption.copyWith(color: AppColors.error),
+                  ),
+                ),
+                data: (clients) {
+                  if (clients.isEmpty) {
+                    return Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.info_outline,
+                            color: AppColors.textSecondary,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'No clients available. A Manager can assign clients later.',
+                              style: AppTypography.bodySmall.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final query = _clientSearchCtrl.text.trim().toLowerCase();
+                  final filtered = query.isEmpty
+                      ? clients
+                      : clients.where((c) {
+                          return c.name.toLowerCase().contains(query) ||
+                              c.email.toLowerCase().contains(query);
+                        }).toList();
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AppTextField(
+                        label: 'Search Company Clients',
+                        hintText: 'Search by client name or email...',
+                        controller: _clientSearchCtrl,
+                        onChanged: (_) => setState(() {}),
+                        prefixIcon: Icons.search,
+                        suffixIcon: _clientSearchCtrl.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                onPressed: () {
+                                  _clientSearchCtrl.clear();
+                                  setState(() {});
+                                },
+                              )
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            '${_selectedClientIds.length} of ${clients.length} client(s) selected',
+                            style: AppTypography.caption.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (_selectedClientIds.isNotEmpty)
+                            TextButton(
+                              onPressed: () {
+                                setState(() => _selectedClientIds.clear());
+                              },
+                              style: TextButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              child: const Text('Clear all'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Divider(height: 1),
+                      if (filtered.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 20),
+                          child: Center(
+                            child: Text(
+                              'No clients match "$query".',
+                              style: AppTypography.caption,
+                            ),
+                          ),
+                        )
+                      else
+                        ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: filtered.length,
+                          separatorBuilder: (_, _) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final client = filtered[index];
+                            final isChecked =
+                                _selectedClientIds.contains(client.id);
+                            return CheckboxListTile(
+                              contentPadding: EdgeInsets.zero,
+                              activeColor: AppColors.primary,
+                              value: isChecked,
+                              onChanged: (val) {
+                                setState(() {
+                                  if (val ?? false) {
+                                    _selectedClientIds.add(client.id);
+                                  } else {
+                                    _selectedClientIds.remove(client.id);
+                                  }
+                                });
+                              },
+                              title: Text(
+                                client.name,
+                                style: AppTypography.body.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              subtitle: Text(
+                                client.email,
+                                style: AppTypography.caption,
+                              ),
+                            );
+                          },
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        PrimaryButton(
+          label: 'Continue to Review',
+          icon: Icons.fact_check_outlined,
+          onPressed: _nextFromStep5,
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: _saving ? null : _saveDraftAndExit,
+            icon: const Icon(Icons.bookmark_outline, size: 18),
+            label: const Text('Save Draft & Exit'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14),
+              foregroundColor: AppColors.textPrimary,
+              side: const BorderSide(color: AppColors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   /// SCR-20: Review and Save
-  Widget _buildStep5(List<ModuleManagerItem> managers) {
+  Widget _buildStep6Review(
+    List<ModuleManagerItem> managers,
+    List<ModuleClientItem> clients,
+  ) {
     final chosenManagers = managers
         .where((m) => _selectedManagerIds.contains(m.id))
         .map((m) => m.name)
+        .join(', ');
+
+    final chosenClients = clients
+        .where((c) => _selectedClientIds.contains(c.id))
+        .map((c) => c.name)
         .join(', ');
 
     return Column(
@@ -1342,6 +1590,17 @@ class _ModuleInstallationWizardScreenState
             'Panel Spacing': '${_spacingCtrl.text.trim()} cm',
             'Min Solar Angle': '${_solarAngleCtrl.text.trim()}°',
             'Scan Interval': 'Every ${_intervalCtrl.text.trim()} day(s)',
+          },
+        ),
+        const SizedBox(height: 12),
+
+        _ReviewSectionCard(
+          title: 'Client Access Assignment',
+          onEdit: () => setState(() => _currentStep = 4),
+          items: {
+            'Assigned Clients': chosenClients.isEmpty
+                ? 'None (Can be assigned later by Manager)'
+                : chosenClients,
           },
         ),
         const SizedBox(height: 20),

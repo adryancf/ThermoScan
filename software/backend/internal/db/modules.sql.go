@@ -608,6 +608,57 @@ func (q *Queries) GetModuleTechnicianAccess(ctx context.Context, arg GetModuleTe
 	return i, err
 }
 
+const listActiveCompanyClients = `-- name: ListActiveCompanyClients :many
+SELECT
+    id,
+    company_id,
+    name,
+    email,
+    is_active,
+    created_at
+FROM users
+WHERE company_id = $1
+  AND role = 'client'
+  AND is_active = true
+ORDER BY name ASC
+`
+
+type ListActiveCompanyClientsRow struct {
+	ID        pgtype.UUID
+	CompanyID pgtype.UUID
+	Name      string
+	Email     string
+	IsActive  bool
+	CreatedAt time.Time
+}
+
+func (q *Queries) ListActiveCompanyClients(ctx context.Context, companyID pgtype.UUID) ([]ListActiveCompanyClientsRow, error) {
+	rows, err := q.db.Query(ctx, listActiveCompanyClients, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveCompanyClientsRow{}
+	for rows.Next() {
+		var i ListActiveCompanyClientsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.Name,
+			&i.Email,
+			&i.IsActive,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActiveCompanyManagers = `-- name: ListActiveCompanyManagers :many
 SELECT
     id,

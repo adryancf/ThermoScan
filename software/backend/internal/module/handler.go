@@ -34,6 +34,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Use(auth.RequireRoles(auth.RoleManager, auth.RoleTechnician, auth.RoleClient))
 
 		r.Get("/company-managers", h.handleListActiveCompanyManagers)
+		r.Get("/company-clients", h.handleListActiveCompanyClients)
 		r.Post("/", h.handleCreateModule)
 		r.Get("/", h.handleListModules)
 		r.Get("/{moduleID}", h.handleGetModule)
@@ -68,10 +69,33 @@ func (h *Handler) handleListActiveCompanyManagers(w http.ResponseWriter, r *http
 	})
 }
 
+func (h *Handler) handleListActiveCompanyClients(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+	if principal.Role != auth.RoleTechnician && principal.Role != auth.RoleManager {
+		httpjson.WriteError(w, http.StatusForbidden, "only technicians and managers can list company clients", "FORBIDDEN")
+		return
+	}
+
+	clients, err := h.service.ListActiveCompanyClients(r.Context(), principal.CompanyID)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"clients": clients,
+	})
+}
+
 type createModuleRequest struct {
 	Name                       string   `json:"name"`
 	MacAddress                 string   `json:"mac_address"`
 	ManagerIDs                 []string `json:"manager_ids"`
+	ClientIDs                  []string `json:"client_ids,omitempty"`
 	PanelLengthCm              *float64 `json:"panel_length_cm"`
 	PanelWidthCm               *float64 `json:"panel_width_cm"`
 	PanelCount                 *int32   `json:"panel_count"`
@@ -115,12 +139,23 @@ func (h *Handler) handleCreateModule(w http.ResponseWriter, r *http.Request) {
 		mgrUUIDs = append(mgrUUIDs, u)
 	}
 
+	clientUUIDs := make([]pgtype.UUID, 0, len(req.ClientIDs))
+	for _, rawID := range req.ClientIDs {
+		u, err := auth.ParseUUID(rawID)
+		if err != nil {
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid client_ids UUID", "INVALID_INPUT")
+			return
+		}
+		clientUUIDs = append(clientUUIDs, u)
+	}
+
 	res, err := h.service.CreateModule(r.Context(), CreateModuleInput{
 		CompanyID:                  principal.CompanyID,
 		InstallerTechnicianID:      principal.ID,
 		Name:                       req.Name,
 		MacAddress:                 req.MacAddress,
 		ManagerIDs:                 mgrUUIDs,
+		ClientIDs:                  clientUUIDs,
 		PanelLengthCm:              req.PanelLengthCm,
 		PanelWidthCm:               req.PanelWidthCm,
 		PanelCount:                 req.PanelCount,
@@ -142,6 +177,8 @@ func (h *Handler) handleCreateModule(w http.ResponseWriter, r *http.Request) {
 			httpjson.WriteError(w, http.StatusBadRequest, "valid module name, MAC address, and configuration values are required", "INVALID_INPUT")
 		case errors.Is(err, ErrManagerRequired):
 			httpjson.WriteError(w, http.StatusBadRequest, "at least one active manager from the same company is required", "MODULE_MANAGER_REQUIRED")
+		case errors.Is(err, ErrTargetNotClient):
+			httpjson.WriteError(w, http.StatusBadRequest, "all client_ids must belong to active clients in this company", "INVALID_CLIENT_LINK")
 		case errors.Is(err, ErrMACConflict):
 			httpjson.WriteError(w, http.StatusConflict, "a module with this MAC address is already registered", "MAC_CONFLICT")
 		case errors.Is(err, ErrForbidden):
@@ -210,21 +247,22 @@ func (h *Handler) handleGetModule(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateConfigurationRequest struct {
-	Name                       *string  `json:"name"`
-	PanelLengthCm              *float64 `json:"panel_length_cm"`
-	PanelWidthCm               *float64 `json:"panel_width_cm"`
-	PanelCount                 *int32   `json:"panel_count"`
-	PanelSpacingCm             *float64 `json:"panel_spacing_cm"`
-	Latitude                   *float64 `json:"latitude"`
-	Longitude                  *float64 `json:"longitude"`
-	ElevationM                 *float64 `json:"elevation_m"`
-	AzimuthDeg                 *float64 `json:"azimuth_deg"`
-	TiltDeg                    *float64 `json:"tilt_deg"`
-	AzimuthSource              *string  `json:"azimuth_source"`
-	TiltSource                 *string  `json:"tilt_source"`
-	MinimumSolarAngleDeg       *float64 `json:"minimum_solar_angle_deg"`
-	InspectionIntervalDays     *int32   `json:"inspection_interval_days"`
-	ReservoirNominalCapacityMl *float64 `json:"reservoir_nominal_capacity_ml"`
+	Name                       *string   `json:"name"`
+	PanelLengthCm              *float64  `json:"panel_length_cm"`
+	PanelWidthCm               *float64  `json:"panel_width_cm"`
+	PanelCount                 *int32    `json:"panel_count"`
+	PanelSpacingCm             *float64  `json:"panel_spacing_cm"`
+	Latitude                   *float64  `json:"latitude"`
+	Longitude                  *float64  `json:"longitude"`
+	ElevationM                 *float64  `json:"elevation_m"`
+	AzimuthDeg                 *float64  `json:"azimuth_deg"`
+	TiltDeg                    *float64  `json:"tilt_deg"`
+	AzimuthSource              *string   `json:"azimuth_source"`
+	TiltSource                 *string   `json:"tilt_source"`
+	MinimumSolarAngleDeg       *float64  `json:"minimum_solar_angle_deg"`
+	InspectionIntervalDays     *int32    `json:"inspection_interval_days"`
+	ReservoirNominalCapacityMl *float64  `json:"reservoir_nominal_capacity_ml"`
+	ClientIDs                  *[]string `json:"client_ids,omitempty"`
 }
 
 func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -246,6 +284,20 @@ func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	var parsedClientUUIDs *[]pgtype.UUID
+	if req.ClientIDs != nil {
+		clientUUIDs := make([]pgtype.UUID, 0, len(*req.ClientIDs))
+		for _, rawID := range *req.ClientIDs {
+			u, err := auth.ParseUUID(rawID)
+			if err != nil {
+				httpjson.WriteError(w, http.StatusBadRequest, "invalid client_ids UUID", "INVALID_INPUT")
+				return
+			}
+			clientUUIDs = append(clientUUIDs, u)
+		}
+		parsedClientUUIDs = &clientUUIDs
+	}
+
 	details, err := h.service.UpdateConfiguration(r.Context(), principal, moduleID, UpdateConfigurationInput{
 		Name:                       req.Name,
 		PanelLengthCm:              req.PanelLengthCm,
@@ -262,6 +314,7 @@ func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Reque
 		MinimumSolarAngleDeg:       req.MinimumSolarAngleDeg,
 		InspectionIntervalDays:     req.InspectionIntervalDays,
 		ReservoirNominalCapacityMl: req.ReservoirNominalCapacityMl,
+		ClientIDs:                  parsedClientUUIDs,
 	})
 	if err != nil {
 		switch {
@@ -271,6 +324,8 @@ func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Reque
 			httpjson.WriteError(w, http.StatusForbidden, "you do not have permission to edit these configuration fields", "FORBIDDEN")
 		case errors.Is(err, ErrInvalidInput):
 			httpjson.WriteError(w, http.StatusBadRequest, "invalid module configuration values", "INVALID_INPUT")
+		case errors.Is(err, ErrTargetNotClient):
+			httpjson.WriteError(w, http.StatusBadRequest, "all client_ids must belong to active clients in this company", "INVALID_CLIENT_LINK")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
 		}

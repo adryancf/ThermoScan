@@ -29,6 +29,21 @@ class ModuleRepository {
     }
   }
 
+  Future<List<ModuleClientItem>> listCompanyClientOptions() async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/company-clients',
+      );
+      final rawList = response.data?['clients'] as List<dynamic>? ?? const [];
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .map(ModuleClientItem.fromJson)
+          .toList();
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
   Future<List<PvModule>> listModules({
     int limit = 100,
     int offset = 0,
@@ -66,6 +81,7 @@ class ModuleRepository {
     required String name,
     required String macAddress,
     required List<String> managerIds,
+    List<String>? clientIds,
     double? panelLengthCm,
     double? panelWidthCm,
     int? panelCount,
@@ -88,6 +104,7 @@ class ModuleRepository {
           'name': name.trim(),
           'mac_address': macAddress.trim(),
           'manager_ids': managerIds,
+          'client_ids': ?clientIds,
           'panel_length_cm': ?panelLengthCm,
           'panel_width_cm': ?panelWidthCm,
           'panel_count': ?panelCount,

@@ -227,6 +227,29 @@ class ModuleTechnicianAccess {
   }
 }
 
+class ModuleClientItem {
+  const ModuleClientItem({
+    required this.id,
+    required this.name,
+    required this.email,
+    required this.isActive,
+  });
+
+  final String id;
+  final String name;
+  final String email;
+  final bool isActive;
+
+  factory ModuleClientItem.fromJson(Map<String, dynamic> json) {
+    return ModuleClientItem(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      email: json['email'] as String? ?? '',
+      isActive: json['is_active'] as bool? ?? true,
+    );
+  }
+}
+
 class ModuleClientAccess {
   const ModuleClientAccess({
     required this.id,

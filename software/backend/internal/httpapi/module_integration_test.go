@@ -393,4 +393,75 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 when Company B Manager requests Company A module, got %d", rec.Code)
 	}
+
+	// 13. Aditivo: Technician queries active company clients and links clients during module installation
+	rec = doJSON(http.MethodGet, "/api/v1/modules/company-clients", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for technician getting company-clients, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var clientOptsRes struct {
+		Clients []struct {
+			ID    string `json:"id"`
+			Name  string `json:"name"`
+			Email string `json:"email"`
+		} `json:"clients"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &clientOptsRes); err != nil {
+		t.Fatalf("unmarshal client options: %v", err)
+	}
+	if len(clientOptsRes.Clients) == 0 {
+		t.Fatalf("expected at least 1 client in company A, got 0")
+	}
+
+	// Technician creates a new module and links Client 1 directly during installation
+	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":        "Array Omega",
+		"mac_address": "AA:BB:CC:DD:EE:02",
+		"manager_ids": []string{compA.DefaultManager.ID},
+		"client_ids":  []string{client1Res.User.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating module with client_ids, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var modWithClient struct {
+		Module struct {
+			ID               string `json:"id"`
+			MonitoringStatus string `json:"monitoring_status"`
+		} `json:"module"`
+		CompanyClients []struct {
+			ID         string `json:"id"`
+			IsAssigned bool   `json:"is_assigned"`
+		} `json:"company_clients"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &modWithClient); err != nil {
+		t.Fatalf("unmarshal module with client: %v", err)
+	}
+	if modWithClient.Module.MonitoringStatus != "pending_configuration" {
+		t.Fatalf("expected pending_configuration, got %s", modWithClient.Module.MonitoringStatus)
+	}
+
+	// Client 1 can now immediately see this module
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modWithClient.Module.ID, client1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for Client 1 accessing newly linked module, got %d", rec.Code)
+	}
+
+	// Technician updates draft module to change client_ids
+	rec = doJSON(http.MethodPatch, "/api/v1/modules/"+modWithClient.Module.ID+"/configuration", tech1Auth.AccessToken, map[string]any{
+		"client_ids": []string{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating client_ids on pending_configuration module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Cross-company client link rejected
+	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":        "Array Zeta",
+		"mac_address": "AA:BB:CC:DD:EE:03",
+		"manager_ids": []string{compA.DefaultManager.ID},
+		"client_ids":  []string{compB.DefaultManager.ID}, // Not a client of company A
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when linking invalid client, got %d", rec.Code)
+	}
 }

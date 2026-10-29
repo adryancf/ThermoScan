@@ -128,12 +128,20 @@ type IntervalChangeLogDTO struct {
 	ChangedAt            string `json:"changed_at"`
 }
 
+type ModuleClientOptionDTO struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	IsActive bool   `json:"is_active"`
+}
+
 type CreateModuleInput struct {
 	CompanyID                  pgtype.UUID
 	InstallerTechnicianID      pgtype.UUID
 	Name                       string
 	MacAddress                 string
 	ManagerIDs                 []pgtype.UUID
+	ClientIDs                  []pgtype.UUID
 	PanelLengthCm              *float64
 	PanelWidthCm               *float64
 	PanelCount                 *int32
@@ -166,6 +174,7 @@ type UpdateConfigurationInput struct {
 	MinimumSolarAngleDeg       *float64
 	InspectionIntervalDays     *int32
 	ReservoirNominalCapacityMl *float64
+	ClientIDs                  *[]pgtype.UUID
 }
 
 type Service struct {
@@ -196,6 +205,26 @@ func (s *Service) ListActiveCompanyManagers(ctx context.Context, companyID pgtyp
 			Email:            r.Email,
 			IsActive:         r.IsActive,
 			IsDefaultManager: r.IsDefaultManager,
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) ListActiveCompanyClients(ctx context.Context, companyID pgtype.UUID) ([]ModuleClientOptionDTO, error) {
+	if !companyID.Valid {
+		return nil, ErrInvalidInput
+	}
+	rows, err := s.queries.ListActiveCompanyClients(ctx, companyID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ModuleClientOptionDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ModuleClientOptionDTO{
+			ID:       auth.FormatUUID(r.ID),
+			Name:     r.Name,
+			Email:    r.Email,
+			IsActive: r.IsActive,
 		})
 	}
 	return out, nil
@@ -346,6 +375,26 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		CanView:      true,
 	}); err != nil {
 		return ModuleDetailsDTO{}, err
+	}
+
+	// Verify and link optional clients (Aditivo - Vínculo de Clients durante a instalação)
+	uniqueClientIDs := deduplicateUUIDs(in.ClientIDs)
+	for _, cID := range uniqueClientIDs {
+		c, err := qtx.GetCompanyUserByID(ctx, db.GetCompanyUserByIDParams{
+			CompanyID: in.CompanyID,
+			ID:        cID,
+		})
+		if err != nil || c.Role != auth.RoleClient || !c.IsActive {
+			return ModuleDetailsDTO{}, ErrTargetNotClient
+		}
+		if _, err := qtx.AddModuleClient(ctx, db.AddModuleClientParams{
+			CompanyID:               in.CompanyID,
+			ModuleID:                created.ID,
+			ClientID:                cID,
+			OperationalEmailEnabled: true,
+		}); err != nil {
+			return ModuleDetailsDTO{}, err
+		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -624,8 +673,9 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 
 	hasSolarAngleEdit := in.MinimumSolarAngleDeg != nil
 	hasIntervalEdit := in.InspectionIntervalDays != nil
+	hasClientEdit := in.ClientIDs != nil
 
-	if !hasGeometryOrLocationEdit && !hasSolarAngleEdit && !hasIntervalEdit {
+	if !hasGeometryOrLocationEdit && !hasSolarAngleEdit && !hasIntervalEdit && !hasClientEdit {
 		return ModuleDetailsDTO{}, ErrInvalidInput
 	}
 
@@ -637,6 +687,13 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 	}
 	if hasIntervalEdit && !perms.CanEditInterval {
 		return ModuleDetailsDTO{}, ErrForbidden
+	}
+	if hasClientEdit {
+		// Aditivo: Em rascunhos, o instalador pode alterar essa seleção enquanto possuir acesso efetivo e a instalação ainda não estiver concluída.
+		// Após a conclusão, somente o Manager pode incluir ou remover Clients do módulo.
+		if current.MonitoringStatus != StatusPendingConfiguration && principal.Role != auth.RoleManager {
+			return ModuleDetailsDTO{}, ErrForbidden
+		}
 	}
 
 	// Merge incoming fields onto existing configuration
@@ -790,6 +847,37 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 			NewIntervalDays:      intervalDays,
 		}); err != nil {
 			return ModuleDetailsDTO{}, err
+		}
+	}
+
+	if in.ClientIDs != nil {
+		uniqueClientIDs := deduplicateUUIDs(*in.ClientIDs)
+		for _, cID := range uniqueClientIDs {
+			c, err := qtx.GetCompanyUserByID(ctx, db.GetCompanyUserByIDParams{
+				CompanyID: principal.CompanyID,
+				ID:        cID,
+			})
+			if err != nil || c.Role != auth.RoleClient || !c.IsActive {
+				return ModuleDetailsDTO{}, ErrTargetNotClient
+			}
+		}
+
+		if err := qtx.DeleteAllClientsForModule(ctx, db.DeleteAllClientsForModuleParams{
+			CompanyID: principal.CompanyID,
+			ModuleID:  moduleID,
+		}); err != nil {
+			return ModuleDetailsDTO{}, err
+		}
+
+		for _, cID := range uniqueClientIDs {
+			if _, err := qtx.AddModuleClient(ctx, db.AddModuleClientParams{
+				CompanyID:               principal.CompanyID,
+				ModuleID:                moduleID,
+				ClientID:                cID,
+				OperationalEmailEnabled: true,
+			}); err != nil {
+				return ModuleDetailsDTO{}, err
+			}
 		}
 	}
 

@@ -61,6 +61,7 @@ class _ModuleInstallationWizardScreenState
   String _tiltSource = 'manual';
   String? _orientationNotice;
   bool _capturingOrientation = false;
+  bool _showManualOrientationFields = false;
   SurfaceOrientationReading? _liveOrientation;
   StreamSubscription<SurfaceOrientationReading>? _orientationSub;
 
@@ -230,6 +231,14 @@ class _ModuleInstallationWizardScreenState
 
   void _nextFromStep3() {
     setState(() => _errorMsg = null);
+    if (_azimuthCtrl.text.trim().isEmpty || _tiltCtrl.text.trim().isEmpty) {
+      setState(() {
+        _errorMsg =
+            'Capture orientation with the sensors or enter Azimuth and Tilt manually below.';
+        _showManualOrientationFields = true;
+      });
+      return;
+    }
     if (!(_step3FormKey.currentState?.validate() ?? false)) return;
     setState(() => _currentStep = 3);
   }
@@ -825,6 +834,11 @@ class _ModuleInstallationWizardScreenState
 
   /// SCR-18: Panel Surface Orientation (Azimuth & Tilt)
   Widget _buildStep3() {
+    final hasRecordedOrientation =
+        _azimuthCtrl.text.trim().isNotEmpty && _tiltCtrl.text.trim().isNotEmpty;
+    final lockedAzimuth = double.tryParse(_azimuthCtrl.text.trim());
+    final lockedTilt = double.tryParse(_tiltCtrl.text.trim());
+
     return Form(
       key: _step3FormKey,
       child: Column(
@@ -836,106 +850,211 @@ class _ModuleInstallationWizardScreenState
           ),
           const SizedBox(height: 4),
           Text(
-            'Place your phone flat and aligned with the panel surface to capture azimuth and tilt in real time, or enter values manually.',
+            'Place your phone flat and aligned with the panel surface to capture azimuth and tilt in real time.',
             style: AppTypography.bodySmall,
           ),
           const SizedBox(height: 16),
           OrientationCompassWidget(
             reading: _liveOrientation,
             isCapturing: _capturingOrientation,
+            isLocked: hasRecordedOrientation,
+            lockedAzimuth: lockedAzimuth,
+            lockedTilt: lockedTilt,
             onCapture: _acquireDeviceOrientationSample,
           ),
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_orientationNotice != null) ...[
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: AppColors.primarySoft.withValues(alpha: 0.4),
-                      borderRadius: BorderRadius.circular(10),
+          const SizedBox(height: 14),
+
+          // Recorded Confirmation Card
+          if (hasRecordedOrientation) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppColors.successBackground,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.successBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.check_circle,
+                    color: AppColors.success,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Alignment Recorded',
+                          style: AppTypography.h3.copyWith(
+                            fontSize: 13,
+                            color: AppColors.success,
+                          ),
+                        ),
+                        Text(
+                          'Azimuth: ${_azimuthCtrl.text}° (${_azimuthSource.toUpperCase()}) • Tilt: ${_tiltCtrl.text}° (${_tiltSource.toUpperCase()})',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _showManualOrientationFields =
+                            !_showManualOrientationFields;
+                      });
+                    },
                     child: Text(
-                      _orientationNotice!,
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.primary,
+                      _showManualOrientationFields ? 'Hide' : 'Edit',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
                       ),
                     ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+          ] else ...[
+            Center(
+              child: TextButton.icon(
+                icon: Icon(
+                  _showManualOrientationFields
+                      ? Icons.keyboard_arrow_up
+                      : Icons.tune_outlined,
+                  size: 18,
+                  color: AppColors.textSecondary,
+                ),
+                label: Text(
+                  _showManualOrientationFields
+                      ? 'Hide manual adjustment fields'
+                      : 'Or enter / adjust angles manually',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                onPressed: () {
+                  setState(() {
+                    _showManualOrientationFields =
+                        !_showManualOrientationFields;
+                  });
+                },
+              ),
+            ),
+            const SizedBox(height: 6),
+          ],
+
+          // Collapsible Manual Input Container
+          if (_showManualOrientationFields) ...[
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Manual Adjustments',
+                        style: AppTypography.h3.copyWith(fontSize: 14),
+                      ),
+                      Row(
+                        children: [
+                          Text(
+                            'Az: ${_azimuthSource.toUpperCase()}',
+                            style: AppTypography.caption.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Tilt: ${_tiltSource.toUpperCase()}',
+                            style: AppTypography.caption.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  AppTextField(
+                    label: 'Panel Azimuth (0° to <360° relative to True North)',
+                    hintText: 'e.g. 15.0',
+                    controller: _azimuthCtrl,
+                    onChanged: (_) => setState(() => _azimuthSource = 'manual'),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) {
+                        return 'Azimuth angle is required';
+                      }
+                      final n = double.tryParse(v.trim());
+                      if (n == null || n < 0 || n >= 360) {
+                        return 'Enter an angle from 0° to less than 360°';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 14),
+                  AppTextField(
+                    label: 'Panel Tilt Angle (0° to 90°)',
+                    hintText: 'e.g. 23.5',
+                    controller: _tiltCtrl,
+                    onChanged: (_) => setState(() => _tiltSource = 'manual'),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: (v) {
+                      if (v == null || v.trim().isEmpty) {
+                        return 'Tilt angle is required';
+                      }
+                      final n = double.tryParse(v.trim());
+                      if (n == null || n < 0 || n > 90) {
+                        return 'Enter an angle between 0° and 90°';
+                      }
+                      return null;
+                    },
+                  ),
                 ],
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Azimuth Source: ${_azimuthSource.toUpperCase()}',
-                      style: AppTypography.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    Text(
-                      'Tilt Source: ${_tiltSource.toUpperCase()}',
-                      style: AppTypography.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                AppTextField(
-                  label: 'Panel Azimuth (0° to <360° relative to True North)',
-                  hintText: 'e.g. 15.0',
-                  controller: _azimuthCtrl,
-                  onChanged: (_) => setState(() => _azimuthSource = 'manual'),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'Azimuth angle is required';
-                    }
-                    final n = double.tryParse(v.trim());
-                    if (n == null || n < 0 || n >= 360) {
-                      return 'Enter an angle from 0° to less than 360°';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 14),
-                AppTextField(
-                  label: 'Panel Tilt Angle (0° to 90°)',
-                  hintText: 'e.g. 23.5',
-                  controller: _tiltCtrl,
-                  onChanged: (_) => setState(() => _tiltSource = 'manual'),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'Tilt angle is required';
-                    }
-                    final n = double.tryParse(v.trim());
-                    if (n == null || n < 0 || n > 90) {
-                      return 'Enter an angle between 0° and 90°';
-                    }
-                    return null;
-                  },
-                ),
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 20),
+            const SizedBox(height: 12),
+          ],
+
+          if (_orientationNotice != null) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              margin: const EdgeInsets.only(bottom: 12),
+              decoration: BoxDecoration(
+                color: AppColors.primarySoft.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                _orientationNotice!,
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
           PrimaryButton(
             label: 'Continue to Array Configuration',
             icon: Icons.arrow_forward,

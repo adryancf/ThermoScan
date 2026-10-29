@@ -32,6 +32,9 @@ class SurfaceOrientationReading {
     final idx = ((azimuthDeg + 22.5) % 360 / 45).floor();
     return directions[idx % 8];
   }
+
+  /// Radians representing the azimuth [0, 2*pi]
+  double get azimuthRad => azimuthDeg * (math.pi / 180.0);
 }
 
 class DeviceSensorService {
@@ -76,8 +79,8 @@ class DeviceSensorService {
     );
   }
 
-  /// Provides a smoothed real-time stream of tilt and tilt-compensated compass azimuth
-  /// from the device accelerometer and magnetometer.
+  /// Provides a high-frequency (50-60Hz) smoothed real-time stream of tilt
+  /// and tilt-compensated compass azimuth from hardware sensors.
   Stream<SurfaceOrientationReading> watchSurfaceOrientation() {
     late StreamController<SurfaceOrientationReading> controller;
     StreamSubscription<AccelerometerEvent>? accelSub;
@@ -85,7 +88,7 @@ class DeviceSensorService {
 
     double? ax, ay, az;
     double? mx, my, mz;
-    const double alpha = 0.25; // Low-pass filter factor
+    const double alpha = 0.18; // Low-pass filter factor at 50Hz for smooth, responsive movement
 
     void emitIfReady() {
       if (ax == null || ay == null || az == null) return;
@@ -106,7 +109,10 @@ class DeviceSensorService {
 
     controller = StreamController<SurfaceOrientationReading>.broadcast(
       onListen: () {
-        accelSub = accelerometerEventStream().listen(
+        // High frequency sensor sampling for fluid 50-60 FPS UI
+        accelSub = accelerometerEventStream(
+          samplingPeriod: SensorInterval.gameInterval,
+        ).listen(
           (event) {
             ax = ax == null ? event.x : (ax! * (1 - alpha) + event.x * alpha);
             ay = ay == null ? event.y : (ay! * (1 - alpha) + event.y * alpha);
@@ -116,7 +122,9 @@ class DeviceSensorService {
           onError: (_) {},
         );
 
-        magSub = magnetometerEventStream().listen(
+        magSub = magnetometerEventStream(
+          samplingPeriod: SensorInterval.gameInterval,
+        ).listen(
           (event) {
             mx = mx == null ? event.x : (mx! * (1 - alpha) + event.x * alpha);
             my = my == null ? event.y : (my! * (1 - alpha) + event.y * alpha);
@@ -137,7 +145,7 @@ class DeviceSensorService {
 
   /// Captures a single smoothed orientation snapshot from hardware sensors.
   Future<SurfaceOrientationReading> captureSurfaceOrientation({
-    Duration sampleWindow = const Duration(milliseconds: 500),
+    Duration sampleWindow = const Duration(milliseconds: 300),
   }) async {
     SurfaceOrientationReading? latest;
     final sub = watchSurfaceOrientation().listen((reading) {
@@ -170,7 +178,7 @@ class DeviceSensorService {
     final normA = math.sqrt(ax * ax + ay * ay + az * az);
     if (normA < 1e-4) return null;
 
-    // Tilt angle [0°, 90°]: angle between the normal of the phone (+Z axis)
+    // Tilt angle [0°, 90°]: angle between panel surface normal (+Z axis of phone)
     // and the vertical gravity vector.
     final horizontalMag = math.sqrt(ax * ax + ay * ay);
     final rawTiltDeg = math.atan2(horizontalMag, az.abs()) * (180.0 / math.pi);

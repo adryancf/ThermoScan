@@ -5,86 +5,152 @@ import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/features/modules/data/device_sensor_service.dart';
 
-class OrientationCompassWidget extends StatelessWidget {
+class OrientationCompassWidget extends StatefulWidget {
   const OrientationCompassWidget({
     super.key,
     required this.reading,
     required this.onCapture,
     this.isCapturing = false,
+    this.isLocked = false,
+    this.lockedAzimuth,
+    this.lockedTilt,
   });
 
   final SurfaceOrientationReading? reading;
   final VoidCallback onCapture;
   final bool isCapturing;
+  final bool isLocked;
+  final double? lockedAzimuth;
+  final double? lockedTilt;
+
+  @override
+  State<OrientationCompassWidget> createState() =>
+      _OrientationCompassWidgetState();
+}
+
+class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
+  double _lastAngle = 0.0;
+
+  /// Calculates continuous angle to prevent 360-degree spins when crossing 0° (North)
+  double _getContinuousAngle(double currentDeg) {
+    final targetRad = -currentDeg * (math.pi / 180.0);
+    var diff = (targetRad - _lastAngle) % (2 * math.pi);
+    if (diff > math.pi) diff -= 2 * math.pi;
+    if (diff < -math.pi) diff += 2 * math.pi;
+    _lastAngle += diff;
+    return _lastAngle;
+  }
 
   @override
   Widget build(BuildContext context) {
-    final azimuth = reading?.azimuthDeg ?? 0.0;
-    final tilt = reading?.tiltDeg ?? 0.0;
-    final hasMag = reading?.hasMagnetometer ?? false;
-    final cardinal = reading?.cardinalDirection ?? 'N';
+    final liveAzimuth = widget.reading?.azimuthDeg ?? 0.0;
+    final liveTilt = widget.reading?.tiltDeg ?? 0.0;
+    final hasMag = widget.reading?.hasMagnetometer ?? false;
+
+    final displayAzimuth = widget.isLocked && widget.lockedAzimuth != null
+        ? widget.lockedAzimuth!
+        : liveAzimuth;
+    final displayTilt = widget.isLocked && widget.lockedTilt != null
+        ? widget.lockedTilt!
+        : liveTilt;
+
+    final cardinal = widget.reading?.cardinalDirection ?? 'N';
+    final continuousAngle = _getContinuousAngle(displayAzimuth);
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(
+          color: widget.isLocked ? AppColors.success : AppColors.border,
+          width: widget.isLocked ? 1.5 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // Header Status Badge
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
                   Container(
-                    width: 10,
-                    height: 10,
+                    width: 9,
+                    height: 9,
                     decoration: BoxDecoration(
-                      color: reading != null ? AppColors.success : Colors.grey,
+                      color: widget.isLocked
+                          ? AppColors.success
+                          : (widget.reading != null
+                              ? AppColors.primary
+                              : Colors.grey),
                       shape: BoxShape.circle,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    'Real-Time Surface Sensors',
-                    style: AppTypography.h3.copyWith(fontSize: 15),
+                    widget.isLocked
+                        ? 'Orientation Locked'
+                        : 'Live Hardware Sensors',
+                    style: AppTypography.h3.copyWith(fontSize: 14),
                   ),
                 ],
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: hasMag
-                      ? AppColors.primarySoft
-                      : AppColors.warningBackground,
+                  color: widget.isLocked
+                      ? AppColors.successBackground
+                      : (hasMag
+                          ? AppColors.primarySoft
+                          : AppColors.warningBackground),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(
-                  hasMag ? 'Compass Active' : 'Tilt Only',
-                  style: AppTypography.chip.copyWith(
-                    fontSize: 11,
-                    color: hasMag ? AppColors.primary : AppColors.warning,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      widget.isLocked
+                          ? Icons.check_circle
+                          : (hasMag ? Icons.explore : Icons.screen_rotation),
+                      size: 13,
+                      color: widget.isLocked
+                          ? AppColors.success
+                          : (hasMag ? AppColors.primary : AppColors.warning),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      widget.isLocked
+                          ? 'Captured'
+                          : (hasMag ? 'Compass 60Hz' : 'Tilt 60Hz'),
+                      style: AppTypography.chip.copyWith(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: widget.isLocked
+                            ? AppColors.success
+                            : (hasMag ? AppColors.primary : AppColors.warning),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Place your phone flat and aligned with the solar panel frame.',
-            textAlign: TextAlign.start,
-            style: AppTypography.bodySmall,
-          ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
 
-          // Interactive Visual Gauges: Compass Dial + Tilt Indicator
+          // Interactive Gauges (Compass Dial + Inclinometer Arc)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              // Compass Dial
+              // 1. Compass Dial (Smooth Rotational Interpolation)
               Column(
                 children: [
                   SizedBox(
@@ -93,59 +159,62 @@ class OrientationCompassWidget extends StatelessWidget {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        // Outer Ring
+                        // Dial Base
                         Container(
-                          width: 140,
-                          height: 140,
+                          width: 136,
+                          height: 136,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
+                            color: AppColors.background,
                             border: Border.all(
-                              color: AppColors.primary.withValues(alpha: 0.3),
+                              color: widget.isLocked
+                                  ? AppColors.success.withValues(alpha: 0.4)
+                                  : AppColors.primary.withValues(alpha: 0.25),
                               width: 2,
                             ),
-                            gradient: RadialGradient(
-                              colors: [
-                                AppColors.background,
-                                AppColors.surface,
-                              ],
-                            ),
                           ),
                         ),
 
-                        // Rotating Compass Rose
-                        Transform.rotate(
-                          angle: -azimuth * (math.pi / 180.0),
-                          child: CustomPaint(
-                            size: const Size(130, 130),
-                            painter: _CompassDialPainter(),
-                          ),
+                        // Smooth Rotating Dial (Tween animation avoids jitter & 360 wrap)
+                        TweenAnimationBuilder<double>(
+                          tween: Tween<double>(end: continuousAngle),
+                          duration: const Duration(milliseconds: 120),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, angle, child) {
+                            return Transform.rotate(
+                              angle: angle,
+                              child: CustomPaint(
+                                size: const Size(130, 130),
+                                painter: _CompassDialPainter(),
+                              ),
+                            );
+                          },
                         ),
 
-                        // Center Readout
+                        // Center Digital Readout
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: AppColors.surface.withValues(alpha: 0.9),
+                            color: AppColors.surface.withValues(alpha: 0.94),
                             borderRadius: BorderRadius.circular(8),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.05),
-                                blurRadius: 4,
-                              ),
-                            ],
+                            border: Border.all(
+                              color: AppColors.border.withValues(alpha: 0.6),
+                            ),
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                '${azimuth.toStringAsFixed(1)}°',
+                                '${displayAzimuth.toStringAsFixed(1)}°',
                                 style: AppTypography.h3.copyWith(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
-                                  color: AppColors.primary,
+                                  color: widget.isLocked
+                                      ? AppColors.success
+                                      : AppColors.primary,
                                 ),
                               ),
                               Text(
@@ -164,7 +233,7 @@ class OrientationCompassWidget extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Azimuth (Heading)',
+                    'Azimuth (North Ref)',
                     style: AppTypography.caption.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -172,7 +241,7 @@ class OrientationCompassWidget extends StatelessWidget {
                 ],
               ),
 
-              // Tilt / Inclinometer Gauge
+              // 2. Surface Inclinometer (Tilt Gauge)
               Column(
                 children: [
                   SizedBox(
@@ -181,32 +250,46 @@ class OrientationCompassWidget extends StatelessWidget {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        // Tilt circular arc
-                        CustomPaint(
-                          size: const Size(130, 130),
-                          painter: _TiltGaugePainter(tiltDeg: tilt),
+                        // Inclinometer Arc Painter
+                        TweenAnimationBuilder<double>(
+                          tween: Tween<double>(end: displayTilt),
+                          duration: const Duration(milliseconds: 120),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, animatedTilt, child) {
+                            return CustomPaint(
+                              size: const Size(130, 130),
+                              painter: _TiltGaugePainter(
+                                tiltDeg: animatedTilt,
+                                isLocked: widget.isLocked,
+                              ),
+                            );
+                          },
                         ),
 
                         // Center Tilt Readout
                         Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.screen_rotation_outlined,
+                            Icon(
+                              Icons.solar_power_outlined,
                               size: 20,
-                              color: AppColors.primary,
+                              color: widget.isLocked
+                                  ? AppColors.success
+                                  : AppColors.primary,
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${tilt.toStringAsFixed(1)}°',
+                              '${displayTilt.toStringAsFixed(1)}°',
                               style: AppTypography.h3.copyWith(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: AppColors.textPrimary,
+                                color: widget.isLocked
+                                    ? AppColors.success
+                                    : AppColors.textPrimary,
                               ),
                             ),
                             Text(
-                              'Slope Angle',
+                              'Panel Slope',
                               style: AppTypography.caption.copyWith(
                                 fontSize: 10,
                                 color: AppColors.textSecondary,
@@ -219,7 +302,7 @@ class OrientationCompassWidget extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Surface Tilt (0°-90°)',
+                    'Tilt (0°-90°)',
                     style: AppTypography.caption.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -229,22 +312,27 @@ class OrientationCompassWidget extends StatelessWidget {
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
 
-          // Capture Button
+          // Primary Capture / Recapture Button
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primary,
-                foregroundColor: Colors.white,
+                backgroundColor:
+                    widget.isLocked ? AppColors.surface : AppColors.primary,
+                foregroundColor:
+                    widget.isLocked ? AppColors.primary : Colors.white,
+                side: widget.isLocked
+                    ? const BorderSide(color: AppColors.primary)
+                    : null,
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                elevation: 0,
+                elevation: widget.isLocked ? 0 : 1,
               ),
-              icon: isCapturing
+              icon: widget.isCapturing
                   ? const SizedBox(
                       width: 18,
                       height: 18,
@@ -253,12 +341,19 @@ class OrientationCompassWidget extends StatelessWidget {
                         color: Colors.white,
                       ),
                     )
-                  : const Icon(Icons.check_circle_outline, size: 20),
+                  : Icon(
+                      widget.isLocked
+                          ? Icons.refresh
+                          : Icons.check_circle_outline,
+                      size: 20,
+                    ),
               label: Text(
-                'Capture Orientation (${azimuth.toStringAsFixed(1)}° / ${tilt.toStringAsFixed(1)}°)',
+                widget.isLocked
+                    ? 'Recapture Orientation (${displayAzimuth.toStringAsFixed(1)}° / ${displayTilt.toStringAsFixed(1)}°)'
+                    : 'Capture Orientation (${displayAzimuth.toStringAsFixed(1)}° / ${displayTilt.toStringAsFixed(1)}°)',
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
-              onPressed: isCapturing ? null : onCapture,
+              onPressed: widget.isCapturing ? null : widget.onCapture,
             ),
           ),
         ],
@@ -302,8 +397,8 @@ class _CompassDialPainter extends CustomPainter {
     // Draw North arrow pointer
     final path = Path()
       ..moveTo(center.dx, center.dy - radius + 3)
-      ..lineTo(center.dx - 6, center.dy - radius + 18)
-      ..lineTo(center.dx + 6, center.dy - radius + 18)
+      ..lineTo(center.dx - 6, center.dy - radius + 17)
+      ..lineTo(center.dx + 6, center.dy - radius + 17)
       ..close();
     canvas.drawPath(path, northPaint);
 
@@ -322,7 +417,7 @@ class _CompassDialPainter extends CustomPainter {
     )..layout();
     textPainter.paint(
       canvas,
-      Offset(center.dx - textPainter.width / 2, center.dy - radius + 20),
+      Offset(center.dx - textPainter.width / 2, center.dy - radius + 19),
     );
   }
 
@@ -331,9 +426,13 @@ class _CompassDialPainter extends CustomPainter {
 }
 
 class _TiltGaugePainter extends CustomPainter {
-  _TiltGaugePainter({required this.tiltDeg});
+  _TiltGaugePainter({
+    required this.tiltDeg,
+    this.isLocked = false,
+  });
 
   final double tiltDeg;
+  final bool isLocked;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -347,7 +446,7 @@ class _TiltGaugePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     final activePaint = Paint()
-      ..color = AppColors.primary
+      ..color = isLocked ? AppColors.success : AppColors.primary
       ..style = PaintingStyle.stroke
       ..strokeWidth = 8
       ..strokeCap = StrokeCap.round;
@@ -381,6 +480,6 @@ class _TiltGaugePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TiltGaugePainter oldDelegate) {
-    return oldDelegate.tiltDeg != tiltDeg;
+    return oldDelegate.tiltDeg != tiltDeg || oldDelegate.isLocked != isLocked;
   }
 }

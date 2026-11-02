@@ -111,7 +111,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         const SizedBox(height: 28),
                         Text(
-                          'Field Diagnostics Login',
+                          'Login',
                           style: AppTypography.h2,
                         ),
                         const SizedBox(height: 4),

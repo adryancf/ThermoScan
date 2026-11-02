@@ -766,7 +766,7 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Permanently delete this module and all its administrative assignments. Only modules without operational history (inspections, telemetry, anomalies, or logs) can be deleted.',
+                              'Permanently delete this module and all its administrative assignments.',
                               style: AppTypography.bodySmall,
                             ),
                             const SizedBox(height: 16),

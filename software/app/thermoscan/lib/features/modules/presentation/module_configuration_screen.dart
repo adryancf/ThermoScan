@@ -7,9 +7,11 @@ import 'package:thermoscan/core/widgets/app_text_field.dart';
 import 'package:thermoscan/core/widgets/status_chips.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
+import 'package:thermoscan/features/modules/data/device_sensor_service.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/orientation_calibration_modal.dart';
 
 /// SCR-13: Module Configuration & Interval Change Log
 class ModuleConfigurationScreen extends ConsumerStatefulWidget {
@@ -178,6 +180,68 @@ class _ModuleConfigurationScreenState
       if (mounted) {
         setState(() => _saving = false);
       }
+    }
+  }
+
+  bool _acquiringGps = false;
+  final _sensorService = const DeviceSensorService();
+
+  Future<void> _acquireGpsCoordinates() async {
+    setState(() => _acquiringGps = true);
+    try {
+      final loc = await _sensorService.acquireGpsLocation();
+      if (!mounted) return;
+      setState(() {
+        _latCtrl.text = loc.latitude.toStringAsFixed(6);
+        _lngCtrl.text = loc.longitude.toStringAsFixed(6);
+        _elevCtrl.text = loc.elevationM.toStringAsFixed(1);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Coordinates updated from device GPS.'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err.toString()),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _acquiringGps = false);
+      }
+    }
+  }
+
+  Future<void> _openOrientationCalibration() async {
+    final curAz = double.tryParse(_azimuthCtrl.text.trim());
+    final curTilt = double.tryParse(_tiltCtrl.text.trim());
+
+    final result = await OrientationCalibrationModal.show(
+      context,
+      initialAzimuth: curAz,
+      initialTilt: curTilt,
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        _azimuthCtrl.text = result.azimuthDeg.toStringAsFixed(1);
+        _tiltCtrl.text = result.tiltDeg.toStringAsFixed(1);
+        _azimuthSource = result.azimuthSource;
+        _tiltSource = result.tiltSource;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Orientation angles updated from device sensors.'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 3),
+        ),
+      );
     }
   }
 
@@ -410,6 +474,17 @@ class _ModuleConfigurationScreenState
                           'Decimal degree coordinates, elevation, and panel alignment.',
                       editable: perms.canEditGeometryAndLocation,
                       children: [
+                        if (perms.canEditGeometryAndLocation) ...[
+                          SecondaryButton(
+                            label: _acquiringGps
+                                ? 'Acquiring GPS Signal...'
+                                : 'Acquire Location from Device GPS',
+                            icon: Icons.my_location,
+                            onPressed:
+                                _acquiringGps ? null : _acquireGpsCoordinates,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         Row(
                           children: [
                             Expanded(
@@ -485,7 +560,17 @@ class _ModuleConfigurationScreenState
                             return null;
                           },
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 16),
+                        const Divider(height: 1),
+                        const SizedBox(height: 14),
+                        if (perms.canEditGeometryAndLocation) ...[
+                          SecondaryButton(
+                            label: 'Calibrate Orientation via Sensors',
+                            icon: Icons.explore_outlined,
+                            onPressed: _openOrientationCalibration,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
                         Row(
                           children: [
                             Expanded(

@@ -5,7 +5,7 @@ import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 
 /// Modal bottom sheet demonstrating phone placement on solar panel
-/// with a smooth native Flutter vector animation.
+/// with a 3D isometric vector animation and explicit portrait instructions.
 class PhonePlacementGuideModal extends StatefulWidget {
   const PhonePlacementGuideModal({super.key});
 
@@ -32,7 +32,7 @@ class _PhonePlacementGuideModalState extends State<PhonePlacementGuideModal>
     super.initState();
     _animCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 3600),
+      duration: const Duration(milliseconds: 3800),
     )..repeat();
   }
 
@@ -80,7 +80,7 @@ class _PhonePlacementGuideModalState extends State<PhonePlacementGuideModal>
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Icon(
-                    Icons.screen_rotation_outlined,
+                    Icons.stay_current_portrait_rounded,
                     color: AppColors.primary,
                     size: 22,
                   ),
@@ -93,7 +93,7 @@ class _PhonePlacementGuideModalState extends State<PhonePlacementGuideModal>
                       Text('Placement Guide', style: AppTypography.h3),
                       const SizedBox(height: 2),
                       Text(
-                        'How to position your device on the panel',
+                        'Keep device in portrait (upright) mode',
                         style: AppTypography.bodySmall.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -110,9 +110,9 @@ class _PhonePlacementGuideModalState extends State<PhonePlacementGuideModal>
             ),
             const SizedBox(height: 16),
 
-            // Animated Visual Diagram
+            // Animated Visual Diagram (3D Isometric Perspective)
             Container(
-              height: 210,
+              height: 220,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: AppColors.background,
@@ -125,7 +125,7 @@ class _PhonePlacementGuideModalState extends State<PhonePlacementGuideModal>
                   animation: _animCtrl,
                   builder: (context, child) {
                     return CustomPaint(
-                      painter: _PlacementAnimationPainter(
+                      painter: _IsometricPlacementPainter(
                         progress: _animCtrl.value,
                       ),
                     );
@@ -135,22 +135,22 @@ class _PhonePlacementGuideModalState extends State<PhonePlacementGuideModal>
             ),
             const SizedBox(height: 20),
 
-            // Step 1
-            _InstructionRow(
+            // Step 1: Explicit Portrait Requirement
+            const _InstructionRow(
               number: '1',
-              title: 'Lay flat against panel glass',
+              title: 'Keep in Portrait Mode (Vertical / Upright)',
               description:
-                  'Rest the back of your smartphone completely flat on the photovoltaic glass surface.',
-              icon: Icons.layers_outlined,
+                  'Do NOT place the phone sideways in landscape. Hold or rest the phone vertically (portrait), with its back flat against the solar panel glass.',
+              icon: Icons.stay_current_portrait_outlined,
             ),
             const SizedBox(height: 14),
 
-            // Step 2
-            _InstructionRow(
+            // Step 2: Point Top Downhill
+            const _InstructionRow(
               number: '2',
-              title: 'Point top edge downhill',
+              title: 'Point Top of Phone Downhill',
               description:
-                  'Orient the top edge of your phone toward the lower edge of the slope (the azimuth direction the panel faces).',
+                  'Orient the top camera edge toward the lower edge of the slope (the direction the panel faces down toward the horizon for solar azimuth).',
               icon: Icons.south_rounded,
             ),
             const SizedBox(height: 24),
@@ -194,12 +194,10 @@ class _InstructionRow extends StatelessWidget {
             shape: BoxShape.circle,
           ),
           child: Center(
-            child: Text(
-              number,
-              style: AppTypography.bodySmall.copyWith(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w700,
-              ),
+            child: Icon(
+              icon,
+              size: 16,
+              color: AppColors.primary,
             ),
           ),
         ),
@@ -231,295 +229,372 @@ class _InstructionRow extends StatelessWidget {
   }
 }
 
-/// Custom vector painter animating a 3D isometric solar panel and phone landing on it.
-class _PlacementAnimationPainter extends CustomPainter {
-  _PlacementAnimationPainter({required this.progress});
+/// 3D Isometric Painter showing the entire inclined PV panel surface
+/// and the smartphone landing on it in PORTRAIT mode.
+class _IsometricPlacementPainter extends CustomPainter {
+  _IsometricPlacementPainter({required this.progress});
 
   final double progress;
 
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    final cy = size.height / 2 + 15;
+    final cy = size.height / 2 + 10;
 
-    // Ground line / grid baseline
+    // Ground line
     final groundPaint = Paint()
       ..color = AppColors.border
       ..strokeWidth = 1.0;
     canvas.drawLine(
-      Offset(24, size.height - 24),
-      Offset(size.width - 24, size.height - 24),
+      Offset(20, size.height - 20),
+      Offset(size.width - 20, size.height - 20),
       groundPaint,
     );
 
-    // Panel orientation: inclined by ~26 degrees
-    const panelAngleRad = 26.0 * math.pi / 180.0;
-    final panelLength = size.width * 0.65;
-    const panelThickness = 8.0;
+    // ==========================================
+    // 3D Isometric Solar Panel Geometry
+    // Slope runs from top-back to bottom-front (downhill)
+    // ==========================================
+    // Center of panel surface: (cx - 10, cy)
+    // Width vector (cross-slope): dx = 76, dy = -16
+    // Length vector (downhill slope): dx = 32, dy = 56
 
-    // Panel center point
-    final pCenter = Offset(cx - 10, cy + 10);
+    const wx = 78.0;
+    const wy = -16.0;
+    const lx = 32.0;
+    const ly = 54.0;
 
-    // Calculate panel endpoints
-    final cosA = math.cos(panelAngleRad);
-    final sinA = math.sin(panelAngleRad);
+    final pCenter = Offset(cx - 10, cy - 6);
 
-    final halfL = panelLength / 2;
-    // Top-high end (left-up)
-    final topEnd = Offset(pCenter.dx - halfL * cosA, pCenter.dy - halfL * sinA);
-    // Lower end (right-down, facing azimuth)
-    final bottomEnd =
-        Offset(pCenter.dx + halfL * cosA, pCenter.dy + halfL * sinA);
+    final pTopLeft = Offset(pCenter.dx - wx - lx, pCenter.dy - wy - ly);
+    final pTopRight = Offset(pCenter.dx + wx - lx, pCenter.dy + wy - ly);
+    final pBottomRight = Offset(pCenter.dx + wx + lx, pCenter.dy + wy + ly);
+    final pBottomLeft = Offset(pCenter.dx - wx + lx, pCenter.dy - wy + ly);
 
-    // Support strut underneath the high end
-    final strutPaint = Paint()
-      ..color = const Color(0xFF94A3B8)
+    // Support legs to ground
+    final legPaint = Paint()
+      ..color = const Color(0xFF64748B)
       ..strokeWidth = 3.0
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
-      topEnd,
-      Offset(topEnd.dx + 10, size.height - 24),
-      strutPaint,
+      pTopLeft,
+      Offset(pTopLeft.dx + 4, size.height - 20),
+      legPaint,
     );
     canvas.drawLine(
-      bottomEnd,
-      Offset(bottomEnd.dx - 10, size.height - 24),
-      strutPaint,
+      pTopRight,
+      Offset(pTopRight.dx + 4, size.height - 20),
+      legPaint,
+    );
+    canvas.drawLine(
+      pBottomLeft,
+      Offset(pBottomLeft.dx + 2, size.height - 20),
+      legPaint,
+    );
+    canvas.drawLine(
+      pBottomRight,
+      Offset(pBottomRight.dx + 2, size.height - 20),
+      legPaint,
     );
 
-    // Draw Solar Module Body (aluminum frame + blue cells)
-    final panelPath = Path();
-    panelPath.moveTo(topEnd.dx, topEnd.dy);
-    panelPath.lineTo(bottomEnd.dx, bottomEnd.dy);
-    panelPath.lineTo(bottomEnd.dx - panelThickness * sinA,
-        bottomEnd.dy + panelThickness * cosA);
-    panelPath.lineTo(
-        topEnd.dx - panelThickness * sinA, topEnd.dy + panelThickness * cosA);
-    panelPath.close();
-
-    // Aluminum frame shadow/fill
+    // 3D Frame Side Thickness (Extrusion downwards)
+    const thickness = 8.0;
+    final sidePath = Path()
+      ..moveTo(pBottomLeft.dx, pBottomLeft.dy)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy + thickness)
+      ..lineTo(pBottomLeft.dx, pBottomLeft.dy + thickness)
+      ..close();
     canvas.drawPath(
-      panelPath,
+      sidePath,
+      Paint()..color = const Color(0xFF1E293B),
+    );
+
+    final leftSidePath = Path()
+      ..moveTo(pTopLeft.dx, pTopLeft.dy)
+      ..lineTo(pBottomLeft.dx, pBottomLeft.dy)
+      ..lineTo(pBottomLeft.dx, pBottomLeft.dy + thickness)
+      ..lineTo(pTopLeft.dx, pTopLeft.dy + thickness)
+      ..close();
+    canvas.drawPath(
+      leftSidePath,
       Paint()..color = const Color(0xFF334155),
     );
 
-    // Photovoltaic glass surface (vibrant deep blue)
-    final glassPath = Path();
-    const borderOffset = 2.0;
-    glassPath.moveTo(topEnd.dx + borderOffset * cosA,
-        topEnd.dy + borderOffset * sinA - borderOffset * sinA);
-    glassPath.lineTo(bottomEnd.dx - borderOffset * cosA,
-        bottomEnd.dy - borderOffset * sinA - borderOffset * sinA);
-    glassPath.lineTo(bottomEnd.dx - borderOffset * cosA - 4 * sinA,
-        bottomEnd.dy - borderOffset * sinA + 4 * cosA);
-    glassPath.lineTo(topEnd.dx + borderOffset * cosA - 4 * sinA,
-        topEnd.dy + borderOffset * sinA + 4 * cosA);
-    glassPath.close();
+    // Photovoltaic Glass Surface (Deep Blue gradient)
+    final panelFace = Path()
+      ..moveTo(pTopLeft.dx, pTopLeft.dy)
+      ..lineTo(pTopRight.dx, pTopRight.dy)
+      ..lineTo(pBottomRight.dx, pBottomRight.dy)
+      ..lineTo(pBottomLeft.dx, pBottomLeft.dy)
+      ..close();
 
-    final glassPaint = Paint()
-      ..shader = const LinearGradient(
-        colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-      ).createShader(Rect.fromPoints(topEnd, bottomEnd));
-    canvas.drawPath(glassPath, glassPaint);
+    final glassGradient = const LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [Color(0xFF0369A1), Color(0xFF0C4A6E)],
+    ).createShader(Rect.fromPoints(pTopLeft, pBottomRight));
 
-    // Cell divider lines on panel surface
-    final cellPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.35)
+    canvas.drawPath(panelFace, Paint()..shader = glassGradient);
+
+    // Solar Cell Grid Lines
+    final gridPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.28)
       ..strokeWidth = 1.0;
-    for (int i = 1; i <= 4; i++) {
-      final frac = i / 5.0;
-      final px = topEnd.dx + (bottomEnd.dx - topEnd.dx) * frac;
-      final py = topEnd.dy + (bottomEnd.dy - topEnd.dy) * frac;
-      canvas.drawLine(
-        Offset(px, py),
-        Offset(px - 4 * sinA, py + 4 * cosA),
-        cellPaint,
-      );
-    }
 
-    // "Slope / Azimuth" direction arrow under the lower edge
-    final slopeTextPainter = TextPainter(
+    // Cross grid lines (2 horizontal divisions)
+    for (int i = 1; i <= 2; i++) {
+      final t = i / 3.0;
+      final pL = Offset(
+        pTopLeft.dx + (pBottomLeft.dx - pTopLeft.dx) * t,
+        pTopLeft.dy + (pBottomLeft.dy - pTopLeft.dy) * t,
+      );
+      final pR = Offset(
+        pTopRight.dx + (pBottomRight.dx - pTopRight.dx) * t,
+        pTopRight.dy + (pBottomRight.dy - pTopRight.dy) * t,
+      );
+      canvas.drawLine(pL, pR, gridPaint);
+    }
+    // Longitudinal grid line (vertical division)
+    final pTopMid = Offset(
+      (pTopLeft.dx + pTopRight.dx) / 2,
+      (pTopLeft.dy + pTopRight.dy) / 2,
+    );
+    final pBotMid = Offset(
+      (pBottomLeft.dx + pBottomRight.dx) / 2,
+      (pBottomLeft.dy + pBottomRight.dy) / 2,
+    );
+    canvas.drawLine(pTopMid, pBotMid, gridPaint);
+
+    // Aluminum Border Outline
+    final frameOutline = Paint()
+      ..color = const Color(0xFF94A3B8)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawPath(panelFace, frameOutline);
+
+    // Downhill Slope & Azimuth Indicator Label
+    final slopeLabelPainter = TextPainter(
       text: const TextSpan(
-        text: 'Facing / Azimuth ➔',
+        text: '▼ DOWNHILL SLOPE (AZIMUTH FACING)',
         style: TextStyle(
           color: Color(0xFF64748B),
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.5,
         ),
       ),
       textDirection: TextDirection.ltr,
     )..layout();
-    slopeTextPainter.paint(
+    slopeLabelPainter.paint(
       canvas,
-      Offset(bottomEnd.dx - 40, bottomEnd.dy + 12),
+      Offset(cx - slopeLabelPainter.width / 2 + 5, pBottomRight.dy + 12),
     );
 
     // ==========================================
-    // Phone Animation Phases (0.0 to 1.0)
-    // 0.0 - 0.40: Phone hovers down and tilts to 26°
-    // 0.40 - 0.50: Phone lands flat on panel glass
-    // 0.50 - 0.85: Phone rests, alignment arrow glows
-    // 0.85 - 1.00: Fade transition back to start
+    // Smartphone Landing Animation
+    // Progress:
+    // 0.00 - 0.42: Phone hovers down in Portrait mode
+    // 0.42 - 0.52: Phone lands flat on panel glass
+    // 0.52 - 0.86: Phone rests flat in portrait, azimuth pulse
+    // 0.86 - 1.00: Fade transition
     // ==========================================
 
-    double phoneX;
-    double phoneY;
-    double phoneAngle;
+    double phoneElevation = 0.0;
     double phoneAlpha = 1.0;
-    double arrowProgress = 0.0;
+    double arrowPulse = 0.0;
 
-    if (progress < 0.40) {
-      // Phase 1: Descent and tilt
-      final t = progress / 0.40;
+    if (progress < 0.42) {
+      final t = progress / 0.42;
       final curved = Curves.easeOutCubic.transform(t);
-      phoneX = pCenter.dx - (1.0 - curved) * 20;
-      phoneY = (pCenter.dy - 65) + curved * 55;
-      phoneAngle = curved * panelAngleRad;
-    } else if (progress < 0.50) {
-      // Phase 2: Touchdown / settling
-      final t = (progress - 0.40) / 0.10;
-      phoneX = pCenter.dx;
-      phoneY = (pCenter.dy - 10) + math.sin(t * math.pi) * 2.0;
-      phoneAngle = panelAngleRad;
-    } else if (progress < 0.85) {
-      // Phase 3: Resting flat on surface + arrow pulsing
-      final t = (progress - 0.50) / 0.35;
-      phoneX = pCenter.dx;
-      phoneY = pCenter.dy - 10;
-      phoneAngle = panelAngleRad;
-      arrowProgress = Curves.easeInOut.transform((t * 2) % 1.0);
+      phoneElevation = (1.0 - curved) * 55.0;
+    } else if (progress < 0.52) {
+      final t = (progress - 0.42) / 0.10;
+      phoneElevation = math.sin(t * math.pi) * 3.0;
+    } else if (progress < 0.86) {
+      final t = (progress - 0.52) / 0.34;
+      phoneElevation = 0.0;
+      arrowPulse = Curves.easeInOut.transform((t * 2.2) % 1.0);
     } else {
-      // Phase 4: Fade out
-      final t = (progress - 0.85) / 0.15;
-      phoneX = pCenter.dx;
-      phoneY = pCenter.dy - 10;
-      phoneAngle = panelAngleRad;
+      final t = (progress - 0.86) / 0.14;
       phoneAlpha = (1.0 - t).clamp(0.0, 1.0);
     }
 
-    // Draw the smartphone
-    canvas.save();
-    canvas.translate(phoneX, phoneY);
-    canvas.rotate(phoneAngle);
+    // Phone isometric coordinates centered on the panel
+    // Phone length runs down the slope (Portrait)
+    final phoneCenter = Offset(pCenter.dx, pCenter.dy - phoneElevation);
 
-    final phoneW = 44.0;
-    final phoneH = 80.0;
-    final phoneRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: const Offset(0, 0),
-        width: phoneW,
-        height: phoneH,
-      ),
-      const Radius.circular(8),
+    // Phone dimensions in isometric projection
+    const pw = 24.0; // width (cross-slope)
+    const pwy = -5.0; // slope angle in Y for width
+    const ply = 36.0; // slope angle in Y for length
+    const plx = 20.0; // slope angle in X for length
+
+    final phTopL = Offset(
+      phoneCenter.dx - pw - plx * 0.5,
+      phoneCenter.dy - pwy - ply * 0.5,
+    );
+    final phTopR = Offset(
+      phoneCenter.dx + pw - plx * 0.5,
+      phoneCenter.dy + pwy - ply * 0.5,
+    );
+    final phBotR = Offset(
+      phoneCenter.dx + pw + plx * 0.5,
+      phoneCenter.dy + pwy + ply * 0.5,
+    );
+    final phBotL = Offset(
+      phoneCenter.dx - pw + plx * 0.5,
+      phoneCenter.dy - pwy + ply * 0.5,
     );
 
-    // Phone body (dark metallic)
-    final phoneBodyPaint = Paint()
-      ..color = Color.lerp(
-        Colors.transparent,
-        const Color(0xFF0F172A),
-        phoneAlpha,
-      )!
-      ..style = PaintingStyle.fill;
-    canvas.drawRRect(phoneRect, phoneBodyPaint);
+    // Phone drop shadow on panel glass
+    if (phoneElevation > 0) {
+      final shadowPath = Path()
+        ..moveTo(pCenter.dx - pw - plx * 0.5, pCenter.dy - pwy - ply * 0.5)
+        ..lineTo(pCenter.dx + pw - plx * 0.5, pCenter.dy + pwy - ply * 0.5)
+        ..lineTo(pCenter.dx + pw + plx * 0.5, pCenter.dy + pwy + ply * 0.5)
+        ..lineTo(pCenter.dx - pw + plx * 0.5, pCenter.dy - pwy + ply * 0.5)
+        ..close();
+      canvas.drawPath(
+        shadowPath,
+        Paint()
+          ..color = Colors.black.withValues(alpha: 0.25 * phoneAlpha),
+      );
+    }
 
-    // Phone screen
-    final screenRect = RRect.fromRectAndRadius(
-      Rect.fromCenter(
-        center: const Offset(0, 0),
-        width: phoneW - 4,
-        height: phoneH - 6,
-      ),
-      const Radius.circular(6),
-    );
-    final phoneScreenPaint = Paint()
-      ..color = Color.lerp(
-        Colors.transparent,
-        const Color(0xFF1E293B),
-        phoneAlpha,
-      )!;
-    canvas.drawRRect(screenRect, phoneScreenPaint);
+    // Phone body quad (Dark titanium casing)
+    final phoneQuad = Path()
+      ..moveTo(phTopL.dx, phTopL.dy)
+      ..lineTo(phTopR.dx, phTopR.dy)
+      ..lineTo(phBotR.dx, phBotR.dy)
+      ..lineTo(phBotL.dx, phBotL.dy)
+      ..close();
 
-    // Phone Top Camera / Speaker Notch (identifies the top of the phone)
-    final topIndicatorPaint = Paint()
-      ..color = Color.lerp(
-        Colors.transparent,
-        AppColors.primary,
-        phoneAlpha,
-      )!;
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(
-        Rect.fromCenter(
-          center: Offset(phoneW / 2 - 8, 0),
-          width: 4,
-          height: 12,
-        ),
-        const Radius.circular(2),
-      ),
-      topIndicatorPaint,
+    canvas.drawPath(
+      phoneQuad,
+      Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          const Color(0xFF0F172A),
+          phoneAlpha,
+        )!,
     );
 
-    // Inner Phone compass graphic
-    final compassCenterPaint = Paint()
-      ..color = Color.lerp(
-        Colors.transparent,
-        AppColors.primary.withValues(alpha: 0.4),
-        phoneAlpha,
-      )!
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-    canvas.drawCircle(const Offset(0, 0), 10, compassCenterPaint);
+    // Phone Screen Glass
+    const inset = 2.5;
+    final phScreen = Path()
+      ..moveTo(phTopL.dx + inset, phTopL.dy + inset)
+      ..lineTo(phTopR.dx - inset, phTopR.dy + inset)
+      ..lineTo(phBotR.dx - inset, phBotR.dy - inset)
+      ..lineTo(phBotL.dx + inset, phBotL.dy - inset)
+      ..close();
 
-    // Directional indicator from top of phone
-    if (progress >= 0.50 && progress < 0.90) {
+    canvas.drawPath(
+      phScreen,
+      Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          const Color(0xFF1E293B),
+          phoneAlpha,
+        )!,
+    );
+
+    // Top edge indicator (Camera / Notch) pointing DOWNHILL
+    // Top of phone is at phBotMid (downhill)
+    final topCameraX = (phBotL.dx + phBotR.dx) / 2;
+    final topCameraY = (phBotL.dy + phBotR.dy) / 2;
+    canvas.drawCircle(
+      Offset(topCameraX, topCameraY - 4),
+      3.0,
+      Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          AppColors.primary,
+          phoneAlpha,
+        )!,
+    );
+
+    // Screen border stroke
+    canvas.drawPath(
+      phoneQuad,
+      Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          AppColors.primary.withValues(alpha: 0.8),
+          phoneAlpha,
+        )!
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
+    // Compass dial graphic on screen
+    canvas.drawCircle(
+      phoneCenter,
+      9.0,
+      Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          AppColors.primary.withValues(alpha: 0.35),
+          phoneAlpha,
+        )!
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5,
+    );
+
+    // Pulsing Directional Azimuth Arrow from phone top edge downhill
+    if (progress >= 0.50 && progress < 0.88) {
+      final arrowStart = Offset(topCameraX, topCameraY);
+      final arrowEnd = Offset(
+        topCameraX + (plx * 0.6) + (arrowPulse * 12),
+        topCameraY + (ply * 0.6) + (arrowPulse * 12),
+      );
+
       final arrowPaint = Paint()
         ..color = AppColors.primary.withValues(
-          alpha: (0.3 + arrowProgress * 0.7) * phoneAlpha,
+          alpha: (0.3 + arrowPulse * 0.7) * phoneAlpha,
         )
         ..strokeWidth = 2.5
         ..strokeCap = StrokeCap.round;
 
-      // Draw arrow extending downhill from top of phone
-      final startX = phoneW / 2 + 4;
-      final endX = startX + 22 + (arrowProgress * 8);
-      canvas.drawLine(Offset(startX, 0), Offset(endX, 0), arrowPaint);
+      canvas.drawLine(arrowStart, arrowEnd, arrowPaint);
 
       // Arrow head
-      final headPath = Path();
-      headPath.moveTo(endX, 0);
-      headPath.lineTo(endX - 6, -4);
-      headPath.lineTo(endX - 6, 4);
-      headPath.close();
+      final head = Path()
+        ..moveTo(arrowEnd.dx, arrowEnd.dy)
+        ..lineTo(arrowEnd.dx - 5, arrowEnd.dy - 6)
+        ..lineTo(arrowEnd.dx + 4, arrowEnd.dy - 4)
+        ..close();
       canvas.drawPath(
-        headPath,
+        head,
         Paint()
           ..color = AppColors.primary.withValues(alpha: phoneAlpha)
           ..style = PaintingStyle.fill,
       );
     }
 
-    canvas.restore();
-
-    // Visual label pointing to the top of phone
-    if (progress >= 0.40 && progress < 0.85) {
-      final labelPaint = TextPainter(
+    // Callout badge: "PORTRAIT (UPRIGHT)"
+    if (progress >= 0.40 && progress < 0.86) {
+      final calloutPainter = TextPainter(
         text: TextSpan(
-          text: 'Top edge points down slope',
+          text: '✓ PORTRAIT (UPRIGHT)',
           style: TextStyle(
-            color: AppColors.primary,
+            color: AppColors.success,
             fontSize: 11,
-            fontWeight: FontWeight.w700,
-            backgroundColor: AppColors.surface.withValues(alpha: 0.9),
+            fontWeight: FontWeight.w800,
+            backgroundColor: AppColors.surface.withValues(alpha: 0.95),
           ),
         ),
         textDirection: TextDirection.ltr,
       )..layout();
-      labelPaint.paint(canvas, Offset(cx - 30, cy - 65));
+      calloutPainter.paint(
+        canvas,
+        Offset(cx - calloutPainter.width / 2 + 10, cy - 65),
+      );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _PlacementAnimationPainter oldDelegate) {
+  bool shouldRepaint(covariant _IsometricPlacementPainter oldDelegate) {
     return oldDelegate.progress != progress;
   }
 }

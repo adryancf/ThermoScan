@@ -21,11 +21,13 @@ class SurfaceOrientationReading {
     required this.azimuthDeg,
     required this.tiltDeg,
     required this.hasMagnetometer,
+    this.isLandscapeOrientation = false,
   });
 
   final double azimuthDeg;
   final double tiltDeg;
   final bool hasMagnetometer;
+  final bool isLandscapeOrientation;
 
   String get cardinalDirection {
     const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
@@ -219,10 +221,16 @@ class DeviceSensorService {
       }
     }
 
+    // Detection of landscape/sideways placement:
+    // If the panel has an inclination (tilt >= 5°) and the phone is placed sideways,
+    // gravity's lateral component along width (X) exceeds longitudinal component along height (Y).
+    final bool isLandscape = tiltDeg >= 5.0 && ax.abs() > ay.abs();
+
     return SurfaceOrientationReading(
       azimuthDeg: azimuthDeg,
       tiltDeg: tiltDeg,
       hasMagnetometer: hasMag,
+      isLandscapeOrientation: isLandscape,
     );
   }
 }

@@ -365,6 +365,53 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
 
           const SizedBox(height: 16),
 
+          // Landscape placement advisory warning banner (Option A)
+          if (!widget.isLocked &&
+              (widget.reading?.isLandscapeOrientation ?? false)) ...[
+            Container(
+              margin: const EdgeInsets.only(bottom: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.warningBackground,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.warningBorder),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.screen_rotation_outlined,
+                    color: AppColors.warning,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Position phone upright (Portrait)',
+                          style: AppTypography.bodySmall.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.warning,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Device appears tilted sideways. To capture accurate azimuth, keep it in portrait mode along the slope.',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textPrimary,
+                            height: 1.25,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
           // Primary Capture / Recapture Button
           SizedBox(
             width: double.infinity,

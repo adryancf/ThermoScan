@@ -74,20 +74,24 @@ class AuthController extends StateNotifier<AuthState> {
 
   Future<void> checkSession() async {
     state = const AuthState.initializing();
+    final minDisplayTimer = Future.delayed(const Duration(milliseconds: 2800));
     try {
       final accessToken = await tokenStorage.getAccessToken();
       final refreshToken = await tokenStorage.getRefreshToken();
 
       if ((accessToken == null || accessToken.isEmpty) &&
           (refreshToken == null || refreshToken.isEmpty)) {
+        await minDisplayTimer;
         state = const AuthState.unauthenticated();
         return;
       }
 
       final me = await repository.getMe();
+      await minDisplayTimer;
       state = AuthState.authenticated(me);
     } catch (_) {
       await tokenStorage.clearTokens();
+      await minDisplayTimer;
       state = const AuthState.unauthenticated();
     }
   }

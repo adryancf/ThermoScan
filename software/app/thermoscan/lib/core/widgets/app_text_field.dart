@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 
@@ -19,6 +20,7 @@ class AppTextField extends StatefulWidget {
     this.onChanged,
     this.onFieldSubmitted,
     this.autofillHints,
+    this.inputFormatters,
   });
 
   final String label;
@@ -35,6 +37,7 @@ class AppTextField extends StatefulWidget {
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onFieldSubmitted;
   final Iterable<String>? autofillHints;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   State<AppTextField> createState() => _AppTextFieldState();
@@ -73,6 +76,7 @@ class _AppTextFieldState extends State<AppTextField> {
           onChanged: widget.onChanged,
           onFieldSubmitted: widget.onFieldSubmitted,
           autofillHints: widget.autofillHints,
+          inputFormatters: widget.inputFormatters,
           style: AppTypography.body.copyWith(
             fontSize: 15,
             color: widget.enabled

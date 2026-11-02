@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/core/utils/mac_address_formatter.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/app_text_field.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
@@ -13,6 +15,7 @@ import 'package:thermoscan/features/modules/data/device_sensor_service.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/mac_qr_scanner_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_compass_widget.dart';
 
 /// SCR-16 to SCR-20: Technician 5-Step Module Installation Wizard
@@ -52,7 +55,9 @@ class _ModuleInstallationWizardScreenState
   final _lngCtrl = TextEditingController();
   final _elevCtrl = TextEditingController();
   String? _locationNotice;
+  String? _resolvedAddress;
   bool _acquiringLocation = false;
+  bool _resolvingAddress = false;
 
   // Step 3 (SCR-18): Orientation
   final _azimuthCtrl = TextEditingController();
@@ -72,8 +77,9 @@ class _ModuleInstallationWizardScreenState
   final _countCtrl = TextEditingController(text: '1');
   final _spacingCtrl = TextEditingController(text: '0');
   final _solarAngleCtrl = TextEditingController(text: '15');
+  String _solarAngleSource = 'default (15°)';
   final _intervalCtrl = TextEditingController(text: '7');
-  final _reservoirCtrl = TextEditingController();
+  final _reservoirCtrl = TextEditingController(text: '2000');
 
   // Step 5 (SCR-19B): Client Access Assignment (Optional)
   final Set<String> _selectedClientIds = {};
@@ -175,7 +181,14 @@ class _ModuleInstallationWizardScreenState
 
   Future<void> _saveDraftAndExit() async {
     setState(() => _errorMsg = null);
-    if (!(_step1FormKey.currentState?.validate() ?? false)) return;
+    if (_nameCtrl.text.trim().isEmpty) {
+      setState(() => _errorMsg = 'Module name is required to save a draft.');
+      return;
+    }
+    if (_macCtrl.text.trim().isEmpty || !_macRegex.hasMatch(_macCtrl.text.trim())) {
+      setState(() => _errorMsg = 'A valid MAC address (e.g. AA:BB:CC:DD:EE:FF) is required to save a draft.');
+      return;
+    }
     if (_selectedManagerIds.isEmpty) {
       setState(() {
         _errorMsg = 'Select at least one active responsible Manager.';
@@ -186,12 +199,41 @@ class _ModuleInstallationWizardScreenState
     setState(() => _saving = true);
     try {
       final repo = ref.read(moduleRepositoryProvider);
+
+      // Collect whatever fields are currently available to persist into the draft
+      final length = double.tryParse(_lengthCtrl.text.trim());
+      final width = double.tryParse(_widthCtrl.text.trim());
+      final count = int.tryParse(_countCtrl.text.trim());
+      final spacing = double.tryParse(_spacingCtrl.text.trim());
+      final lat = double.tryParse(_latCtrl.text.trim());
+      final lng = double.tryParse(_lngCtrl.text.trim());
+      final elev = double.tryParse(_elevCtrl.text.trim());
+      final azimuth = double.tryParse(_azimuthCtrl.text.trim());
+      final tilt = double.tryParse(_tiltCtrl.text.trim());
+      final solarAngle = double.tryParse(_solarAngleCtrl.text.trim());
+      final interval = int.tryParse(_intervalCtrl.text.trim());
+      final reservoir = double.tryParse(_reservoirCtrl.text.trim());
+
       if (_persistedModuleId == null) {
         final created = await repo.createModule(
           name: _nameCtrl.text.trim(),
           macAddress: _macCtrl.text.trim(),
           managerIds: _selectedManagerIds.toList(),
           clientIds: _selectedClientIds.toList(),
+          panelLengthCm: length,
+          panelWidthCm: width,
+          panelCount: count,
+          panelSpacingCm: spacing,
+          latitude: lat,
+          longitude: lng,
+          elevationM: elev,
+          azimuthDeg: azimuth,
+          tiltDeg: tilt,
+          azimuthSource: azimuth != null ? _azimuthSource : null,
+          tiltSource: tilt != null ? _tiltSource : null,
+          minimumSolarAngleDeg: solarAngle,
+          inspectionIntervalDays: interval,
+          reservoirNominalCapacityMl: reservoir,
         );
         _persistedModuleId = created.module.id;
       } else {
@@ -199,6 +241,20 @@ class _ModuleInstallationWizardScreenState
           moduleId: _persistedModuleId!,
           payload: {
             'name': _nameCtrl.text.trim(),
+            'panel_length_cm': ?length,
+            'panel_width_cm': ?width,
+            'panel_count': ?count,
+            'panel_spacing_cm': ?spacing,
+            'latitude': ?lat,
+            'longitude': ?lng,
+            'elevation_m': ?elev,
+            'azimuth_deg': ?azimuth,
+            'tilt_deg': ?tilt,
+            if (azimuth != null) 'azimuth_source': _azimuthSource,
+            if (tilt != null) 'tilt_source': _tiltSource,
+            'minimum_solar_angle_deg': ?solarAngle,
+            'inspection_interval_days': ?interval,
+            'reservoir_nominal_capacity_ml': ?reservoir,
             'client_ids': _selectedClientIds.toList(),
           },
         );
@@ -289,6 +345,8 @@ class _ModuleInstallationWizardScreenState
         _locationNotice =
             'Coordinates acquired from GPS hardware. Review and adjust any value manually if needed.';
       });
+      _reverseGeocode(loc.latitude, loc.longitude);
+      _autoEstimateSolarAngle(loc.latitude);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -299,6 +357,65 @@ class _ModuleInstallationWizardScreenState
       if (mounted) {
         setState(() => _acquiringLocation = false);
       }
+    }
+  }
+
+  Future<void> _reverseGeocode(double lat, double lng) async {
+    setState(() => _resolvingAddress = true);
+    try {
+      final geocoding = Geocoding();
+      final placemarks = await geocoding.placemarkFromCoordinates(lat, lng);
+      if (!mounted) return;
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        final streetParts = <String>[];
+        if (p.street != null && p.street!.isNotEmpty) streetParts.add(p.street!);
+        if (p.subThoroughfare != null && p.subThoroughfare!.isNotEmpty) streetParts.add(p.subThoroughfare!);
+        final street = streetParts.join(', ');
+
+        final cityParts = <String>[];
+        if (p.subAdministrativeArea != null && p.subAdministrativeArea!.isNotEmpty) cityParts.add(p.subAdministrativeArea!);
+        if (p.administrativeArea != null && p.administrativeArea!.isNotEmpty) cityParts.add(p.administrativeArea!);
+        if (p.country != null && p.country!.isNotEmpty) cityParts.add(p.country!);
+        final city = cityParts.join(' - ');
+
+        final fullParts = <String>[];
+        if (street.isNotEmpty) fullParts.add(street);
+        if (p.subLocality != null && p.subLocality!.isNotEmpty) fullParts.add(p.subLocality!);
+        if (city.isNotEmpty) fullParts.add(city);
+        final full = fullParts.join(', ');
+
+        setState(() {
+          _resolvedAddress = full.isNotEmpty ? full : '${p.locality ?? ''}, ${p.administrativeArea ?? ''}';
+        });
+      }
+    } catch (_) {
+      // Non-blocking: Geocoding is for operator convenience
+    } finally {
+      if (mounted) {
+        setState(() => _resolvingAddress = false);
+      }
+    }
+  }
+
+  void _autoEstimateSolarAngle(double latitude) {
+    // Estimativa solar regional/geométrica:
+    // Em baixas latitudes (equador/tropicais), ângulo solar mínimo útil de corte costuma ficar em 10°-12°.
+    // Em latitudes médias/altas, 15°-18° evita sombreamentos de inverno no início da manhã.
+    final absLat = latitude.abs();
+    double estimated;
+    if (absLat < 15.0) {
+      estimated = 10.0;
+    } else if (absLat < 30.0) {
+      estimated = 15.0;
+    } else {
+      estimated = 18.0;
+    }
+
+    // Se o usuário ainda não editou manualmente ou está no default inicial
+    if (_solarAngleSource.startsWith('default') || _solarAngleSource.startsWith('estimated')) {
+      _solarAngleCtrl.text = estimated.toStringAsFixed(1);
+      _solarAngleSource = 'estimated from latitude ($absLat° S/N)';
     }
   }
 
@@ -334,12 +451,25 @@ class _ModuleInstallationWizardScreenState
     }
   }
 
-  void _unlockOrientation() {
+  void _onManualAzimuthChanged(String v) {
     setState(() {
-      _isOrientationLocked = false;
-      _azimuthCtrl.clear();
-      _tiltCtrl.clear();
-      _orientationNotice = null;
+      if (v.trim().isEmpty) {
+        _azimuthSource = 'sensor';
+      } else {
+        _azimuthSource = 'manual';
+      }
+      _isOrientationLocked = _azimuthCtrl.text.trim().isNotEmpty && _tiltCtrl.text.trim().isNotEmpty;
+    });
+  }
+
+  void _onManualTiltChanged(String v) {
+    setState(() {
+      if (v.trim().isEmpty) {
+        _tiltSource = 'sensor';
+      } else {
+        _tiltSource = 'manual';
+      }
+      _isOrientationLocked = _azimuthCtrl.text.trim().isNotEmpty && _tiltCtrl.text.trim().isNotEmpty;
     });
   }
 
@@ -622,6 +752,28 @@ class _ModuleInstallationWizardScreenState
                   controller: _macCtrl,
                   readOnly: isMacLocked,
                   enabled: !isMacLocked,
+                  inputFormatters: [MacAddressInputFormatter()],
+                  suffixIcon: isMacLocked
+                      ? null
+                      : IconButton(
+                          icon: const Icon(
+                            Icons.qr_code_scanner,
+                            color: AppColors.primary,
+                          ),
+                          tooltip: 'Scan QR Code / Barcode',
+                          onPressed: () async {
+                            final scanned = await Navigator.of(context).push<String>(
+                              MaterialPageRoute(
+                                builder: (_) => const MacQrScannerModal(),
+                              ),
+                            );
+                            if (scanned != null && mounted) {
+                              setState(() {
+                                _macCtrl.text = scanned;
+                              });
+                            }
+                          },
+                        ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
                       return 'MAC address is required';
@@ -803,6 +955,57 @@ class _ModuleInstallationWizardScreenState
                     ),
                   ),
                 ],
+                if (_resolvingAddress || _resolvedAddress != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Estimated Physical Address (Verification Only)',
+                                style: AppTypography.caption.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              if (_resolvingAddress)
+                                Text(
+                                  'Resolving address from coordinates...',
+                                  style: AppTypography.caption.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                                )
+                              else
+                                Text(
+                                  _resolvedAddress!,
+                                  style: AppTypography.bodySmall.copyWith(
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 AppTextField(
                   label: 'Latitude (Decimal Degrees, -90° to 90°)',
@@ -906,7 +1109,16 @@ class _ModuleInstallationWizardScreenState
             lockedAzimuth: lockedAzimuth,
             lockedTilt: lockedTilt,
             onCapture: _acquireDeviceOrientationSample,
-            onRecapture: _unlockOrientation,
+            onRecapture: () {
+              setState(() {
+                _azimuthCtrl.clear();
+                _tiltCtrl.clear();
+                _azimuthSource = 'sensor';
+                _tiltSource = 'sensor';
+                _isOrientationLocked = false;
+                _orientationNotice = null;
+              });
+            },
           ),
           const SizedBox(height: 14),
 
@@ -1042,7 +1254,7 @@ class _ModuleInstallationWizardScreenState
                     label: 'Panel Azimuth (0° to <360° relative to True North)',
                     hintText: 'e.g. 15.0',
                     controller: _azimuthCtrl,
-                    onChanged: (_) => setState(() => _azimuthSource = 'manual'),
+                    onChanged: _onManualAzimuthChanged,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -1062,7 +1274,7 @@ class _ModuleInstallationWizardScreenState
                     label: 'Panel Tilt Angle (0° to 90°)',
                     hintText: 'e.g. 23.5',
                     controller: _tiltCtrl,
-                    onChanged: (_) => setState(() => _tiltSource = 'manual'),
+                    onChanged: _onManualTiltChanged,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
@@ -1181,21 +1393,74 @@ class _ModuleInstallationWizardScreenState
                 ),
                 const SizedBox(height: 14),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: AppTextField(
-                        label: 'Panels in Series',
-                        hintText: '8',
-                        controller: _countCtrl,
-                        keyboardType: TextInputType.number,
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) {
-                            return 'Required';
-                          }
-                          final n = int.tryParse(v.trim());
-                          if (n == null || n < 1) return 'Must be >= 1';
-                          return null;
-                        },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Panels in Series',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Container(
+                            height: 48,
+                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Row(
+                              children: [
+                                IconButton(
+                                  icon: const Icon(Icons.remove, size: 18),
+                                  splashRadius: 18,
+                                  onPressed: () {
+                                    final current = int.tryParse(_countCtrl.text.trim()) ?? 1;
+                                    if (current > 1) {
+                                      setState(() => _countCtrl.text = '${current - 1}');
+                                    }
+                                  },
+                                ),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _countCtrl,
+                                    textAlign: TextAlign.center,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      border: InputBorder.none,
+                                      contentPadding: EdgeInsets.zero,
+                                      isDense: true,
+                                    ),
+                                    style: AppTypography.body.copyWith(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    validator: (v) {
+                                      if (v == null || v.trim().isEmpty) return 'Req';
+                                      final n = int.tryParse(v.trim());
+                                      if (n == null || n < 1) return '>=1';
+                                      return null;
+                                    },
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.add, size: 18),
+                                  splashRadius: 18,
+                                  onPressed: () {
+                                    final current = int.tryParse(_countCtrl.text.trim()) ?? 1;
+                                    setState(() => _countCtrl.text = '${current + 1}');
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -1224,6 +1489,7 @@ class _ModuleInstallationWizardScreenState
                   label: 'Minimum Solar Angle Threshold (0° to 90°)',
                   hintText: '15.0',
                   controller: _solarAngleCtrl,
+                  onChanged: (_) => setState(() => _solarAngleSource = 'manual'),
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
@@ -1237,6 +1503,14 @@ class _ModuleInstallationWizardScreenState
                     }
                     return null;
                   },
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Source: $_solarAngleSource • Tap to edit anytime.',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.primary,
+                    fontSize: 11,
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Text(
@@ -1278,16 +1552,18 @@ class _ModuleInstallationWizardScreenState
                 ),
                 const SizedBox(height: 14),
                 AppTextField(
-                  label: 'Nominal Reservoir Capacity (mL, optional)',
-                  hintText: '1000',
+                  label: 'Nominal Reservoir Capacity (mL)',
+                  hintText: '2000',
                   controller: _reservoirCtrl,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty) return null;
+                    if (v == null || v.trim().isEmpty) {
+                      return 'Reservoir nominal capacity is required';
+                    }
                     final n = double.tryParse(v.trim());
-                    if (n == null || n <= 0) return 'Must be > 0';
+                    if (n == null || n <= 0) return 'Must be a positive number';
                     return null;
                   },
                 ),

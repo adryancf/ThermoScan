@@ -154,6 +154,49 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
           ),
           const SizedBox(height: 14),
 
+          // Instructional Guidance Banner for Physical Positioning
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.phone_android_outlined,
+                  size: 20,
+                  color: AppColors.primary,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textPrimary,
+                        fontSize: 11,
+                        height: 1.35,
+                      ),
+                      children: const [
+                        TextSpan(
+                          text: 'Placement Guide: ',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        TextSpan(
+                          text:
+                              'Place the back of your phone flat on the solar panel surface. The top edge of your phone must point toward the lower edge of the slope (direction the panel faces).',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+
           // Interactive Gauges (Compass Dial + Inclinometer Arc)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,

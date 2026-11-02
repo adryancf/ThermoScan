@@ -368,25 +368,63 @@ class _ModuleInstallationWizardScreenState
       if (!mounted) return;
       if (placemarks.isNotEmpty) {
         final p = placemarks.first;
-        final streetParts = <String>[];
-        if (p.street != null && p.street!.isNotEmpty) streetParts.add(p.street!);
-        if (p.subThoroughfare != null && p.subThoroughfare!.isNotEmpty) streetParts.add(p.subThoroughfare!);
-        final street = streetParts.join(', ');
+        String address = '';
 
-        final cityParts = <String>[];
-        if (p.subAdministrativeArea != null && p.subAdministrativeArea!.isNotEmpty) cityParts.add(p.subAdministrativeArea!);
-        if (p.administrativeArea != null && p.administrativeArea!.isNotEmpty) cityParts.add(p.administrativeArea!);
-        if (p.country != null && p.country!.isNotEmpty) cityParts.add(p.country!);
-        final city = cityParts.join(' - ');
+        // On Android, geocoding maps `Address.getAddressLine(0)` to `p.street`.
+        // When it already contains a complete formatted address line, use it directly.
+        if (p.street != null && p.street!.isNotEmpty) {
+          final s = p.street!.trim();
+          if (s.contains(',') &&
+              (s.contains('-') ||
+                  (p.country != null && p.country!.isNotEmpty && s.contains(p.country!)) ||
+                  (p.administrativeArea != null && p.administrativeArea!.isNotEmpty && s.contains(p.administrativeArea!)))) {
+            address = s;
+          }
+        }
 
-        final fullParts = <String>[];
-        if (street.isNotEmpty) fullParts.add(street);
-        if (p.subLocality != null && p.subLocality!.isNotEmpty) fullParts.add(p.subLocality!);
-        if (city.isNotEmpty) fullParts.add(city);
-        final full = fullParts.join(', ');
+        if (address.isEmpty) {
+          final parts = <String>[];
+          final streetName = (p.thoroughfare != null && p.thoroughfare!.isNotEmpty)
+              ? p.thoroughfare!.trim()
+              : (p.street?.trim() ?? '');
+          final number = p.subThoroughfare?.trim() ?? '';
+          final streetWithNum = [
+            if (streetName.isNotEmpty) streetName,
+            if (number.isNotEmpty && !streetName.contains(number)) number,
+          ].join(', ');
+
+          if (streetWithNum.isNotEmpty) parts.add(streetWithNum);
+          if (p.subLocality != null && p.subLocality!.isNotEmpty) {
+            parts.add(p.subLocality!.trim());
+          }
+
+          final city = (p.locality != null && p.locality!.isNotEmpty)
+              ? p.locality!.trim()
+              : (p.subAdministrativeArea?.trim() ?? '');
+          final state = p.administrativeArea?.trim() ?? '';
+          if (city.isNotEmpty && state.isNotEmpty) {
+            parts.add('$city - $state');
+          } else if (city.isNotEmpty) {
+            parts.add(city);
+          } else if (state.isNotEmpty) {
+            parts.add(state);
+          }
+
+          if (p.country != null && p.country!.isNotEmpty) {
+            parts.add(p.country!.trim());
+          }
+
+          address = parts.join(', ');
+        }
+
+        if (address.isEmpty && p.street != null && p.street!.isNotEmpty) {
+          address = p.street!.trim();
+        }
 
         setState(() {
-          _resolvedAddress = full.isNotEmpty ? full : '${p.locality ?? ''}, ${p.administrativeArea ?? ''}';
+          _resolvedAddress = address.isNotEmpty
+              ? address
+              : '${p.locality ?? ''}, ${p.administrativeArea ?? ''}';
         });
       }
     } catch (_) {

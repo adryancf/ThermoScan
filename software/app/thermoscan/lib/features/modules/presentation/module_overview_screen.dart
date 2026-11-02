@@ -446,16 +446,18 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                     const SizedBox(height: 16),
 
                     // 3. Quick Action Buttons (SCR-13 & SCR-14)
-                    PrimaryButton(
-                      label: perms.canEditAnyField
-                          ? 'Module Configuration & Interval Log'
-                          : 'View Configuration & Interval Log',
-                      icon: Icons.tune_outlined,
-                      onPressed: () =>
-                          context.push('/modules/${mod.id}/configuration'),
-                    ),
+                    if (!mod.isPendingConfiguration) ...[
+                      PrimaryButton(
+                        label: perms.canEditAnyField
+                            ? 'Module Configuration & Interval Log'
+                            : 'View Configuration & Interval Log',
+                        icon: Icons.tune_outlined,
+                        onPressed: () =>
+                            context.push('/modules/${mod.id}/configuration'),
+                      ),
+                      if (perms.canManageAccess) const SizedBox(height: 10),
+                    ],
                     if (perms.canManageAccess) ...[
-                      const SizedBox(height: 10),
                       SecondaryButton(
                         label: 'Manage Access & Responsible Managers',
                         icon: Icons.admin_panel_settings_outlined,

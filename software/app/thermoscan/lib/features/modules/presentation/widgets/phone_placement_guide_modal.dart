@@ -112,7 +112,7 @@ class _PhonePlacementGuideModalState extends State<PhonePlacementGuideModal>
 
             // Animated Visual Diagram (3D Isometric Perspective)
             Container(
-              height: 220,
+              height: 230,
               width: double.infinity,
               decoration: BoxDecoration(
                 color: AppColors.background,
@@ -230,7 +230,7 @@ class _InstructionRow extends StatelessWidget {
 }
 
 /// 3D Isometric Painter showing the entire inclined PV panel surface
-/// and the smartphone landing on it in PORTRAIT mode.
+/// and the smartphone landing on it in a sleek, clearly rectangular PORTRAIT mode.
 class _IsometricPlacementPainter extends CustomPainter {
   _IsometricPlacementPainter({required this.progress});
 
@@ -239,74 +239,72 @@ class _IsometricPlacementPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
-    final cy = size.height / 2 + 10;
+    final cy = size.height / 2 + 6;
 
-    // Ground line
+    // Ground line positioned near bottom
+    final groundY = size.height - 18.0;
     final groundPaint = Paint()
       ..color = AppColors.border
       ..strokeWidth = 1.0;
     canvas.drawLine(
-      Offset(20, size.height - 20),
-      Offset(size.width - 20, size.height - 20),
+      Offset(20, groundY),
+      Offset(size.width - 20, groundY),
       groundPaint,
     );
 
     // ==========================================
     // 3D Isometric Solar Panel Geometry
     // Slope runs from top-back to bottom-front (downhill)
+    // Vertical span of panel: y ~= 56 to y ~= 178
     // ==========================================
-    // Center of panel surface: (cx - 10, cy)
-    // Width vector (cross-slope): dx = 76, dy = -16
-    // Length vector (downhill slope): dx = 32, dy = 56
+    const wx = 75.0;
+    const wy = -15.0;
+    const lx = 28.0;
+    const ly = 46.0;
 
-    const wx = 78.0;
-    const wy = -16.0;
-    const lx = 32.0;
-    const ly = 54.0;
-
-    final pCenter = Offset(cx - 10, cy - 6);
+    final pCenter = Offset(cx - 10, cy);
 
     final pTopLeft = Offset(pCenter.dx - wx - lx, pCenter.dy - wy - ly);
     final pTopRight = Offset(pCenter.dx + wx - lx, pCenter.dy + wy - ly);
     final pBottomRight = Offset(pCenter.dx + wx + lx, pCenter.dy + wy + ly);
     final pBottomLeft = Offset(pCenter.dx - wx + lx, pCenter.dy - wy + ly);
 
-    // Support legs to ground
+    // Support legs down to ground line
     final legPaint = Paint()
       ..color = const Color(0xFF64748B)
-      ..strokeWidth = 3.0
+      ..strokeWidth = 2.5
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
       pTopLeft,
-      Offset(pTopLeft.dx + 4, size.height - 20),
+      Offset(pTopLeft.dx + 4, groundY),
       legPaint,
     );
     canvas.drawLine(
       pTopRight,
-      Offset(pTopRight.dx + 4, size.height - 20),
+      Offset(pTopRight.dx + 4, groundY),
       legPaint,
     );
     canvas.drawLine(
       pBottomLeft,
-      Offset(pBottomLeft.dx + 2, size.height - 20),
+      Offset(pBottomLeft.dx + 2, groundY),
       legPaint,
     );
     canvas.drawLine(
       pBottomRight,
-      Offset(pBottomRight.dx + 2, size.height - 20),
+      Offset(pBottomRight.dx + 2, groundY),
       legPaint,
     );
 
     // 3D Frame Side Thickness (Extrusion downwards)
-    const thickness = 8.0;
-    final sidePath = Path()
+    const thickness = 7.0;
+    final bottomSidePath = Path()
       ..moveTo(pBottomLeft.dx, pBottomLeft.dy)
       ..lineTo(pBottomRight.dx, pBottomRight.dy)
       ..lineTo(pBottomRight.dx, pBottomRight.dy + thickness)
       ..lineTo(pBottomLeft.dx, pBottomLeft.dy + thickness)
       ..close();
     canvas.drawPath(
-      sidePath,
+      bottomSidePath,
       Paint()..color = const Color(0xFF1E293B),
     );
 
@@ -370,16 +368,18 @@ class _IsometricPlacementPainter extends CustomPainter {
     final frameOutline = Paint()
       ..color = const Color(0xFF94A3B8)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
+      ..strokeWidth = 1.8;
     canvas.drawPath(panelFace, frameOutline);
 
-    // Downhill Slope & Azimuth Indicator Label
+    // ==========================================
+    // Bottom Label: Completely below the panel, above the ground line
+    // ==========================================
     final slopeLabelPainter = TextPainter(
       text: const TextSpan(
         text: '▼ DOWNHILL SLOPE (AZIMUTH FACING)',
         style: TextStyle(
           color: Color(0xFF64748B),
-          fontSize: 9,
+          fontSize: 9.5,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.5,
         ),
@@ -388,18 +388,14 @@ class _IsometricPlacementPainter extends CustomPainter {
     )..layout();
     slopeLabelPainter.paint(
       canvas,
-      Offset(cx - slopeLabelPainter.width / 2 + 5, pBottomRight.dy + 12),
+      Offset(cx - slopeLabelPainter.width / 2, size.height - 15),
     );
 
     // ==========================================
     // Smartphone Landing Animation
-    // Progress:
-    // 0.00 - 0.42: Phone hovers down in Portrait mode
-    // 0.42 - 0.52: Phone lands flat on panel glass
-    // 0.52 - 0.86: Phone rests flat in portrait, azimuth pulse
-    // 0.86 - 1.00: Fade transition
+    // Proportions: Clearly elongated rectangle (aspect ratio ~ 1.9 : 1)
+    // Width = 26px, Length = 49px
     // ==========================================
-
     double phoneElevation = 0.0;
     double phoneAlpha = 1.0;
     double arrowPulse = 0.0;
@@ -421,14 +417,13 @@ class _IsometricPlacementPainter extends CustomPainter {
     }
 
     // Phone isometric coordinates centered on the panel
-    // Phone length runs down the slope (Portrait)
     final phoneCenter = Offset(pCenter.dx, pCenter.dy - phoneElevation);
 
-    // Phone dimensions in isometric projection
-    const pw = 24.0; // width (cross-slope)
-    const pwy = -5.0; // slope angle in Y for width
-    const ply = 36.0; // slope angle in Y for length
-    const plx = 20.0; // slope angle in X for length
+    // Proportions: Narrow width (pw = 13.0) and long slope length (plx = 22, ply = 44)
+    const pw = 13.0;
+    const pwy = -2.6;
+    const plx = 22.0;
+    const ply = 44.0;
 
     final phTopL = Offset(
       phoneCenter.dx - pw - plx * 0.5,
@@ -480,8 +475,8 @@ class _IsometricPlacementPainter extends CustomPainter {
         )!,
     );
 
-    // Phone Screen Glass
-    const inset = 2.5;
+    // Phone Screen Glass (inset)
+    const inset = 2.0;
     final phScreen = Path()
       ..moveTo(phTopL.dx + inset, phTopL.dy + inset)
       ..lineTo(phTopR.dx - inset, phTopR.dy + inset)
@@ -499,21 +494,6 @@ class _IsometricPlacementPainter extends CustomPainter {
         )!,
     );
 
-    // Top edge indicator (Camera / Notch) pointing DOWNHILL
-    // Top of phone is at phBotMid (downhill)
-    final topCameraX = (phBotL.dx + phBotR.dx) / 2;
-    final topCameraY = (phBotL.dy + phBotR.dy) / 2;
-    canvas.drawCircle(
-      Offset(topCameraX, topCameraY - 4),
-      3.0,
-      Paint()
-        ..color = Color.lerp(
-          Colors.transparent,
-          AppColors.primary,
-          phoneAlpha,
-        )!,
-    );
-
     // Screen border stroke
     canvas.drawPath(
       phoneQuad,
@@ -524,13 +504,49 @@ class _IsometricPlacementPainter extends CustomPainter {
           phoneAlpha,
         )!
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+        ..strokeWidth = 1.3,
     );
 
-    // Compass dial graphic on screen
+    // Top Camera / Dynamic Island pill pointing DOWNHILL
+    final topCameraX = (phBotL.dx + phBotR.dx) / 2;
+    final topCameraY = (phBotL.dy + phBotR.dy) / 2;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromCenter(
+          center: Offset(topCameraX, topCameraY - 4),
+          width: 8,
+          height: 3,
+        ),
+        const Radius.circular(1.5),
+      ),
+      Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          AppColors.primary,
+          phoneAlpha,
+        )!,
+    );
+
+    // Home bar indicator at UPHILL bottom end of phone
+    final botBaseX = (phTopL.dx + phTopR.dx) / 2;
+    final botBaseY = (phTopL.dy + phTopR.dy) / 2;
+    canvas.drawLine(
+      Offset(botBaseX - 4, botBaseY + 4),
+      Offset(botBaseX + 4, botBaseY + 4),
+      Paint()
+        ..color = Color.lerp(
+          Colors.transparent,
+          Colors.white.withValues(alpha: 0.5),
+          phoneAlpha,
+        )!
+        ..strokeWidth = 1.2
+        ..strokeCap = StrokeCap.round,
+    );
+
+    // Compass circle graphic on phone screen
     canvas.drawCircle(
       phoneCenter,
-      9.0,
+      7.0,
       Paint()
         ..color = Color.lerp(
           Colors.transparent,
@@ -538,22 +554,22 @@ class _IsometricPlacementPainter extends CustomPainter {
           phoneAlpha,
         )!
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5,
+        ..strokeWidth = 1.2,
     );
 
     // Pulsing Directional Azimuth Arrow from phone top edge downhill
     if (progress >= 0.50 && progress < 0.88) {
       final arrowStart = Offset(topCameraX, topCameraY);
       final arrowEnd = Offset(
-        topCameraX + (plx * 0.6) + (arrowPulse * 12),
-        topCameraY + (ply * 0.6) + (arrowPulse * 12),
+        topCameraX + (plx * 0.5) + (arrowPulse * 10),
+        topCameraY + (ply * 0.5) + (arrowPulse * 10),
       );
 
       final arrowPaint = Paint()
         ..color = AppColors.primary.withValues(
           alpha: (0.3 + arrowPulse * 0.7) * phoneAlpha,
         )
-        ..strokeWidth = 2.5
+        ..strokeWidth = 2.2
         ..strokeCap = StrokeCap.round;
 
       canvas.drawLine(arrowStart, arrowEnd, arrowPaint);
@@ -561,8 +577,8 @@ class _IsometricPlacementPainter extends CustomPainter {
       // Arrow head
       final head = Path()
         ..moveTo(arrowEnd.dx, arrowEnd.dy)
-        ..lineTo(arrowEnd.dx - 5, arrowEnd.dy - 6)
-        ..lineTo(arrowEnd.dx + 4, arrowEnd.dy - 4)
+        ..lineTo(arrowEnd.dx - 5, arrowEnd.dy - 5)
+        ..lineTo(arrowEnd.dx + 3, arrowEnd.dy - 3)
         ..close();
       canvas.drawPath(
         head,
@@ -572,23 +588,51 @@ class _IsometricPlacementPainter extends CustomPainter {
       );
     }
 
-    // Callout badge: "PORTRAIT (UPRIGHT)"
+    // ==========================================
+    // Top Callout Badge: Placed cleanly at the very top (y = 10 to 32)
+    // Completely clear of the solar panel which starts at y ~= 56
+    // ==========================================
     if (progress >= 0.40 && progress < 0.86) {
-      final calloutPainter = TextPainter(
-        text: TextSpan(
-          text: '✓ PORTRAIT (UPRIGHT)',
-          style: TextStyle(
-            color: AppColors.success,
-            fontSize: 11,
-            fontWeight: FontWeight.w800,
-            backgroundColor: AppColors.surface.withValues(alpha: 0.95),
-          ),
+      final textSpan = TextSpan(
+        text: '✓ PORTRAIT (UPRIGHT)',
+        style: TextStyle(
+          color: AppColors.success,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
         ),
+      );
+      final calloutPainter = TextPainter(
+        text: textSpan,
         textDirection: TextDirection.ltr,
       )..layout();
+
+      final badgeW = calloutPainter.width + 20.0;
+      const badgeH = 24.0;
+      final badgeX = cx - badgeW / 2;
+      const badgeY = 12.0;
+
+      // Clean rounded pill background
+      final badgeRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(badgeX, badgeY, badgeW, badgeH),
+        const Radius.circular(12),
+      );
+
+      canvas.drawRRect(
+        badgeRect,
+        Paint()..color = AppColors.surface,
+      );
+      canvas.drawRRect(
+        badgeRect,
+        Paint()
+          ..color = AppColors.success.withValues(alpha: 0.35)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0,
+      );
+
       calloutPainter.paint(
         canvas,
-        Offset(cx - calloutPainter.width / 2 + 10, cy - 65),
+        Offset(badgeX + 10, badgeY + (badgeH - calloutPainter.height) / 2),
       );
     }
   }

@@ -80,7 +80,7 @@ class ModuleRepository {
   Future<ModuleDetails> createModule({
     required String name,
     required String macAddress,
-    required List<String> managerIds,
+    List<String> managerIds = const [],
     List<String>? clientIds,
     double? panelLengthCm,
     double? panelWidthCm,

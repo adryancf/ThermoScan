@@ -95,7 +95,7 @@ func (h *Handler) handleListActiveCompanyClients(w http.ResponseWriter, r *http.
 type createModuleRequest struct {
 	Name                       string   `json:"name"`
 	MacAddress                 string   `json:"mac_address"`
-	ManagerIDs                 []string `json:"manager_ids"`
+	ManagerIDs                 []string `json:"manager_ids,omitempty"`
 	ClientIDs                  []string `json:"client_ids,omitempty"`
 	PanelLengthCm              *float64 `json:"panel_length_cm"`
 	PanelWidthCm               *float64 `json:"panel_width_cm"`
@@ -178,6 +178,8 @@ func (h *Handler) handleCreateModule(w http.ResponseWriter, r *http.Request) {
 			httpjson.WriteError(w, http.StatusBadRequest, "valid module name, MAC address, and configuration values are required", "INVALID_INPUT")
 		case errors.Is(err, ErrManagerRequired):
 			httpjson.WriteError(w, http.StatusBadRequest, "at least one active manager from the same company is required", "MODULE_MANAGER_REQUIRED")
+		case errors.Is(err, ErrTechnicianHasNoActiveManagers):
+			httpjson.WriteError(w, http.StatusUnprocessableEntity, "technician has no active responsible managers; please contact a manager", "NO_ACTIVE_MANAGERS")
 		case errors.Is(err, ErrTargetNotClient):
 			httpjson.WriteError(w, http.StatusBadRequest, "all client_ids must belong to active clients in this company", "INVALID_CLIENT_LINK")
 		case errors.Is(err, ErrMACConflict):
@@ -414,6 +416,8 @@ func (h *Handler) handleSetModuleManagers(w http.ResponseWriter, r *http.Request
 			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
 		case errors.Is(err, ErrManagerRequired):
 			httpjson.WriteError(w, http.StatusBadRequest, "at least one active manager from the same company is required", "MODULE_MANAGER_REQUIRED")
+		case errors.Is(err, ErrTechnicianHasNoActiveManagers):
+			httpjson.WriteError(w, http.StatusUnprocessableEntity, "technician has no active responsible managers; please contact a manager", "NO_ACTIVE_MANAGERS")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "only managers can update module responsible managers", "FORBIDDEN")
 		default:

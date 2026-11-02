@@ -217,11 +217,11 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected 403 when Manager creates module, got %d", rec.Code)
 	}
 
-	// 5. Tech T1 creates a draft module (pending_configuration) selecting Manager A2 (not even T1's direct manager, but active in company)
+	// 5. Aditivo: Tech T1 creates a draft module without specifying manager_ids;
+	// managers are automatically associated from technician_managers
 	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
 		"name":        "PV-001 Roof Array",
 		"mac_address": "aa:bb:cc:dd:ee:01",
-		"manager_ids": []string{mgrA2Res.User.ID},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 when Tech T1 creates draft module, got %d: %s", rec.Code, rec.Body.String())
@@ -234,12 +234,41 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if modCreated.Module.UserRelationship != module.RelInstallerTechnician {
 		t.Fatalf("expected relationship installer_technician, got %s", modCreated.Module.UserRelationship)
 	}
+	if len(modCreated.ResponsibleManagers) != 1 || modCreated.ResponsibleManagers[0].ID != compA.DefaultManager.ID {
+		t.Fatalf("expected responsible manager to be automatically assigned as %s, got %+v", compA.DefaultManager.ID, modCreated.ResponsibleManagers)
+	}
+
+	// Aditivo: Technician with no active responsible managers is blocked with 422
+	rec = doJSON(http.MethodPost, "/api/v1/users", mgrAAuth.AccessToken, map[string]any{
+		"name":        "Unassigned Tech",
+		"email":       "orphan.tech@modtest.local",
+		"role":        "technician",
+		"manager_ids": []string{compA.DefaultManager.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create orphan tech failed: %s", rec.Body.String())
+	}
+	var orphanTechRes user.CreateUserResult
+	_ = json.Unmarshal(rec.Body.Bytes(), &orphanTechRes)
+	orphanTechAuth := loginAndActivate("orphan.tech@modtest.local", orphanTechRes.TemporaryPassword, "OrphanTech#2026")
+
+	// Disassociate all managers from this technician to test the edge case
+	if _, err := tx.Exec(ctx, "DELETE FROM technician_managers WHERE technician_id = $1", orphanTechRes.User.ID); err != nil {
+		t.Fatalf("delete technician_managers failed: %v", err)
+	}
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules", orphanTechAuth.AccessToken, map[string]any{
+		"name":        "Blocked Module",
+		"mac_address": "12:34:56:78:90:AB",
+	})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 when technician has no active managers, got %d: %s", rec.Code, rec.Body.String())
+	}
 
 	// Duplicate MAC is rejected with 409
 	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
 		"name":        "Duplicate MAC Module",
 		"mac_address": "AA:BB:CC:DD:EE:01",
-		"manager_ids": []string{compA.DefaultManager.ID},
 	})
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 on duplicate MAC, got %d", rec.Code)

@@ -46,7 +46,6 @@ class _ModuleInstallationWizardScreenState
   // Step 1 (SCR-16): Module & Device
   final _nameCtrl = TextEditingController();
   final _macCtrl = TextEditingController();
-  final Set<String> _selectedManagerIds = {};
 
   final _sensorService = const DeviceSensorService();
 
@@ -137,9 +136,6 @@ class _ModuleInstallationWizardScreenState
     _persistedModuleId = mod.id;
     _nameCtrl.text = mod.name;
     _macCtrl.text = mod.macAddress;
-    _selectedManagerIds
-      ..clear()
-      ..addAll(details.responsibleManagers.map((m) => m.id));
     _selectedClientIds
       ..clear()
       ..addAll(
@@ -189,10 +185,9 @@ class _ModuleInstallationWizardScreenState
       setState(() => _errorMsg = 'A valid MAC address (e.g. AA:BB:CC:DD:EE:FF) is required to save a draft.');
       return;
     }
-    if (_selectedManagerIds.isEmpty) {
-      setState(() {
-        _errorMsg = 'Select at least one active responsible Manager.';
-      });
+    final managers = ref.read(companyManagersOptionsProvider).valueOrNull;
+    if (managers != null && managers.isEmpty) {
+      setState(() => _errorMsg = 'You do not have any active responsible managers. Please contact a company manager.');
       return;
     }
 
@@ -218,7 +213,6 @@ class _ModuleInstallationWizardScreenState
         final created = await repo.createModule(
           name: _nameCtrl.text.trim(),
           macAddress: _macCtrl.text.trim(),
-          managerIds: _selectedManagerIds.toList(),
           clientIds: _selectedClientIds.toList(),
           panelLengthCm: length,
           panelWidthCm: width,
@@ -288,9 +282,11 @@ class _ModuleInstallationWizardScreenState
   void _nextFromStep1() {
     setState(() => _errorMsg = null);
     if (!(_step1FormKey.currentState?.validate() ?? false)) return;
-    if (_selectedManagerIds.isEmpty) {
+    final managers = ref.read(companyManagersOptionsProvider).valueOrNull;
+    if (managers != null && managers.isEmpty) {
       setState(() {
-        _errorMsg = 'Select at least one active responsible Manager.';
+        _errorMsg =
+            'You do not have any active responsible managers. Please contact a company manager before installing.';
       });
       return;
     }
@@ -541,7 +537,6 @@ class _ModuleInstallationWizardScreenState
         final created = await repo.createModule(
           name: name,
           macAddress: mac,
-          managerIds: _selectedManagerIds.toList(),
           clientIds: _selectedClientIds.toList(),
           panelLengthCm: length,
           panelWidthCm: width,
@@ -830,97 +825,132 @@ class _ModuleInstallationWizardScreenState
                   ),
                 ],
                 const SizedBox(height: 20),
-                Text(
-                  'Responsible Managers (Select at least 1)',
-                  style: AppTypography.h3.copyWith(fontSize: 15),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Select from all active Managers in your company.',
-                  style: AppTypography.bodySmall,
-                ),
-                const SizedBox(height: 10),
-                managersAsync.when(
-                  loading: () => const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(
-                      child:
-                          CircularProgressIndicator(color: AppColors.primary),
-                    ),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
                   ),
-                  error: (err, _) => Text(
-                    err.toString(),
-                    style:
-                        AppTypography.caption.copyWith(color: AppColors.error),
-                  ),
-                  data: (managers) {
-                    if (_selectedManagerIds.isEmpty && managers.isNotEmpty) {
-                      // Pre-select default manager for convenience if none chosen yet
-                      final defaultMgr = managers
-                          .where((m) => m.isDefaultManager)
-                          .firstOrNull;
-                      if (defaultMgr != null) {
-                        _selectedManagerIds.add(defaultMgr.id);
-                      }
-                    }
-                    return Column(
-                      children: managers.map((mgr) {
-                        final selected = _selectedManagerIds.contains(mgr.id);
-                        return CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          activeColor: AppColors.primary,
-                          value: selected,
-                          onChanged: isMacLocked
-                              ? null
-                              : (val) {
-                                  setState(() {
-                                    if (val ?? false) {
-                                      _selectedManagerIds.add(mgr.id);
-                                    } else {
-                                      _selectedManagerIds.remove(mgr.id);
-                                    }
-                                  });
-                                },
-                          title: Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  mgr.name,
-                                  style: AppTypography.body.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.admin_panel_settings_outlined,
+                            size: 20,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Responsible Supervisory Managers',
+                              style: AppTypography.h3.copyWith(fontSize: 14),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Responsible managers are automatically assigned from your active supervisory profile upon installation.',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      managersAsync.when(
+                        loading: () => const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(8),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                        error: (err, _) => Text(
+                          err.toString(),
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.error,
+                          ),
+                        ),
+                        data: (managers) {
+                          if (managers.isEmpty) {
+                            return Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.warningBackground,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: AppColors.warningBorder,
                                 ),
                               ),
-                              if (mgr.isDefaultManager) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.warning_amber_rounded,
+                                    size: 18,
+                                    color: AppColors.warning,
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primarySoft,
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    'Default',
-                                    style: AppTypography.chip.copyWith(
-                                      fontSize: 10,
-                                      color: AppColors.primary,
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'No active responsible managers found. Please contact a manager before installing.',
+                                      style: AppTypography.caption.copyWith(
+                                        color: AppColors.warning,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
+                                ],
+                              ),
+                            );
+                          }
+                          return Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: managers.map((mgr) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
                                 ),
-                              ],
-                            ],
-                          ),
-                          subtitle: Text(
-                            mgr.email,
-                            style: AppTypography.caption,
-                          ),
-                        );
-                      }).toList(),
-                    );
-                  },
+                                decoration: BoxDecoration(
+                                  color: AppColors.background,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: AppColors.border),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.person_outline,
+                                      size: 14,
+                                      color: AppColors.textSecondary,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      mgr.name,
+                                      style: AppTypography.caption.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.textPrimary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -1834,10 +1864,7 @@ class _ModuleInstallationWizardScreenState
     List<ModuleManagerItem> managers,
     List<ModuleClientItem> clients,
   ) {
-    final chosenManagers = managers
-        .where((m) => _selectedManagerIds.contains(m.id))
-        .map((m) => m.name)
-        .join(', ');
+    final assignedManagers = managers.map((m) => m.name).join(', ');
 
     final chosenClients = clients
         .where((c) => _selectedClientIds.contains(c.id))
@@ -1864,9 +1891,9 @@ class _ModuleInstallationWizardScreenState
           items: {
             'Name': _nameCtrl.text.trim(),
             'MAC Address': _macCtrl.text.trim().toUpperCase(),
-            'Managers': chosenManagers.isEmpty
-                ? '${_selectedManagerIds.length} selected'
-                : chosenManagers,
+            'Managers': assignedManagers.isEmpty
+                ? 'Automatically assigned from supervisory profile'
+                : assignedManagers,
           },
         ),
         const SizedBox(height: 12),

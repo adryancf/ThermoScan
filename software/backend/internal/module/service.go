@@ -37,7 +37,8 @@ var (
 	ErrNotFound              = errors.New("module not found")
 	ErrForbidden             = errors.New("insufficient permissions for this module operation")
 	ErrMACConflict           = errors.New("a module with this MAC address is already registered")
-	ErrManagerRequired       = errors.New("at least one active responsible manager from the same company is required")
+	ErrManagerRequired             = errors.New("at least one active responsible manager from the same company is required")
+	ErrTechnicianHasNoActiveManagers = errors.New("technician has no active responsible managers")
 	ErrTargetNotTechnician         = errors.New("target user is not a technician in this company")
 	ErrTargetNotClient             = errors.New("one or more target users are not active clients in this company")
 	ErrModuleHasOperationalHistory = errors.New("module contains operational history or pending operations and cannot be deleted; deactivate it instead")
@@ -247,11 +248,6 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		return ModuleDetailsDTO{}, ErrInvalidInput
 	}
 
-	uniqueMgrIDs := deduplicateUUIDs(in.ManagerIDs)
-	if len(uniqueMgrIDs) == 0 {
-		return ModuleDetailsDTO{}, ErrManagerRequired
-	}
-
 	intervalDays := int32(1)
 	if in.InspectionIntervalDays != nil {
 		if *in.InspectionIntervalDays < 1 {
@@ -318,15 +314,24 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		return ModuleDetailsDTO{}, ErrForbidden
 	}
 
-	// Verify all manager IDs are active managers in the same company
-	for _, mgrID := range uniqueMgrIDs {
-		mgr, err := qtx.GetCompanyUserByID(ctx, db.GetCompanyUserByIDParams{
-			CompanyID: in.CompanyID,
-			ID:        mgrID,
-		})
-		if err != nil || mgr.Role != auth.RoleManager || !mgr.IsActive {
-			return ModuleDetailsDTO{}, ErrManagerRequired
+	// Aditivo: Automatically associate all active managers responsible for the technician
+	assignedManagers, err := qtx.ListManagersByTechnician(ctx, db.ListManagersByTechnicianParams{
+		CompanyID:    in.CompanyID,
+		TechnicianID: in.InstallerTechnicianID,
+	})
+	if err != nil {
+		return ModuleDetailsDTO{}, err
+	}
+
+	activeMgrIDs := make([]pgtype.UUID, 0, len(assignedManagers))
+	for _, mgr := range assignedManagers {
+		if mgr.IsActive && mgr.CompanyID.Bytes == in.CompanyID.Bytes {
+			activeMgrIDs = append(activeMgrIDs, mgr.ID)
 		}
+	}
+
+	if len(activeMgrIDs) == 0 {
+		return ModuleDetailsDTO{}, ErrTechnicianHasNoActiveManagers
 	}
 
 	created, err := qtx.CreateModule(ctx, db.CreateModuleParams{
@@ -360,7 +365,7 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		return ModuleDetailsDTO{}, err
 	}
 
-	for _, mgrID := range uniqueMgrIDs {
+	for _, mgrID := range activeMgrIDs {
 		if _, err := qtx.AddModuleManager(ctx, db.AddModuleManagerParams{
 			CompanyID: in.CompanyID,
 			ModuleID:  created.ID,

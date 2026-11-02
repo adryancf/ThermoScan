@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/features/modules/data/device_sensor_service.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/phone_placement_guide_modal.dart';
 
 class OrientationCompassWidget extends StatefulWidget {
   const OrientationCompassWidget({
@@ -85,7 +86,7 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Header Status Badge
+          // Header Status Badge & Placement Guide Button
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -106,96 +107,95 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
                   const SizedBox(width: 8),
                   Text(
                     widget.isLocked
-                        ? 'Orientation Locked'
-                        : 'Live Hardware Sensors',
+                        ? 'Locked'
+                        : 'Live Sensors',
                     style: AppTypography.h3.copyWith(fontSize: 14),
                   ),
                 ],
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: widget.isLocked
-                      ? AppColors.successBackground
-                      : (hasMag
-                          ? AppColors.primarySoft
-                          : AppColors.warningBackground),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      widget.isLocked
-                          ? Icons.check_circle
-                          : (hasMag ? Icons.explore : Icons.screen_rotation),
-                      size: 13,
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
                       color: widget.isLocked
-                          ? AppColors.success
-                          : (hasMag ? AppColors.primary : AppColors.warning),
+                          ? AppColors.successBackground
+                          : (hasMag
+                              ? AppColors.primarySoft
+                              : AppColors.warningBackground),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    const SizedBox(width: 4),
-                    Text(
-                      widget.isLocked
-                          ? 'Captured'
-                          : (hasMag ? 'Compass Active' : 'Tilt Sensor'),
-                      style: AppTypography.chip.copyWith(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: widget.isLocked
-                            ? AppColors.success
-                            : (hasMag ? AppColors.primary : AppColors.warning),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-
-          // Instructional Guidance Banner for Physical Positioning
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppColors.background,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(
-                  Icons.phone_android_outlined,
-                  size: 20,
-                  color: AppColors.primary,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: RichText(
-                    text: TextSpan(
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.textPrimary,
-                        fontSize: 11,
-                        height: 1.35,
-                      ),
-                      children: const [
-                        TextSpan(
-                          text: 'Placement Guide: ',
-                          style: TextStyle(fontWeight: FontWeight.bold),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          widget.isLocked
+                              ? Icons.check_circle
+                              : (hasMag ? Icons.explore : Icons.screen_rotation),
+                          size: 13,
+                          color: widget.isLocked
+                              ? AppColors.success
+                              : (hasMag ? AppColors.primary : AppColors.warning),
                         ),
-                        TextSpan(
-                          text:
-                              'Place the back of your phone flat on the solar panel surface. The top edge of your phone must point toward the lower edge of the slope (direction the panel faces).',
+                        const SizedBox(width: 4),
+                        Text(
+                          widget.isLocked
+                              ? 'Captured'
+                              : (hasMag ? 'Compass Active' : 'Tilt Sensor'),
+                          style: AppTypography.chip.copyWith(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: widget.isLocked
+                                ? AppColors.success
+                                : (hasMag ? AppColors.primary : AppColors.warning),
+                          ),
                         ),
                       ],
                     ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () => PhonePlacementGuideModal.show(context),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppColors.primary.withValues(alpha: 0.25),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.help_outline_rounded,
+                            size: 13,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Guide',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
 
           // Interactive Gauges (Compass Dial + Inclinometer Arc)
           Row(

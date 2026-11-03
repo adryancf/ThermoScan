@@ -343,7 +343,15 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		return nil, ErrForbidden
 	}
 
-	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	row, err := qtx.GetModuleByIDForUpdate(ctx, db.GetModuleByIDForUpdateParams{
 		CompanyID: principal.CompanyID,
 		ID:        moduleID,
 	})
@@ -354,7 +362,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		return nil, err
 	}
 
-	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	_, _, err = s.resolveUserModuleRelationship(ctx, qtx, principal, row.ID, row.InstallerTechnicianID)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +399,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 
 	// 1. Create inspection session with real timestamps
 	inspEventID := newRandomUUID()
-	insp, err := s.queries.CreateInspection(ctx, db.CreateInspectionParams{
+	insp, err := qtx.CreateInspection(ctx, db.CreateInspectionParams{
 		ModuleID:      moduleID,
 		SourceEventID: inspEventID,
 		Type:          inspType,
@@ -424,7 +432,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		}
 
 		measEventID := newRandomUUID()
-		meas, err := s.queries.CreateMeasurement(ctx, db.CreateMeasurementParams{
+		meas, err := qtx.CreateMeasurement(ctx, db.CreateMeasurementParams{
 			ModuleID:             moduleID,
 			InspectionID:         insp.ID,
 			SourceEventID:        measEventID,
@@ -450,7 +458,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		// If hotspot detected, register real anomaly event
 		if f.HotspotDetected {
 			anomEventID := newRandomUUID()
-			_, _ = s.queries.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
+			_, _ = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
 				ModuleID:              moduleID,
 				OriginMeasurementID:   meas.ID,
 				SourceEventID:         anomEventID,
@@ -466,7 +474,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 	// 3. Run multi-frame stitching with authentic overlap-60 blending
 	totalCols, totalRows, compositeData, _ := stitchThermalFrames(framesToProcess)
 	compositeBytes, _ := json.Marshal(compositeData)
-	_, _ = s.queries.CreateInspectionThermalMap(ctx, db.CreateInspectionThermalMapParams{
+	_, _ = qtx.CreateInspectionThermalMap(ctx, db.CreateInspectionThermalMapParams{
 		InspectionID:     insp.ID,
 		WidthPixels:      totalCols,
 		HeightPixels:     totalRows,
@@ -475,16 +483,20 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 	})
 
 	// 4. Update device online timestamp (without overwriting water_available!)
-	_, _ = s.queries.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
 		ID: moduleID,
 	})
 	if input.WaterAvailable != nil {
 		pingEventID := newRandomUUID()
-		_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+		_, _ = qtx.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
 			ModuleID:       moduleID,
 			SourceEventID:  pingEventID,
 			WaterAvailable: pgtype.Bool{Bool: *input.WaterAvailable, Valid: true},
 		})
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 
 	meas := primaryMeasRow

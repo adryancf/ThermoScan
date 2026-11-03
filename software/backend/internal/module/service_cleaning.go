@@ -81,7 +81,15 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		return nil, ErrForbidden
 	}
 
-	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	row, err := qtx.GetModuleByIDForUpdate(ctx, db.GetModuleByIDForUpdateParams{
 		CompanyID: principal.CompanyID,
 		ID:        moduleID,
 	})
@@ -92,7 +100,7 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		return nil, err
 	}
 
-	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	_, _, err = s.resolveUserModuleRelationship(ctx, qtx, principal, row.ID, row.InstallerTechnicianID)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +114,7 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		if err != nil {
 			return nil, ErrInvalidInput
 		}
-		a, err := s.queries.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+		a, err := qtx.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
 			ID:       parsed,
 			ModuleID: moduleID,
 		})
@@ -119,7 +127,7 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		anomID = a.ID
 	} else {
 		// Look up latest open anomaly for this module
-		a, err := s.queries.GetLatestOpenAnomalyEventByModule(ctx, moduleID)
+		a, err := qtx.GetLatestOpenAnomalyEventByModule(ctx, moduleID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, ErrNotFound
@@ -169,7 +177,7 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		failReason = pgtype.Text{String: "Water reservoir depleted", Valid: true}
 	}
 
-	clean, err := s.queries.CreateCleaningOperation(ctx, db.CreateCleaningOperationParams{
+	clean, err := qtx.CreateCleaningOperation(ctx, db.CreateCleaningOperationParams{
 		ModuleID:               moduleID,
 		AnomalyEventID:         anomID,
 		SourceEventID:          cleanEventID,
@@ -202,13 +210,17 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	if input.PumpActuated {
 		attemptsInc = 1
 	}
-	_, _ = s.queries.UpdateAnomalyEventStatus(ctx, db.UpdateAnomalyEventStatusParams{
+	_, _ = qtx.UpdateAnomalyEventStatus(ctx, db.UpdateAnomalyEventStatusParams{
 		Status:                newAnomStatus,
 		ActuatedAttemptsCount: attemptsInc,
 		ClosedAt:              closedAt,
 		ID:                    anomID,
 		ModuleID:              moduleID,
 	})
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
 
 	var attPtr *int32
 	if clean.AttemptNumber.Valid {

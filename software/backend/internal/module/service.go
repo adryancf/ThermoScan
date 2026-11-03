@@ -38,7 +38,8 @@ var (
 	ErrTechnicianHasNoActiveManagers = errors.New("technician has no active responsible managers")
 	ErrTargetNotTechnician           = errors.New("target user is not a technician in this company")
 	ErrTargetNotClient               = errors.New("one or more target users are not active clients in this company")
-	ErrModuleHasOperationalHistory   = errors.New("module contains operational history or pending operations and cannot be deleted; deactivate it instead")
+	ErrModuleHasPendingOperations    = errors.New("module has pending or in-progress operations")
+	ErrModuleHasOperationalHistory   = errors.New("module has operational history")
 	ErrStaleConfig                   = errors.New("stale configuration version")
 )
 
@@ -844,38 +845,25 @@ func (s *Service) DeleteModule(ctx context.Context, principal auth.Principal, mo
 		return err
 	}
 
-	if history.InspectionsCount > 0 ||
-		history.MeasurementsCount > 0 ||
-		history.AnomaliesCount > 0 ||
-		history.CleaningsCount > 0 ||
-		history.ReservoirReadingsCount > 0 ||
-		history.IntervalChangeLogsCount > 0 ||
-		history.PendingInspectionsCount > 0 ||
-		history.PendingCleaningsCount > 0 {
-		return ErrModuleHasOperationalHistory
+	// Pending operations check (applies to BOTH Manager and Technician)
+	if history.PendingInspectionsCount > 0 || history.PendingCleaningsCount > 0 {
+		return ErrModuleHasPendingOperations
 	}
 
-	if err := qtx.DeleteAllManagersForModule(ctx, db.DeleteAllManagersForModuleParams{
-		CompanyID: principal.CompanyID,
-		ModuleID:  moduleID,
-	}); err != nil {
+	// History check (applies ONLY to Technician)
+	if principal.Role == auth.RoleTechnician {
+		if history.InspectionsCount > 0 || history.MeasurementsCount > 0 || history.AnomaliesCount > 0 || history.CleaningsCount > 0 {
+			return ErrModuleHasOperationalHistory
+		}
+	}
+
+	// Removal sequence inside transaction:
+	// 1. Neutralize verification inspections (ONLY verification inspections)
+	if err := qtx.NeutralizeVerificationInspectionsForModule(ctx, moduleID); err != nil {
 		return err
 	}
 
-	if err := qtx.DeleteAllTechniciansForModule(ctx, db.DeleteAllTechniciansForModuleParams{
-		CompanyID: principal.CompanyID,
-		ModuleID:  moduleID,
-	}); err != nil {
-		return err
-	}
-
-	if err := qtx.DeleteAllClientsForModule(ctx, db.DeleteAllClientsForModuleParams{
-		CompanyID: principal.CompanyID,
-		ModuleID:  moduleID,
-	}); err != nil {
-		return err
-	}
-
+	// 2. Delete all notifications for module
 	if err := qtx.DeleteAllNotificationsForModule(ctx, db.DeleteAllNotificationsForModuleParams{
 		CompanyID: principal.CompanyID,
 		ModuleID:  moduleID,
@@ -883,6 +871,66 @@ func (s *Service) DeleteModule(ctx context.Context, principal auth.Principal, mo
 		return err
 	}
 
+	// 3. Delete all reservoir readings for module
+	if err := qtx.DeleteAllReservoirReadingsForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	// 4. Delete all cleanings for module
+	if err := qtx.DeleteAllCleaningsForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	// 5. Delete all anomalies for module
+	if err := qtx.DeleteAllAnomaliesForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	// 6. Delete inspection thermal maps for module
+	if err := qtx.DeleteInspectionThermalMapsForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	// 7. Delete all measurements for module
+	if err := qtx.DeleteAllMeasurementsForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	// 8. Delete all inspections for module
+	if err := qtx.DeleteAllInspectionsForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	// 9. Delete all interval change logs for module
+	if err := qtx.DeleteAllIntervalChangeLogsForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	// 10. Delete all managers for module
+	if err := qtx.DeleteAllManagersForModule(ctx, db.DeleteAllManagersForModuleParams{
+		CompanyID: principal.CompanyID,
+		ModuleID:  moduleID,
+	}); err != nil {
+		return err
+	}
+
+	// 11. Delete all technicians for module
+	if err := qtx.DeleteAllTechniciansForModule(ctx, db.DeleteAllTechniciansForModuleParams{
+		CompanyID: principal.CompanyID,
+		ModuleID:  moduleID,
+	}); err != nil {
+		return err
+	}
+
+	// 12. Delete all clients for module
+	if err := qtx.DeleteAllClientsForModule(ctx, db.DeleteAllClientsForModuleParams{
+		CompanyID: principal.CompanyID,
+		ModuleID:  moduleID,
+	}); err != nil {
+		return err
+	}
+
+	// 13. Delete module
 	if err := qtx.DeleteModule(ctx, db.DeleteModuleParams{
 		CompanyID: principal.CompanyID,
 		ID:        moduleID,

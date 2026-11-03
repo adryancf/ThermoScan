@@ -389,8 +389,10 @@ func (h *Handler) handleDeleteModule(w http.ResponseWriter, r *http.Request) {
 			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "you do not have permission to delete this module", "FORBIDDEN")
+		case errors.Is(err, ErrModuleHasPendingOperations):
+			httpjson.WriteError(w, http.StatusConflict, "module cannot be deleted while physical operations or inspections are scheduled or in progress", "MODULE_HAS_PENDING_OPERATIONS")
 		case errors.Is(err, ErrModuleHasOperationalHistory):
-			httpjson.WriteError(w, http.StatusConflict, "module cannot be deleted because it contains operational history or pending operations; deactivate it instead", "MODULE_HAS_OPERATIONAL_HISTORY")
+			httpjson.WriteError(w, http.StatusConflict, "installer technicians cannot delete modules with operational history (inspections, measurements, or cleanings)", "MODULE_HAS_HISTORY")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
 		}

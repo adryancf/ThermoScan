@@ -81,6 +81,10 @@ class ApiException implements Exception {
         return 'You must change your temporary password before continuing.';
       case 'FORBIDDEN':
         return 'You do not have permission to perform this action.';
+      case 'MODULE_HAS_PENDING_OPERATIONS':
+        return 'Module cannot be deleted while physical operations or inspections are scheduled or in progress.';
+      case 'MODULE_HAS_HISTORY':
+        return 'Installer technicians cannot delete modules with operational history.';
       default:
         // Capitalize first letter if needed
         if (rawMessage.isEmpty) return 'Request failed.';

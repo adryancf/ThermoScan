@@ -116,7 +116,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'This action is irreversible. All administrative manager, technician, and client assignments for this module will be removed. Modules with operational history cannot be deleted.',
+                'Delete this module permanently? Its measurements, thermal maps, cleaning history, alerts, and access assignments will also be deleted. This action cannot be undone.',
                 style: AppTypography.bodySmall.copyWith(
                   color: AppColors.textSecondary,
                 ),

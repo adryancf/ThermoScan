@@ -561,6 +561,45 @@ DELETE FROM notifications
 WHERE company_id = $1
   AND module_id = $2;
 
+-- name: NeutralizeVerificationInspectionsForModule :exec
+UPDATE inspections
+SET
+    type = 'scheduled',
+    cleaning_operation_id = NULL,
+    verification_result = NULL
+WHERE module_id = $1
+  AND type = 'verification';
+
+-- name: DeleteInspectionThermalMapsForModule :exec
+DELETE FROM inspection_thermal_maps
+WHERE inspection_id IN (
+    SELECT id FROM inspections WHERE module_id = $1
+);
+
+-- name: DeleteAllReservoirReadingsForModule :exec
+DELETE FROM reservoir_readings
+WHERE module_id = $1;
+
+-- name: DeleteAllCleaningsForModule :exec
+DELETE FROM cleaning_operations
+WHERE module_id = $1;
+
+-- name: DeleteAllAnomaliesForModule :exec
+DELETE FROM anomaly_events
+WHERE module_id = $1;
+
+-- name: DeleteAllMeasurementsForModule :exec
+DELETE FROM measurements
+WHERE module_id = $1;
+
+-- name: DeleteAllInspectionsForModule :exec
+DELETE FROM inspections
+WHERE module_id = $1;
+
+-- name: DeleteAllIntervalChangeLogsForModule :exec
+DELETE FROM interval_change_logs
+WHERE module_id = $1;
+
 -- name: DeleteModule :exec
 DELETE FROM modules
 WHERE company_id = $1

@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
@@ -496,10 +499,26 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	}
 
 	// 14. Aditivo de negócio: Exclusão de módulos e cadastros
-	// A) Módulo com histórico operacional (modCreated possui logs de intervalo do passo 10) não pode ser excluído
+	// A) Módulo com operações pendentes não pode ser excluído nem por Manager (409 MODULE_HAS_PENDING_OPERATIONS)
+	var pendingInspID string
+	err = tx.QueryRow(ctx, "INSERT INTO inspections (module_id, type, scheduled_for, status) VALUES ($1, 'scheduled', NOW(), 'scheduled') RETURNING id", modCreated.Module.ID).Scan(&pendingInspID)
+	if err != nil {
+		t.Fatalf("failed to insert pending inspection: %v", err)
+	}
+
 	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modCreated.Module.ID, mgrAAuth.AccessToken, nil)
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409 when deleting module with operational history, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 409 when deleting module with pending operations, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var errPendingResp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &errPendingResp)
+	if errPendingResp["code"] != "MODULE_HAS_PENDING_OPERATIONS" {
+		t.Fatalf("expected error code MODULE_HAS_PENDING_OPERATIONS, got %v", errPendingResp["code"])
+	}
+
+	// Remove pending inspection so module no longer has pending operations
+	if _, err := tx.Exec(ctx, "DELETE FROM inspections WHERE id = $1", pendingInspID); err != nil {
+		t.Fatalf("failed to delete pending inspection: %v", err)
 	}
 
 	// B) Módulo elegível sem histórico operacional (modWithClient):
@@ -1017,5 +1036,687 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	}
 	if alertsResp.Total == 0 {
 		t.Fatalf("expected active alerts from open anomaly, got 0")
+	}
+}
+
+func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	pool, err := pgxpool.New(ctx, testDBURL())
+	if err != nil {
+		t.Skipf("PostgreSQL pool not reachable for integration test: %v", err)
+	}
+	defer pool.Close()
+
+	if err := pool.Ping(ctx); err != nil {
+		t.Skipf("PostgreSQL ping failed: %v", err)
+	}
+
+	tokens := auth.NewTokenManager("module-deletion-redesign-secret-2026")
+	q := db.New(pool)
+
+	adminPass := "AdminPass#2026"
+	adminHash, err := auth.HashPassword(adminPass)
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	nano := time.Now().UnixNano()
+	adminEmail := fmt.Sprintf("sysadmin.delredesign.%d@thermoscan.local", nano)
+	if _, err := q.CreateUser(ctx, db.CreateUserParams{
+		CompanyID:          pgtype.UUID{Valid: false},
+		Name:               "System Admin DelRedesign",
+		Email:              adminEmail,
+		PasswordHash:       adminHash,
+		Role:               auth.RoleSystemAdmin,
+		IsActive:           true,
+		IsDefaultManager:   false,
+		MustChangePassword: false,
+	}); err != nil {
+		t.Fatalf("CreateUser (system_admin): %v", err)
+	}
+
+	router := httpapi.NewRouter(httpapi.Dependencies{
+		AuthHandler:    auth.NewHandler(auth.NewService(pool, tokens), q, tokens),
+		CompanyHandler: company.NewHandler(company.NewService(pool), q, tokens),
+		UserHandler:    user.NewHandler(user.NewService(pool), q, tokens),
+		ModuleHandler:  module.NewHandler(module.NewService(pool), q, tokens),
+	})
+
+	doJSON := func(method, path, bearer string, body any) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		if body != nil {
+			if err := json.NewEncoder(&buf).Encode(body); err != nil {
+				t.Fatalf("encode body: %v", err)
+			}
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		req.Header.Set("Content-Type", "application/json")
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	loginAndActivate := func(email, tempPass, newPass string) auth.AuthResponse {
+		rec := doJSON(http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+			"email":    email,
+			"password": tempPass,
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("login(%s) failed (%d): %s", email, rec.Code, rec.Body.String())
+		}
+		var resp auth.AuthResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode login: %v", err)
+		}
+		if resp.User.MustChangePassword {
+			rec = doJSON(http.MethodPost, "/api/v1/auth/change-password", resp.AccessToken, map[string]string{
+				"current_password": tempPass,
+				"new_password":     newPass,
+			})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("change-password(%s) failed (%d): %s", email, rec.Code, rec.Body.String())
+			}
+			rec = doJSON(http.MethodPost, "/api/v1/auth/login", "", map[string]string{
+				"email":    email,
+				"password": newPass,
+			})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("re-login(%s) failed (%d): %s", email, rec.Code, rec.Body.String())
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("decode re-login: %v", err)
+			}
+		}
+		return resp
+	}
+
+	adminAuth := loginAndActivate(adminEmail, adminPass, adminPass)
+
+	// Create Company A
+	compAName := fmt.Sprintf("Solar Del Redesign A %d", nano)
+	compAEmail := fmt.Sprintf("manager.del.a.%d@thermoscan.local", nano)
+	compAResp := doJSON(http.MethodPost, "/api/v1/companies", adminAuth.AccessToken, map[string]string{
+		"name":          compAName,
+		"manager_name":  "Manager Del A",
+		"manager_email": compAEmail,
+	})
+	if compAResp.Code != http.StatusCreated {
+		t.Fatalf("create company A: %d: %s", compAResp.Code, compAResp.Body.String())
+	}
+	var compA company.CreateCompanyResult
+	_ = json.Unmarshal(compAResp.Body.Bytes(), &compA)
+
+	// Create Company B for cross-tenant tests
+	compBName := fmt.Sprintf("Solar Del Redesign B %d", nano)
+	compBEmail := fmt.Sprintf("manager.del.b.%d@thermoscan.local", nano)
+	compBResp := doJSON(http.MethodPost, "/api/v1/companies", adminAuth.AccessToken, map[string]string{
+		"name":          compBName,
+		"manager_name":  "Manager Del B",
+		"manager_email": compBEmail,
+	})
+	if compBResp.Code != http.StatusCreated {
+		t.Fatalf("create company B: %d: %s", compBResp.Code, compBResp.Body.String())
+	}
+	var compB company.CreateCompanyResult
+	_ = json.Unmarshal(compBResp.Body.Bytes(), &compB)
+
+	t.Cleanup(func() {
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanCancel()
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM companies WHERE id IN ($1, $2)", compA.Company.ID, compB.Company.ID)
+		_, _ = pool.Exec(cleanCtx, "DELETE FROM users WHERE email = $1", adminEmail)
+	})
+
+	mgrAAuth := loginAndActivate(compA.DefaultManager.Email, compA.TemporaryPassword, "ManagerPass#2026")
+	mgrBAuth := loginAndActivate(compB.DefaultManager.Email, compB.TemporaryPassword, "ManagerPass#2026")
+
+	// Create Technician 1 (installer) and Technician 2 (shared) in Company A
+	createTech := func(name, email string) auth.AuthResponse {
+		rec := doJSON(http.MethodPost, "/api/v1/users", mgrAAuth.AccessToken, map[string]any{
+			"name":        name,
+			"email":       email,
+			"role":        "technician",
+			"manager_ids": []string{compA.DefaultManager.ID},
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create technician %s: %d: %s", email, rec.Code, rec.Body.String())
+		}
+		var userResp struct {
+			User         struct{ ID, Email string } `json:"user"`
+			TempPassword string                     `json:"temporary_password"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &userResp)
+		return loginAndActivate(userResp.User.Email, userResp.TempPassword, "TechPass#2026")
+	}
+
+	tech1Email := fmt.Sprintf("tech1.del.%d@solardelredesigna.local", nano)
+	tech2Email := fmt.Sprintf("tech2.del.%d@solardelredesigna.local", nano)
+	tech1Auth := createTech("Tech 1 Del", tech1Email)
+	tech2Auth := createTech("Tech 2 Del", tech2Email)
+
+	_, err = pool.Exec(ctx, "INSERT INTO technician_managers (company_id, technician_id, manager_id) VALUES ($1, $2, $3), ($1, $4, $3) ON CONFLICT DO NOTHING",
+		compA.Company.ID, tech1Auth.User.ID, compA.DefaultManager.ID, tech2Auth.User.ID)
+	if err != nil {
+		t.Fatalf("link tech managers: %v", err)
+	}
+
+	testFrame768 := func(baseline, hotspot float64) []float64 {
+		f := make([]float64, 768)
+		for i := range f {
+			f[i] = baseline
+		}
+		f[384] = hotspot
+		return f
+	}
+
+	mac1 := fmt.Sprintf("02:%02x:%02x:%02x:00:01", byte(nano>>24), byte(nano>>16), byte(nano>>8))
+	mac2 := fmt.Sprintf("02:%02x:%02x:%02x:00:02", byte(nano>>24), byte(nano>>16), byte(nano>>8))
+	mac3 := fmt.Sprintf("02:%02x:%02x:%02x:00:03", byte(nano>>24), byte(nano>>16), byte(nano>>8))
+	mac4 := fmt.Sprintf("02:%02x:%02x:%02x:00:04", byte(nano>>24), byte(nano>>16), byte(nano>>8))
+	mac5 := fmt.Sprintf("02:%02x:%02x:%02x:00:05", byte(nano>>24), byte(nano>>16), byte(nano>>8))
+
+	// =========================================================================
+	// 1. Technician installer deletes module without operational history
+	//    even if it has interval_change_logs or periodic reservoir_readings
+	// =========================================================================
+	rec := doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":                          "Mod Without Operational History",
+		"mac_address":                   mac1,
+		"manager_ids":                   []string{compA.DefaultManager.ID},
+		"inspection_interval_days":      7,
+		"panel_length_cm":               100.0,
+		"panel_width_cm":                50.0,
+		"panel_count":                   10,
+		"panel_spacing_cm":              2.0,
+		"latitude":                      -23.5505,
+		"longitude":                     -46.6333,
+		"elevation_m":                   760.0,
+		"azimuth_deg":                   0.0,
+		"tilt_deg":                      15.0,
+		"azimuth_source":                "manual",
+		"tilt_source":                   "manual",
+		"minimum_solar_angle_deg":       10.0,
+		"reservoir_nominal_capacity_ml": 5000.0,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create mod 1: %d: %s", rec.Code, rec.Body.String())
+	}
+	var mod1 struct{ Module struct{ ID string `json:"id"` } `json:"module"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &mod1)
+
+	// Update configuration -> creates interval_change_logs
+	rec = doJSON(http.MethodPatch, "/api/v1/modules/"+mod1.Module.ID+"/configuration", mgrAAuth.AccessToken, map[string]any{
+		"inspection_interval_days": 14,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("patch mod 1 config: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Claim device -> sets device_token & records handshake periodic reservoir_readings
+	rec = doJSON(http.MethodPost, "/api/v1/devices/claim", "", map[string]any{
+		"mac_address":     mac1,
+		"water_available": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("claim mod 1: %d: %s", rec.Code, rec.Body.String())
+	}
+	var claimMod1 struct{ DeviceToken string `json:"device_token"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &claimMod1)
+
+	// Device pings -> records another reservoir reading
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod1.Module.ID+"/ping", claimMod1.DeviceToken, map[string]any{
+		"water_available": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ping mod 1: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify that mod1 has interval_change_logs and reservoir_readings, but 0 measurements, 0 cleanings, 0 completed inspections, 0 anomalies
+	var intvCount, resvCount, measCount, inspCount int
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM interval_change_logs WHERE module_id = $1", mod1.Module.ID).Scan(&intvCount)
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM reservoir_readings WHERE module_id = $1", mod1.Module.ID).Scan(&resvCount)
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM measurements WHERE module_id = $1", mod1.Module.ID).Scan(&measCount)
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM inspections WHERE module_id = $1", mod1.Module.ID).Scan(&inspCount)
+	if intvCount == 0 || resvCount == 0 || measCount != 0 || inspCount != 0 {
+		t.Fatalf("expected intv>0 and resv>0, but meas=0 and insp=0; got intv=%d resv=%d meas=%d insp=%d", intvCount, resvCount, measCount, inspCount)
+	}
+
+	// Technician Installer (Tech 1) can delete this module!
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod1.Module.ID, tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 when installer deletes module with only interval logs and reservoir readings, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Confirm module and related rows are gone
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+mod1.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 after module deletion, got %d", rec.Code)
+	}
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM interval_change_logs WHERE module_id = $1", mod1.Module.ID).Scan(&intvCount)
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM reservoir_readings WHERE module_id = $1", mod1.Module.ID).Scan(&resvCount)
+	if intvCount != 0 || resvCount != 0 {
+		t.Fatalf("expected interval logs and reservoir readings deleted, got intv=%d, resv=%d", intvCount, resvCount)
+	}
+
+	// =========================================================================
+	// 2. Technician installer CANNOT delete module with operational history (409 MODULE_HAS_HISTORY)
+	// =========================================================================
+	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":        "Mod With Operational History",
+		"mac_address": mac2,
+		"manager_ids": []string{compA.DefaultManager.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create mod 2: %d: %s", rec.Code, rec.Body.String())
+	}
+	var mod2 struct{ Module struct{ ID string `json:"id"` } `json:"module"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &mod2)
+
+	// Claim device
+	rec = doJSON(http.MethodPost, "/api/v1/devices/claim", "", map[string]any{
+		"mac_address": mac2,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("claim mod 2: %d: %s", rec.Code, rec.Body.String())
+	}
+	var claimMod2 struct{ DeviceToken string `json:"device_token"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &claimMod2)
+
+	// Ingest telemetry with hotspot -> creates completed inspection, measurement, anomaly, thermal map
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/telemetry", claimMod2.DeviceToken, map[string]any{
+		"x_position_cm":          10.0,
+		"baseline_temperature_c": 35.0,
+		"max_temperature_c":      55.0,
+		"hotspot_detected":      true,
+		"voltage_v":              18.0,
+		"current_a":              4.0,
+		"thermal_frame":          testFrame768(35.0, 55.0),
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("ingest telemetry mod 2: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Tech 1 (installer) attempts to delete -> must fail with 409 MODULE_HAS_HISTORY
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when technician deletes module with operational history, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var errHistResp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &errHistResp)
+	if errHistResp["code"] != "MODULE_HAS_HISTORY" {
+		t.Fatalf("expected code MODULE_HAS_HISTORY, got %v", errHistResp["code"])
+	}
+
+	// =========================================================================
+	// 3. Pending operations block deletion (BOTH Manager and Technician with 409 MODULE_HAS_PENDING_OPERATIONS)
+	// =========================================================================
+	var pendingInspID string
+	err = pool.QueryRow(ctx, "INSERT INTO inspections (module_id, type, scheduled_for, status) VALUES ($1, 'scheduled', NOW(), 'scheduled') RETURNING id", mod2.Module.ID).Scan(&pendingInspID)
+	if err != nil {
+		t.Fatalf("insert pending insp: %v", err)
+	}
+
+	// Manager cannot delete while pending inspection exists
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when manager deletes module with pending inspection, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var pendingErrResp map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &pendingErrResp)
+	if pendingErrResp["code"] != "MODULE_HAS_PENDING_OPERATIONS" {
+		t.Fatalf("expected MODULE_HAS_PENDING_OPERATIONS, got %v", pendingErrResp["code"])
+	}
+
+	// Technician cannot delete either
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when technician deletes module with pending inspection, got %d: %s", rec.Code, rec.Body.String())
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &pendingErrResp)
+	if pendingErrResp["code"] != "MODULE_HAS_PENDING_OPERATIONS" {
+		t.Fatalf("expected MODULE_HAS_PENDING_OPERATIONS, got %v", pendingErrResp["code"])
+	}
+
+	// Delete pending inspection
+	_, _ = pool.Exec(ctx, "DELETE FROM inspections WHERE id = $1", pendingInspID)
+
+	// Now insert in_progress cleaning on mod2
+	var anomID string
+	err = pool.QueryRow(ctx, "SELECT id FROM anomaly_events WHERE module_id = $1 LIMIT 1", mod2.Module.ID).Scan(&anomID)
+	if err != nil {
+		t.Fatalf("get anomaly: %v", err)
+	}
+	var pendingCleanID string
+	err = pool.QueryRow(ctx, "INSERT INTO cleaning_operations (module_id, anomaly_event_id, source_event_id, target_x_position_cm, status, pump_actuated, attempt_number, started_at) VALUES ($1, $2, gen_random_uuid(), 10.0, 'in_progress', true, 1, NOW()) RETURNING id", mod2.Module.ID, anomID).Scan(&pendingCleanID)
+	if err != nil {
+		t.Fatalf("insert pending clean: %v", err)
+	}
+
+	// Manager cannot delete while cleaning in_progress
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 when manager deletes module with in_progress cleaning, got %d: %s", rec.Code, rec.Body.String())
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &pendingErrResp)
+	if pendingErrResp["code"] != "MODULE_HAS_PENDING_OPERATIONS" {
+		t.Fatalf("expected MODULE_HAS_PENDING_OPERATIONS, got %v", pendingErrResp["code"])
+	}
+
+	// Complete cleaning operation
+	_, err = pool.Exec(ctx, "UPDATE cleaning_operations SET status = 'completed', pump_actuated = true, attempt_number = 1, started_at = NOW() - interval '10s', ended_at = NOW(), duration_seconds = 10, estimated_water_volume_ml = 200 WHERE id = $1", pendingCleanID)
+	if err != nil {
+		t.Fatalf("complete cleaning: %v", err)
+	}
+
+	// =========================================================================
+	// 4. Permissions checks: Revoked technician (403), Other company (404)
+	// =========================================================================
+	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":        "Mod For Access Revocation Test",
+		"mac_address": mac3,
+		"manager_ids": []string{compA.DefaultManager.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create mod 3: %d: %s", rec.Code, rec.Body.String())
+	}
+	var mod3 struct{ Module struct{ ID string `json:"id"` } `json:"module"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &mod3)
+
+	// Revoke Tech 1's view access on Mod 3
+	rec = doJSON(http.MethodPut, "/api/v1/modules/"+mod3.Module.ID+"/technicians/"+tech1Auth.User.ID, mgrAAuth.AccessToken, map[string]any{
+		"can_view": false,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("revoke tech access: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Tech 1 cannot delete when can_view is false (403)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod3.Module.ID, tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when revoked technician attempts to delete module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Shared technician (Tech 2) cannot delete either (403)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod3.Module.ID, tech2Auth.AccessToken, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 when shared technician attempts to delete module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// User of Company B cannot delete (404) or query (404)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod3.Module.ID, mgrBAuth.AccessToken, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when company B tries to delete module, got %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+mod3.Module.ID, mgrBAuth.AccessToken, nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 when company B tries to get module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// =========================================================================
+	// 5. Manager deletes module with full operational history
+	//    (including verification inspection linked to cleaning operation, thermal maps, anomalies, measurements, reservoir readings, notifications)
+	// =========================================================================
+	var verifInspID string
+	err = pool.QueryRow(ctx, `INSERT INTO inspections (
+		module_id, type, cleaning_operation_id, scheduled_for, started_at, finished_at, status, verification_result
+	) VALUES (
+		$1, 'verification', $2, NOW() - interval '5m', NOW() - interval '4m', NOW() - interval '3m', 'completed', 'resolved'
+	) RETURNING id`, mod2.Module.ID, pendingCleanID).Scan(&verifInspID)
+	if err != nil {
+		t.Fatalf("insert verification inspection: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, "INSERT INTO reservoir_readings (module_id, cleaning_operation_id, source_event_id, measured_at, reading_status, water_available, context) VALUES ($1, $2, gen_random_uuid(), NOW(), 'valid', true, 'after_cleaning')", mod2.Module.ID, pendingCleanID)
+	if err != nil {
+		t.Fatalf("insert reservoir reading: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, `INSERT INTO notifications (
+		company_id, user_id, module_id, anomaly_event_id, inspection_id, type, title, message, deduplication_key
+	) VALUES (
+		$1, $2, $3, $4, $5, 'hotspot_detected', 'Hotspot Alert', 'Hotspot detected on panel', 'test-dedup-del-2'
+	)`, compA.Company.ID, compA.DefaultManager.ID, mod2.Module.ID, anomID, verifInspID)
+	if err != nil {
+		t.Fatalf("insert notification: %v", err)
+	}
+
+	// Manager A deletes Mod 2 with full history
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 when manager deletes module with full operational history, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify all dependent tables have 0 rows for mod2.ID
+	assertCount := func(table string) {
+		col := "module_id"
+		if table == "modules" {
+			col = "id"
+		}
+		var cnt int
+		err := pool.QueryRow(ctx, "SELECT count(*) FROM "+table+" WHERE "+col+" = $1", mod2.Module.ID).Scan(&cnt)
+		if err != nil {
+			t.Fatalf("query count %s: %v", table, err)
+		}
+		if cnt != 0 {
+			t.Fatalf("expected 0 rows in %s for deleted module, got %d", table, cnt)
+		}
+	}
+	assertCount("modules")
+	assertCount("inspections")
+	assertCount("measurements")
+	assertCount("anomaly_events")
+	assertCount("cleaning_operations")
+	assertCount("reservoir_readings")
+	assertCount("interval_change_logs")
+	assertCount("notifications")
+	assertCount("module_managers")
+	assertCount("module_technicians")
+	assertCount("module_clients")
+
+	var mapCnt int
+	err = pool.QueryRow(ctx, "SELECT count(*) FROM inspection_thermal_maps WHERE inspection_id = $1", verifInspID).Scan(&mapCnt)
+	if err != nil || mapCnt != 0 {
+		t.Fatalf("expected 0 thermal maps, got err=%v cnt=%d", err, mapCnt)
+	}
+
+	// =========================================================================
+	// 6. Rejection of data sent to deleted modules & Device reconnection rejection
+	// =========================================================================
+	// ESP32 with old deviceToken tries to ping -> 401 UNAUTHORIZED
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/ping", claimMod2.DeviceToken, map[string]any{
+		"water_available": true,
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for ping on deleted module with old token, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// ESP32 with old deviceToken tries to send telemetry -> 401 UNAUTHORIZED
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/telemetry", claimMod2.DeviceToken, map[string]any{
+		"x_position_cm":          10.0,
+		"baseline_temperature_c": 35.0,
+		"max_temperature_c":      36.0,
+		"hotspot_detected":      false,
+		"voltage_v":              18.0,
+		"current_a":              4.0,
+		"thermal_frame":          testFrame768(35.0, 36.0),
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for telemetry on deleted module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// ESP32 with old deviceToken tries to send cleanings -> 401 UNAUTHORIZED
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/cleanings", claimMod2.DeviceToken, map[string]any{
+		"target_x_position_cm": 10.0,
+		"status":               "completed",
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for cleanings on deleted module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// ESP32 with old deviceToken tries to send config ack -> 401 UNAUTHORIZED
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/configuration/ack", claimMod2.DeviceToken, map[string]any{
+		"config_version": 1,
+		"applied":        true,
+	})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for config ack on deleted module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// ESP32 tries to claim with deleted module MAC -> 404 NOT_FOUND
+	rec = doJSON(http.MethodPost, "/api/v1/devices/claim", "", map[string]any{
+		"mac_address": mac2,
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 claiming deleted module MAC, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Manager with JWT tries to send telemetry -> 404 NOT_FOUND
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+mod2.Module.ID+"/telemetry", mgrAAuth.AccessToken, map[string]any{
+		"x_position_cm":          10.0,
+		"baseline_temperature_c": 35.0,
+		"max_temperature_c":      36.0,
+		"hotspot_detected":      false,
+		"voltage_v":              18.0,
+		"current_a":              4.0,
+		"thermal_frame":          testFrame768(35.0, 36.0),
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for JWT telemetry on deleted module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Manager with JWT tries to send device-ping -> 404 NOT_FOUND
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+mod2.Module.ID+"/device-ping", mgrAAuth.AccessToken, map[string]any{
+		"water_available": true,
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for JWT ping on deleted module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Manager with JWT tries to send cleaning -> 404 NOT_FOUND
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+mod2.Module.ID+"/cleanings", mgrAAuth.AccessToken, map[string]any{
+		"target_x_position_cm": 10.0,
+		"status":               "completed",
+	})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for JWT cleanings on deleted module, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify no records were recreated anywhere
+	assertCount("modules")
+	assertCount("measurements")
+	assertCount("inspections")
+	assertCount("reservoir_readings")
+
+	// =========================================================================
+	// 7. Transactional coordination / Concurrent telemetry during DeleteModule
+	// =========================================================================
+	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":        "Mod Concurrency Test",
+		"mac_address": mac4,
+		"manager_ids": []string{compA.DefaultManager.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create mod 4: %d: %s", rec.Code, rec.Body.String())
+	}
+	var mod4 struct{ Module struct{ ID string `json:"id"` } `json:"module"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &mod4)
+
+	rec = doJSON(http.MethodPost, "/api/v1/devices/claim", "", map[string]any{
+		"mac_address": mac4,
+	})
+	var claimMod4 struct{ DeviceToken string `json:"device_token"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &claimMod4)
+
+	var wg sync.WaitGroup
+	var concurrentTelemetryCode int
+
+	wg.Add(2)
+	// Goroutine 1: Initiates DeleteModule holding the row lock
+	go func() {
+		defer wg.Done()
+		delTx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Errorf("begin delTx: %v", err)
+			return
+		}
+		defer delTx.Rollback(ctx)
+
+		var id string
+		err = delTx.QueryRow(ctx, "SELECT id FROM modules WHERE id = $1 FOR UPDATE", mod4.Module.ID).Scan(&id)
+		if err != nil {
+			t.Errorf("lock module: %v", err)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+
+		cUUID, _ := auth.ParseUUID(compA.Company.ID)
+		mUUID, _ := auth.ParseUUID(mod4.Module.ID)
+		delQtx := db.New(delTx)
+		_ = delQtx.DeleteAllManagersForModule(ctx, db.DeleteAllManagersForModuleParams{CompanyID: cUUID, ModuleID: mUUID})
+		_ = delQtx.DeleteAllTechniciansForModule(ctx, db.DeleteAllTechniciansForModuleParams{CompanyID: cUUID, ModuleID: mUUID})
+		_ = delQtx.DeleteModule(ctx, db.DeleteModuleParams{CompanyID: cUUID, ID: mUUID})
+		_ = delTx.Commit(ctx)
+	}()
+
+	// Goroutine 2: Ingest telemetry concurrently (starts slightly after Goroutine 1 locks)
+	go func() {
+		defer wg.Done()
+		time.Sleep(20 * time.Millisecond)
+		telemetryRec := doJSON(http.MethodPost, "/api/v1/modules/"+mod4.Module.ID+"/telemetry", mgrAAuth.AccessToken, map[string]any{
+			"x_position_cm":          10.0,
+			"baseline_temperature_c": 35.0,
+			"max_temperature_c":      36.0,
+			"hotspot_detected":      false,
+			"voltage_v":              18.0,
+			"current_a":              4.0,
+			"thermal_frame":          testFrame768(35.0, 36.0),
+		})
+		concurrentTelemetryCode = telemetryRec.Code
+	}()
+
+	wg.Wait()
+
+	if concurrentTelemetryCode != http.StatusNotFound {
+		t.Fatalf("expected concurrent telemetry to return 404 after module deleted, got %d", concurrentTelemetryCode)
+	}
+
+	var mod4MeasCount int
+	_ = pool.QueryRow(ctx, "SELECT count(*) FROM measurements WHERE module_id = $1", mod4.Module.ID).Scan(&mod4MeasCount)
+	if mod4MeasCount != 0 {
+		t.Fatalf("expected 0 measurements for Mod 4, got %d", mod4MeasCount)
+	}
+
+	// =========================================================================
+	// 8. Rollback after intermediate failure leaves all rows intact
+	// =========================================================================
+	rec = doJSON(http.MethodPost, "/api/v1/modules", tech1Auth.AccessToken, map[string]any{
+		"name":        "Mod Rollback Test",
+		"mac_address": mac5,
+		"manager_ids": []string{compA.DefaultManager.ID},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create mod 5: %d: %s", rec.Code, rec.Body.String())
+	}
+	var mod5 struct{ Module struct{ ID string `json:"id"` } `json:"module"` }
+	_ = json.Unmarshal(rec.Body.Bytes(), &mod5)
+
+	rbTx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin rbTx: %v", err)
+	}
+	rbCUUID, _ := auth.ParseUUID(compA.Company.ID)
+	rbMUUID, _ := auth.ParseUUID(mod5.Module.ID)
+	rbQtx := db.New(rbTx)
+	_ = rbQtx.DeleteAllManagersForModule(ctx, db.DeleteAllManagersForModuleParams{CompanyID: rbCUUID, ModuleID: rbMUUID})
+	_ = rbTx.Rollback(ctx)
+
+	// Verify manager assignment and module still exist
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+mod5.Module.ID, mgrAAuth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 after rollback, got %d", rec.Code)
 	}
 }

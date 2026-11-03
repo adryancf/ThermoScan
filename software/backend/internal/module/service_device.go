@@ -186,7 +186,15 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		return nil, ErrForbidden
 	}
 
-	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	row, err := qtx.GetModuleByIDForUpdate(ctx, db.GetModuleByIDForUpdateParams{
 		CompanyID: principal.CompanyID,
 		ID:        moduleID,
 	})
@@ -197,7 +205,7 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		return nil, err
 	}
 
-	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	_, _, err = s.resolveUserModuleRelationship(ctx, qtx, principal, row.ID, row.InstallerTechnicianID)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +219,7 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 	if input.ThermalSensorActive != nil {
 		thermalActive = pgtype.Bool{Bool: *input.ThermalSensorActive, Valid: true}
 	}
-	_, _ = s.queries.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
 		ID:                  moduleID,
 		LimitsCheckPassed:   limitsPassed,
 		ThermalSensorActive: thermalActive,
@@ -220,7 +228,7 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 	// Only record reservoir ping if water_available was explicitly provided
 	if input.WaterAvailable != nil {
 		eventID := newRandomUUID()
-		_, err = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+		_, err = qtx.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
 			ModuleID:       moduleID,
 			SourceEventID:  eventID,
 			WaterAvailable: pgtype.Bool{Bool: *input.WaterAvailable, Valid: true},
@@ -228,6 +236,10 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
 	}
 
 	return s.GetDeviceStatus(ctx, principal, moduleID)

@@ -366,6 +366,26 @@ func (q *Queries) CreateModule(ctx context.Context, arg CreateModuleParams) (Cre
 	return i, err
 }
 
+const deleteAllAnomaliesForModule = `-- name: DeleteAllAnomaliesForModule :exec
+DELETE FROM anomaly_events
+WHERE module_id = $1
+`
+
+func (q *Queries) DeleteAllAnomaliesForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllAnomaliesForModule, moduleID)
+	return err
+}
+
+const deleteAllCleaningsForModule = `-- name: DeleteAllCleaningsForModule :exec
+DELETE FROM cleaning_operations
+WHERE module_id = $1
+`
+
+func (q *Queries) DeleteAllCleaningsForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllCleaningsForModule, moduleID)
+	return err
+}
+
 const deleteAllClientsForModule = `-- name: DeleteAllClientsForModule :exec
 DELETE FROM module_clients
 WHERE company_id = $1
@@ -379,6 +399,26 @@ type DeleteAllClientsForModuleParams struct {
 
 func (q *Queries) DeleteAllClientsForModule(ctx context.Context, arg DeleteAllClientsForModuleParams) error {
 	_, err := q.db.Exec(ctx, deleteAllClientsForModule, arg.CompanyID, arg.ModuleID)
+	return err
+}
+
+const deleteAllInspectionsForModule = `-- name: DeleteAllInspectionsForModule :exec
+DELETE FROM inspections
+WHERE module_id = $1
+`
+
+func (q *Queries) DeleteAllInspectionsForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllInspectionsForModule, moduleID)
+	return err
+}
+
+const deleteAllIntervalChangeLogsForModule = `-- name: DeleteAllIntervalChangeLogsForModule :exec
+DELETE FROM interval_change_logs
+WHERE module_id = $1
+`
+
+func (q *Queries) DeleteAllIntervalChangeLogsForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllIntervalChangeLogsForModule, moduleID)
 	return err
 }
 
@@ -398,6 +438,16 @@ func (q *Queries) DeleteAllManagersForModule(ctx context.Context, arg DeleteAllM
 	return err
 }
 
+const deleteAllMeasurementsForModule = `-- name: DeleteAllMeasurementsForModule :exec
+DELETE FROM measurements
+WHERE module_id = $1
+`
+
+func (q *Queries) DeleteAllMeasurementsForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllMeasurementsForModule, moduleID)
+	return err
+}
+
 const deleteAllNotificationsForModule = `-- name: DeleteAllNotificationsForModule :exec
 DELETE FROM notifications
 WHERE company_id = $1
@@ -414,6 +464,16 @@ func (q *Queries) DeleteAllNotificationsForModule(ctx context.Context, arg Delet
 	return err
 }
 
+const deleteAllReservoirReadingsForModule = `-- name: DeleteAllReservoirReadingsForModule :exec
+DELETE FROM reservoir_readings
+WHERE module_id = $1
+`
+
+func (q *Queries) DeleteAllReservoirReadingsForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteAllReservoirReadingsForModule, moduleID)
+	return err
+}
+
 const deleteAllTechniciansForModule = `-- name: DeleteAllTechniciansForModule :exec
 DELETE FROM module_technicians
 WHERE company_id = $1
@@ -427,6 +487,18 @@ type DeleteAllTechniciansForModuleParams struct {
 
 func (q *Queries) DeleteAllTechniciansForModule(ctx context.Context, arg DeleteAllTechniciansForModuleParams) error {
 	_, err := q.db.Exec(ctx, deleteAllTechniciansForModule, arg.CompanyID, arg.ModuleID)
+	return err
+}
+
+const deleteInspectionThermalMapsForModule = `-- name: DeleteInspectionThermalMapsForModule :exec
+DELETE FROM inspection_thermal_maps
+WHERE inspection_id IN (
+    SELECT id FROM inspections WHERE module_id = $1
+)
+`
+
+func (q *Queries) DeleteInspectionThermalMapsForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteInspectionThermalMapsForModule, moduleID)
 	return err
 }
 
@@ -1676,6 +1748,21 @@ func (q *Queries) ListTechniciansByModule(ctx context.Context, arg ListTechnicia
 		return nil, err
 	}
 	return items, nil
+}
+
+const neutralizeVerificationInspectionsForModule = `-- name: NeutralizeVerificationInspectionsForModule :exec
+UPDATE inspections
+SET
+    type = 'scheduled',
+    cleaning_operation_id = NULL,
+    verification_result = NULL
+WHERE module_id = $1
+  AND type = 'verification'
+`
+
+func (q *Queries) NeutralizeVerificationInspectionsForModule(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, neutralizeVerificationInspectionsForModule, moduleID)
+	return err
 }
 
 const removeModuleClient = `-- name: RemoveModuleClient :exec

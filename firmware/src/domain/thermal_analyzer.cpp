@@ -1,0 +1,200 @@
+#include "domain/thermal_analyzer.h"
+#include <cmath>
+#include <algorithm>
+
+namespace domain {
+
+bool ThermalAnalyzer::isValidPixel(float temp_c) {
+    if (std::isnan(temp_c)) {
+        return false;
+    }
+    return (temp_c > MIN_VALID_TEMP_C) && (temp_c <= MAX_VALID_TEMP_C);
+}
+
+float ThermalAnalyzer::calculateGlobalX(float scan_x_cm, int col) {
+    return scan_x_cm + (static_cast<float>(col) / static_cast<float>(MLX_COLS)) * FOV_OPTICAL_CM;
+}
+
+float ThermalAnalyzer::calculateBaseline(const std::vector<ScanAcquisition>& acquisitions) const {
+    // NOTE: Baseline calculation is performed over the complete accumulated sequence of valid scan captures.
+    // The thermal analysis is executed strictly post-capture across the entire scan dataset,
+    // without reliance on lookahead or uncaptured future data.
+    std::vector<float> valid_pixels;
+    valid_pixels.reserve(acquisitions.size() * PIXEL_COUNT);
+
+    for (const auto& acq : acquisitions) {
+        if (!acq.valid || !acq.frame.valid) {
+            continue;
+        }
+        for (size_t i = 0; i < PIXEL_COUNT; ++i) {
+            float t = acq.frame.pixels[i];
+            if (isValidPixel(t)) {
+                valid_pixels.push_back(t);
+            }
+        }
+    }
+
+    if (valid_pixels.empty()) {
+        return 0.0f;
+    }
+
+    std::sort(valid_pixels.begin(), valid_pixels.end());
+    const size_t n = valid_pixels.size();
+    if (n % 2 == 1) {
+        return valid_pixels[n / 2];
+    } else {
+        return (valid_pixels[n / 2 - 1] + valid_pixels[n / 2]) / 2.0f;
+    }
+}
+
+std::vector<HotspotCandidate> ThermalAnalyzer::findCandidates(const ScanAcquisition& acq,
+                                                            float baseline_temp_c,
+                                                            size_t acq_index) const {
+    std::vector<HotspotCandidate> candidates;
+    if (!acq.valid || !acq.frame.valid) {
+        return candidates;
+    }
+
+    const float threshold = baseline_temp_c + HOTSPOT_THRESHOLD_DELTA_C;
+
+    for (int row = 0; row < MLX_ROWS; ++row) {
+        for (int col = 0; col < MLX_COLS; ++col) {
+            const size_t idx = static_cast<size_t>(row * MLX_COLS + col);
+            const float t = acq.frame.pixels[idx];
+
+            if (isValidPixel(t) && t >= threshold) {
+                HotspotCandidate cand;
+                cand.col = col;
+                cand.row = row;
+                cand.temp_c = t;
+                cand.global_x_cm = calculateGlobalX(acq.x_position_cm, col);
+                cand.acquisition_index = acq_index;
+                candidates.push_back(cand);
+            }
+        }
+    }
+
+    return candidates;
+}
+
+std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcquisition>& acquisitions,
+                                                     float tolerance_cm,
+                                                     bool only_confirmed) const {
+    // Consecutively confirmed spatial detection significantly mitigates spurious sensor noise
+    // and transient reflections; however, it does not guarantee 100% elimination of all false
+    // positives under real-world outdoor field conditions.
+    if (acquisitions.empty()) {
+        return {};
+    }
+
+    const float baseline = calculateBaseline(acquisitions);
+
+    // Extract candidates per acquisition
+    std::vector<std::vector<HotspotCandidate>> per_acq_candidates;
+    per_acq_candidates.reserve(acquisitions.size());
+    for (size_t i = 0; i < acquisitions.size(); ++i) {
+        per_acq_candidates.push_back(findCandidates(acquisitions[i], baseline, i));
+    }
+
+    // Track confirmed status for each candidate
+    std::vector<std::vector<bool>> candidate_confirmed(acquisitions.size());
+    for (size_t i = 0; i < acquisitions.size(); ++i) {
+        candidate_confirmed[i].resize(per_acq_candidates[i].size(), false);
+    }
+
+    std::vector<HotspotEvent> raw_confirmed_events;
+
+    // Evaluate consecutive acquisitions k and k+1
+    for (size_t k = 0; k + 1 < acquisitions.size(); ++k) {
+        const auto& acq_k = acquisitions[k];
+        const auto& acq_next = acquisitions[k + 1];
+
+        if (!acq_k.valid || !acq_k.frame.valid || !acq_next.valid || !acq_next.frame.valid) {
+            continue;
+        }
+
+        // Check nominal step progression (~2.0 cm step with tolerance)
+        const float dx = std::abs(acq_next.x_position_cm - acq_k.x_position_cm);
+        if (std::abs(dx - STEP_SIZE_CM) > 0.6f) {
+            continue;
+        }
+
+        const auto& cands_k = per_acq_candidates[k];
+        const auto& cands_next = per_acq_candidates[k + 1];
+
+        for (size_t idx_a = 0; idx_a < cands_k.size(); ++idx_a) {
+            const auto& cand_a = cands_k[idx_a];
+
+            for (size_t idx_b = 0; idx_b < cands_next.size(); ++idx_b) {
+                const auto& cand_b = cands_next[idx_b];
+
+                // Must be on the exact same row and spatial match within calibration tolerance
+                if (cand_a.row == cand_b.row) {
+                    const float spatial_diff = std::abs(cand_a.global_x_cm - cand_b.global_x_cm);
+                    if (spatial_diff <= tolerance_cm) {
+                        candidate_confirmed[k][idx_a] = true;
+                        candidate_confirmed[k + 1][idx_b] = true;
+
+                        HotspotEvent ev;
+                        ev.target_x_cm = (cand_a.global_x_cm + cand_b.global_x_cm) / 2.0f;
+                        ev.row = cand_a.row;
+                        ev.max_temp_c = std::max(cand_a.temp_c, cand_b.temp_c);
+                        ev.baseline_temp_c = baseline;
+                        ev.confirmed = true;
+                        raw_confirmed_events.push_back(ev);
+                    }
+                }
+            }
+        }
+    }
+
+    // Cluster/merge overlapping confirmed events in the same row within tolerance
+    std::vector<HotspotEvent> result_events;
+    for (const auto& ev : raw_confirmed_events) {
+        bool merged = false;
+        for (auto& existing : result_events) {
+            if (existing.row == ev.row && std::abs(existing.target_x_cm - ev.target_x_cm) <= tolerance_cm) {
+                if (ev.max_temp_c > existing.max_temp_c) {
+                    existing.max_temp_c = ev.max_temp_c;
+                    existing.target_x_cm = ev.target_x_cm;
+                }
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) {
+            result_events.push_back(ev);
+        }
+    }
+
+    // If requested, include unconfirmed candidates as unconfirmed events
+    if (!only_confirmed) {
+        for (size_t i = 0; i < acquisitions.size(); ++i) {
+            for (size_t c = 0; c < per_acq_candidates[i].size(); ++c) {
+                if (!candidate_confirmed[i][c]) {
+                    const auto& cand = per_acq_candidates[i][c];
+                    bool already_clustered = false;
+                    for (const auto& ev : result_events) {
+                        if (ev.row == cand.row && std::abs(ev.target_x_cm - cand.global_x_cm) <= tolerance_cm) {
+                            already_clustered = true;
+                            break;
+                        }
+                    }
+                    if (!already_clustered) {
+                        HotspotEvent ev;
+                        ev.target_x_cm = cand.global_x_cm;
+                        ev.row = cand.row;
+                        ev.max_temp_c = cand.temp_c;
+                        ev.baseline_temp_c = baseline;
+                        ev.confirmed = false;
+                        result_events.push_back(ev);
+                    }
+                }
+            }
+        }
+    }
+
+    return result_events;
+}
+
+} // namespace domain

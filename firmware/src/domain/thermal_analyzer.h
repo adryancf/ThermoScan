@@ -1,0 +1,120 @@
+#ifndef THERMOSCAN_DOMAIN_THERMAL_ANALYZER_H
+#define THERMOSCAN_DOMAIN_THERMAL_ANALYZER_H
+
+#include <vector>
+#include <cstddef>
+#include <cstdint>
+#include "pinout.h"
+#include "hal/i_thermal_camera.h"
+
+namespace domain {
+
+/**
+ * @brief Represents a single thermal camera acquisition at a specific linear rail position.
+ */
+struct ScanAcquisition {
+    float x_position_cm{0.0f};
+    ThermalFrame frame{};
+    bool valid{false};
+};
+
+/**
+ * @brief Intermediate detected candidate pixel with temperature exceeding baseline threshold.
+ */
+struct HotspotCandidate {
+    int col{0};
+    int row{0};
+    float temp_c{0.0f};
+    float global_x_cm{0.0f};
+    size_t acquisition_index{0};
+};
+
+/**
+ * @brief Output struct representing a confirmed or evaluated hotspot event.
+ */
+struct HotspotEvent {
+    float target_x_cm{0.0f};
+    int row{0};
+    float max_temp_c{0.0f};
+    float baseline_temp_c{0.0f};
+    bool confirmed{false};
+};
+
+/**
+ * @brief Pure domain thermal analyzer implementing baseline calculation and
+ * consecutive spatial confirmation of thermal anomalies.
+ *
+ * NOTE ON BASELINE AND DATA PIPELINE:
+ * Análise é realizada após a captura da sequência completa, sem depender de leituras futuras.
+ * All scan acquisitions along the inspection rail are collected in sequence and analyzed
+ * retrospectively. The median baseline calculation uses all valid pixels across all valid frames.
+ *
+ * NOTE ON FALSE POSITIVE MITIGATION:
+ * A confirmação espacial em passos consecutivos reduz ruído e reflexos espúrios,
+ * mas não afirma eliminar 100% dos falsos positivos em condições reais de campo.
+ */
+class ThermalAnalyzer {
+public:
+    static constexpr int MLX_COLS = 32;
+    static constexpr int MLX_ROWS = 24;
+    static constexpr size_t PIXEL_COUNT = ThermalFrame::PIXEL_COUNT; // 768
+    static constexpr float COL_WIDTH_CM = FOV_OPTICAL_CM / 32.0f;    // 5.0 / 32 = 0.15625 cm
+    static constexpr float DEFAULT_POSITION_TOLERANCE_CM = 0.5f;     // Spatial confirmation tolerance (cm)
+    static constexpr float MIN_VALID_TEMP_C = -40.0f;
+    static constexpr float MAX_VALID_TEMP_C = 300.0f;
+
+    ThermalAnalyzer() = default;
+
+    /**
+     * @brief Checks if a pixel temperature reading is within valid sensor boundaries.
+     */
+    static bool isValidPixel(float temp_c);
+
+    /**
+     * @brief Computes global physical rail coordinate X_global for a given column within a capture at rail X.
+     * Formula: X_global = X + (col / 32.0f) * 5.0f
+     */
+    static float calculateGlobalX(float scan_x_cm, int col);
+
+    /**
+     * @brief Calculates median temperature of all valid pixels across all valid acquisitions in the scan.
+     * Odd count: exact middle element.
+     * Even count: average of the two central elements.
+     */
+    float calculateBaseline(const std::vector<ScanAcquisition>& acquisitions) const;
+
+    /**
+     * @brief Identifies candidate pixels exceeding baseline + HOTSPOT_THRESHOLD_DELTA_C.
+     */
+    std::vector<HotspotCandidate> findCandidates(const ScanAcquisition& acq,
+                                                float baseline_temp_c,
+                                                size_t acq_index = 0) const;
+
+    /**
+     * @brief Evaluates the complete scan sequence.
+     * Two candidates in consecutive acquisitions (step ~ 2.0 cm, optical overlap ~ 60%)
+     * confirm a hotspot if they are on the same row and their global X coordinates
+     * match within tolerance.
+     *
+     * Invalid pixels in the overlap region cannot confirm an anomaly alone.
+     * Both consecutive frames must provide valid candidate detections.
+     *
+     * @param acquisitions Full sequence of scan acquisitions
+     * @param tolerance_cm Maximum spatial difference in X_global for consecutive confirmation (default 0.5 cm)
+     * @param only_confirmed When true (default), returns only confirmed hotspots.
+     *                       When false, includes unconfirmed candidates with confirmed=false.
+     */
+    std::vector<HotspotEvent> analyzeScan(const std::vector<ScanAcquisition>& acquisitions,
+                                         float tolerance_cm = DEFAULT_POSITION_TOLERANCE_CM,
+                                         bool only_confirmed = true) const;
+};
+
+} // namespace domain
+
+// Aliases in global namespace for convenience
+using domain::ScanAcquisition;
+using domain::HotspotCandidate;
+using domain::HotspotEvent;
+using domain::ThermalAnalyzer;
+
+#endif // THERMOSCAN_DOMAIN_THERMAL_ANALYZER_H

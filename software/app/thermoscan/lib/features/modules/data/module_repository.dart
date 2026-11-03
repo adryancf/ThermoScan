@@ -233,4 +233,61 @@ class ModuleRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<List<ModuleMeasurement>> listMeasurements({
+    required String moduleId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/measurements',
+        queryParameters: {'limit': limit, 'offset': offset},
+      );
+      final rawList =
+          response.data?['measurements'] as List<dynamic>? ?? const [];
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .map(ModuleMeasurement.fromJson)
+          .toList();
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
+  Future<List<ModuleCleaning>> listCleanings({
+    required String moduleId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/cleanings',
+        queryParameters: {'limit': limit, 'offset': offset},
+      );
+      final rawList =
+          response.data?['cleanings'] as List<dynamic>? ?? const [];
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .map(ModuleCleaning.fromJson)
+          .toList();
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
+  Future<ModuleThermalMap?> getLatestThermalMap({
+    required String moduleId,
+  }) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/thermal-map',
+      );
+      final rawMap = response.data?['thermal_map'] as Map<String, dynamic>?;
+      if (rawMap == null) return null;
+      return ModuleThermalMap.fromJson(rawMap);
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

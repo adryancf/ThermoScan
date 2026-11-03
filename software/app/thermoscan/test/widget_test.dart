@@ -97,8 +97,92 @@ class _FakeModuleRepository extends ModuleRepository {
           canEditGeometryAndLocation: true,
           canEditSolarAngle: true,
           canEditInterval: true,
-          canManageAccess: false,
+          canManageAccess: true,
         ),
+      ),
+    ];
+  }
+
+  @override
+  Future<ModuleDetails> getModuleDetails(String moduleId) async {
+    const mod = PvModule(
+      id: 'mod-1',
+      companyId: 'comp-1',
+      installerTechnicianId: 'tech-1',
+      installerName: 'Marco Silva',
+      installerEmail: 'marco@soltech.io',
+      name: 'PV-001 Roof Array',
+      macAddress: 'AA:BB:CC:DD:EE:01',
+      isActive: true,
+      monitoringStatus: 'active',
+      inspectionIntervalDays: 7,
+      createdAt: '2026-10-29T10:00:00Z',
+      updatedAt: '2026-10-29T10:00:00Z',
+      userRelationship: 'installer_technician',
+      permissions: ModulePermissions(
+        canEditGeometryAndLocation: true,
+        canEditSolarAngle: true,
+        canEditInterval: true,
+        canManageAccess: true,
+      ),
+    );
+    return const ModuleDetails(
+      module: mod,
+      responsibleManagers: [],
+      companyManagers: [],
+      companyTechnicians: [],
+      companyClients: [],
+    );
+  }
+
+  @override
+  Future<List<ModuleMeasurement>> listMeasurements({
+    required String moduleId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return const [
+      ModuleMeasurement(
+        id: 'meas-1',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-1',
+        measuredAt: '2026-11-02T14:15:00Z',
+        xPositionCm: 12.4,
+        baselineTemperatureC: 36.4,
+        maxTemperatureC: 42.5,
+        hotspotDetected: false,
+        hotspotConfirmed: false,
+        voltageV: 18.2,
+        currentA: 4.1,
+        powerW: 74.6,
+        receivedAt: '2026-11-02T14:15:05Z',
+      ),
+    ];
+  }
+
+  @override
+  Future<List<ModuleCleaning>> listCleanings({
+    required String moduleId,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    return const [
+      ModuleCleaning(
+        id: 'cln-1',
+        moduleId: 'mod-1',
+        anomalyEventId: 'anom-1',
+        sourceEventId: 'evt-2',
+        targetXPositionCm: 12.0,
+        pumpActuated: true,
+        attemptNumber: 1,
+        startedAt: '2026-11-02T06:00:14Z',
+        endedAt: '2026-11-02T06:00:56Z',
+        durationSeconds: 42.0,
+        estimatedWaterVolumeMl: 180.0,
+        status: 'completed',
+        postCleaningResult: 'resolved',
+        createdAt: '2026-11-02T06:00:14Z',
       ),
     ];
   }
@@ -442,5 +526,72 @@ void main() {
     expect(find.text('Modules'), findsNothing);
     expect(find.text('Alerts'), findsNothing);
     expect(find.text('Settings'), findsNothing);
+  });
+
+  testWidgets(
+      'Module details shows Radiometric Scan (SCR-10) and navigates to Measurements (SCR-11) and Cleanings (SCR-12)',
+      (WidgetTester tester) async {
+    final tokenStorage = InMemoryTokenStorage();
+    await tokenStorage.saveTokens(
+      accessToken: 'fake-access',
+      refreshToken: 'fake-refresh',
+    );
+
+    const techUser = AuthUser(
+      id: 'tech-1',
+      companyId: 'comp-1',
+      name: 'Marco Silva',
+      email: 'marco@soltech.io',
+      role: 'technician',
+      isActive: true,
+      mustChangePassword: false,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          tokenStorageProvider.overrideWithValue(tokenStorage),
+          authRepositoryProvider.overrideWithValue(
+            _FakeAuthRepository(initialUser: techUser),
+          ),
+          userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
+          moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+        ],
+        child: const ThermoScanApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Tap module card to enter Module Overview (SCR-10)
+    await tester.tap(find.text('PV-001 Roof Array'));
+    await tester.pumpAndSettle();
+
+    // Verify SCR-10 Radiometric Scan & Telemetry metrics
+    expect(find.text('32×24 Sensor Interpolation'), findsOneWidget);
+    expect(find.text('Peak Temperature'), findsOneWidget);
+    expect(find.text('DC Output Voltage'), findsOneWidget);
+    expect(find.text('Active Power'), findsOneWidget);
+
+    // Verify Sub-navigation bar tabs
+    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('Measurements'), findsWidgets);
+    expect(find.text('Cleanings'), findsWidgets);
+
+    // Tap Measurements in sub-navigation bar (SCR-11)
+    await tester.tap(find.text('Measurements').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Telemetry History'), findsOneWidget);
+    expect(find.text('Position X=12.4 cm • Baseline: 36.4°C'), findsOneWidget);
+    expect(find.text('NORMAL'), findsOneWidget);
+
+    // Tap Cleanings in sub-navigation bar (SCR-12)
+    await tester.tap(find.text('Cleanings').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Actuator Wash Log'), findsOneWidget);
+    expect(find.text('Wash Attempt #1 • Localized Traverse'), findsOneWidget);
+    expect(find.text('VERIFIED POST-CLEAN'), findsOneWidget);
   });
 }

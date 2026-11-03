@@ -46,3 +46,21 @@ final companyClientsOptionsProvider =
   final repo = ref.watch(moduleRepositoryProvider);
   return repo.listCompanyClientOptions();
 });
+
+final moduleMeasurementsProvider = FutureProvider.autoDispose
+    .family<List<ModuleMeasurement>, String>((ref, moduleId) {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.listMeasurements(moduleId: moduleId);
+});
+
+final moduleCleaningsProvider = FutureProvider.autoDispose
+    .family<List<ModuleCleaning>, String>((ref, moduleId) {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.listCleanings(moduleId: moduleId);
+});
+
+final moduleThermalMapProvider = FutureProvider.autoDispose
+    .family<ModuleThermalMap?, String>((ref, moduleId) {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.getLatestThermalMap(moduleId: moduleId);
+});

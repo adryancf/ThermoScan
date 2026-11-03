@@ -40,6 +40,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{moduleID}", h.handleGetModule)
 		r.Patch("/{moduleID}/configuration", h.handleUpdateConfiguration)
 		r.Get("/{moduleID}/interval-logs", h.handleListIntervalChangeLogs)
+		r.Get("/{moduleID}/measurements", h.handleListMeasurements)
+		r.Get("/{moduleID}/cleanings", h.handleListCleanings)
+		r.Get("/{moduleID}/thermal-map", h.handleGetLatestThermalMap)
 		r.Put("/{moduleID}/managers", h.handleSetModuleManagers)
 		r.Put("/{moduleID}/technicians/{technicianID}", h.handleSetTechnicianAccess)
 		r.Put("/{moduleID}/clients", h.handleSetModuleClients)
@@ -617,4 +620,103 @@ func parsePositiveInt32(s string, defaultVal int32) int32 {
 		return defaultVal
 	}
 	return int32(v)
+}
+
+func (h *Handler) handleListMeasurements(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	limit := parsePositiveInt32(r.URL.Query().Get("limit"), 50)
+	offset := parsePositiveInt32(r.URL.Query().Get("offset"), 0)
+
+	measurements, err := h.service.ListMeasurements(r.Context(), principal, moduleID, limit, offset)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"measurements": measurements,
+	})
+}
+
+func (h *Handler) handleListCleanings(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	limit := parsePositiveInt32(r.URL.Query().Get("limit"), 50)
+	offset := parsePositiveInt32(r.URL.Query().Get("offset"), 0)
+
+	cleanings, err := h.service.ListCleanings(r.Context(), principal, moduleID, limit, offset)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"cleanings": cleanings,
+	})
+}
+
+func (h *Handler) handleGetLatestThermalMap(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	tm, err := h.service.GetLatestThermalMap(r.Context(), principal, moduleID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"thermal_map": tm,
+	})
 }

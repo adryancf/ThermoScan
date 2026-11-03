@@ -366,3 +366,144 @@ class IntervalChangeLogItem {
     );
   }
 }
+
+class ModuleMeasurement {
+  const ModuleMeasurement({
+    required this.id,
+    required this.moduleId,
+    required this.inspectionId,
+    required this.sourceEventId,
+    required this.measuredAt,
+    required this.xPositionCm,
+    required this.baselineTemperatureC,
+    required this.maxTemperatureC,
+    required this.hotspotDetected,
+    required this.hotspotConfirmed,
+    required this.voltageV,
+    required this.currentA,
+    required this.powerW,
+    required this.receivedAt,
+  });
+
+  final String id;
+  final String moduleId;
+  final String inspectionId;
+  final String sourceEventId;
+  final String measuredAt;
+  final double xPositionCm;
+  final double baselineTemperatureC;
+  final double maxTemperatureC;
+  final bool hotspotDetected;
+  final bool hotspotConfirmed;
+  final double voltageV;
+  final double currentA;
+  final double powerW;
+  final String receivedAt;
+
+  factory ModuleMeasurement.fromJson(Map<String, dynamic> json) {
+    return ModuleMeasurement(
+      id: json['id'] as String? ?? '',
+      moduleId: json['module_id'] as String? ?? '',
+      inspectionId: json['inspection_id'] as String? ?? '',
+      sourceEventId: json['source_event_id'] as String? ?? '',
+      measuredAt: json['measured_at'] as String? ?? '',
+      xPositionCm: double.tryParse(json['x_position_cm']?.toString() ?? '') ?? 0.0,
+      baselineTemperatureC: double.tryParse(json['baseline_temperature_c']?.toString() ?? '') ?? 0.0,
+      maxTemperatureC: double.tryParse(json['max_temperature_c']?.toString() ?? '') ?? 0.0,
+      hotspotDetected: json['hotspot_detected'] as bool? ?? false,
+      hotspotConfirmed: json['hotspot_confirmed'] as bool? ?? false,
+      voltageV: double.tryParse(json['voltage_v']?.toString() ?? '') ?? 0.0,
+      currentA: double.tryParse(json['current_a']?.toString() ?? '') ?? 0.0,
+      powerW: double.tryParse(json['power_w']?.toString() ?? '') ?? 0.0,
+      receivedAt: json['received_at'] as String? ?? '',
+    );
+  }
+}
+
+class ModuleCleaning {
+  const ModuleCleaning({
+    required this.id,
+    required this.moduleId,
+    required this.anomalyEventId,
+    required this.sourceEventId,
+    required this.targetXPositionCm,
+    required this.pumpActuated,
+    this.attemptNumber,
+    this.startedAt,
+    this.endedAt,
+    this.durationSeconds,
+    this.estimatedWaterVolumeMl,
+    required this.status,
+    this.failureReason,
+    required this.postCleaningResult,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String moduleId;
+  final String anomalyEventId;
+  final String sourceEventId;
+  final double targetXPositionCm;
+  final bool pumpActuated;
+  final int? attemptNumber;
+  final String? startedAt;
+  final String? endedAt;
+  final double? durationSeconds;
+  final double? estimatedWaterVolumeMl;
+  final String status;
+  final String? failureReason;
+  final String postCleaningResult;
+  final String createdAt;
+
+  factory ModuleCleaning.fromJson(Map<String, dynamic> json) {
+    return ModuleCleaning(
+      id: json['id'] as String? ?? '',
+      moduleId: json['module_id'] as String? ?? '',
+      anomalyEventId: json['anomaly_event_id'] as String? ?? '',
+      sourceEventId: json['source_event_id'] as String? ?? '',
+      targetXPositionCm: double.tryParse(json['target_x_position_cm']?.toString() ?? '') ?? 0.0,
+      pumpActuated: json['pump_actuated'] as bool? ?? false,
+      attemptNumber: (json['attempt_number'] as num?)?.toInt(),
+      startedAt: json['started_at'] as String?,
+      endedAt: json['ended_at'] as String?,
+      durationSeconds: double.tryParse(json['duration_seconds']?.toString() ?? ''),
+      estimatedWaterVolumeMl: double.tryParse(json['estimated_water_volume_ml']?.toString() ?? ''),
+      status: json['status'] as String? ?? 'scheduled',
+      failureReason: json['failure_reason'] as String?,
+      postCleaningResult: json['post_cleaning_result'] as String? ?? 'pending',
+      createdAt: json['created_at'] as String? ?? '',
+    );
+  }
+}
+
+class ModuleThermalMap {
+  const ModuleThermalMap({
+    required this.id,
+    required this.inspectionId,
+    required this.widthPixels,
+    required this.heightPixels,
+    required this.algorithmVersion,
+    required this.generatedAt,
+    this.temperatures,
+  });
+
+  final String id;
+  final String inspectionId;
+  final int widthPixels;
+  final int heightPixels;
+  final String algorithmVersion;
+  final String generatedAt;
+  final List<dynamic>? temperatures;
+
+  factory ModuleThermalMap.fromJson(Map<String, dynamic> json) {
+    return ModuleThermalMap(
+      id: json['id'] as String? ?? '',
+      inspectionId: json['inspection_id'] as String? ?? '',
+      widthPixels: (json['width_pixels'] as num?)?.toInt() ?? 32,
+      heightPixels: (json['height_pixels'] as num?)?.toInt() ?? 24,
+      algorithmVersion: json['algorithm_version'] as String? ?? 'v1',
+      generatedAt: json['generated_at'] as String? ?? '',
+      temperatures: json['temperatures_c'] as List<dynamic>?,
+    );
+  }
+}

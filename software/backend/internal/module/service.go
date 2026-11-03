@@ -1577,3 +1577,203 @@ func deduplicateUUIDs(in []pgtype.UUID) []pgtype.UUID {
 	}
 	return out
 }
+
+type MeasurementDTO struct {
+	ID               string `json:"id"`
+	ModuleID         string `json:"module_id"`
+	InspectionID     string `json:"inspection_id"`
+	SourceEventID    string `json:"source_event_id"`
+	MeasuredAt       string `json:"measured_at"`
+	XPositionCM      string `json:"x_position_cm"`
+	BaselineTempC    string `json:"baseline_temperature_c"`
+	MaxTempC         string `json:"max_temperature_c"`
+	HotspotDetected  bool   `json:"hotspot_detected"`
+	HotspotConfirmed bool   `json:"hotspot_confirmed"`
+	VoltageV         string `json:"voltage_v"`
+	CurrentA         string `json:"current_a"`
+	PowerW           string `json:"power_w"`
+	ReceivedAt       string `json:"received_at"`
+}
+
+type CleaningDTO struct {
+	ID                 string  `json:"id"`
+	ModuleID           string  `json:"module_id"`
+	AnomalyEventID     string  `json:"anomaly_event_id"`
+	SourceEventID      string  `json:"source_event_id"`
+	TargetXPositionCM  string  `json:"target_x_position_cm"`
+	PumpActuated       bool    `json:"pump_actuated"`
+	AttemptNumber      *int32  `json:"attempt_number,omitempty"`
+	StartedAt          *string `json:"started_at,omitempty"`
+	EndedAt            *string `json:"ended_at,omitempty"`
+	DurationSeconds    string  `json:"duration_seconds"`
+	EstimatedWaterML   string  `json:"estimated_water_volume_ml"`
+	Status             string  `json:"status"`
+	FailureReason      *string `json:"failure_reason,omitempty"`
+	PostCleaningResult string  `json:"post_cleaning_result"`
+	CreatedAt          string  `json:"created_at"`
+}
+
+type ThermalMapDTO struct {
+	ID               string `json:"id"`
+	InspectionID     string `json:"inspection_id"`
+	WidthPixels      int32  `json:"width_pixels"`
+	HeightPixels     int32  `json:"height_pixels"`
+	TemperaturesC    any    `json:"temperatures_c"`
+	AlgorithmVersion string `json:"algorithm_version"`
+	GeneratedAt      string `json:"generated_at"`
+}
+
+func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, limit, offset int32) ([]MeasurementDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.queries.ListMeasurementsByModule(ctx, db.ListMeasurementsByModuleParams{
+		ModuleID: moduleID,
+		Limit:    limit,
+		Offset:   offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]MeasurementDTO, 0, len(rows))
+	for _, m := range rows {
+		out = append(out, MeasurementDTO{
+			ID:               auth.FormatUUID(m.ID),
+			ModuleID:         auth.FormatUUID(m.ModuleID),
+			InspectionID:     auth.FormatUUID(m.InspectionID),
+			SourceEventID:    auth.FormatUUID(m.SourceEventID),
+			MeasuredAt:       m.MeasuredAt.UTC().Format(time.RFC3339),
+			XPositionCM:      m.XPositionCm,
+			BaselineTempC:    m.BaselineTemperatureC,
+			MaxTempC:         m.MaxTemperatureC,
+			HotspotDetected:  m.HotspotDetected,
+			HotspotConfirmed: m.HotspotConfirmed,
+			VoltageV:         m.VoltageV,
+			CurrentA:         m.CurrentA,
+			PowerW:           m.PowerW,
+			ReceivedAt:       m.ReceivedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) ListCleanings(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, limit, offset int32) ([]CleaningDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.queries.ListCleaningOperationsByModule(ctx, db.ListCleaningOperationsByModuleParams{
+		ModuleID: moduleID,
+		Limit:    limit,
+		Offset:   offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]CleaningDTO, 0, len(rows))
+	for _, c := range rows {
+		var startedAtStr, endedAtStr *string
+		if c.StartedAt != nil {
+			s := c.StartedAt.UTC().Format(time.RFC3339)
+			startedAtStr = &s
+		}
+		if c.EndedAt != nil {
+			e := c.EndedAt.UTC().Format(time.RFC3339)
+			endedAtStr = &e
+		}
+
+		out = append(out, CleaningDTO{
+			ID:                 auth.FormatUUID(c.ID),
+			ModuleID:           auth.FormatUUID(c.ModuleID),
+			AnomalyEventID:     auth.FormatUUID(c.AnomalyEventID),
+			SourceEventID:      auth.FormatUUID(c.SourceEventID),
+			TargetXPositionCM:  c.TargetXPositionCm,
+			PumpActuated:       c.PumpActuated,
+			AttemptNumber:      pgInt4ToInt32Ptr(c.AttemptNumber),
+			StartedAt:          startedAtStr,
+			EndedAt:            endedAtStr,
+			DurationSeconds:    c.DurationSeconds,
+			EstimatedWaterML:   c.EstimatedWaterVolumeMl,
+			Status:             c.Status,
+			FailureReason:      pgTextToStringPtr(c.FailureReason),
+			PostCleaningResult: c.PostCleaningResult,
+			CreatedAt:          c.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out, nil
+}
+
+func (s *Service) GetLatestThermalMap(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) (*ThermalMapDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	tm, err := s.queries.GetLatestThermalMapByModule(ctx, moduleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	return &ThermalMapDTO{
+		ID:               auth.FormatUUID(tm.ID),
+		InspectionID:     auth.FormatUUID(tm.InspectionID),
+		WidthPixels:      tm.WidthPixels,
+		HeightPixels:     tm.HeightPixels,
+		TemperaturesC:    tm.TemperaturesC,
+		AlgorithmVersion: tm.AlgorithmVersion,
+		GeneratedAt:      tm.GeneratedAt.UTC().Format(time.RFC3339),
+	}, nil
+}

@@ -592,4 +592,38 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 after client was deleted, got %d", rec.Code)
 	}
+
+	// Test telemetry read endpoints (SCR-11, SCR-12)
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/measurements", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing measurements, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var measResp struct {
+		Measurements []any `json:"measurements"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &measResp); err != nil {
+		t.Fatalf("failed to decode measurements response: %v", err)
+	}
+	if len(measResp.Measurements) != 0 {
+		t.Fatalf("expected 0 initial measurements, got %d", len(measResp.Measurements))
+	}
+
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/cleanings", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing cleanings, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var cleanResp struct {
+		Cleanings []any `json:"cleanings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &cleanResp); err != nil {
+		t.Fatalf("failed to decode cleanings response: %v", err)
+	}
+	if len(cleanResp.Cleanings) != 0 {
+		t.Fatalf("expected 0 initial cleanings, got %d", len(cleanResp.Cleanings))
+	}
+
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/thermal-map", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting thermal map, got %d: %s", rec.Code, rec.Body.String())
+	}
 }

@@ -10,6 +10,8 @@ import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/modules_home_screen.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/module_sub_nav_bar.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/radiometric_scan_card.dart';
 
 /// SCR-10 & SCR-28: Module Overview & Client Email Notification Preferences
 class ModuleOverviewScreen extends ConsumerStatefulWidget {
@@ -272,18 +274,27 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
             final mod = details.module;
             final perms = mod.permissions;
 
-            return RefreshIndicator(
-              color: AppColors.primary,
-              onRefresh: () async {
-                ref.invalidate(moduleDetailsProvider(widget.moduleId));
-                await ref.read(moduleDetailsProvider(widget.moduleId).future);
-              },
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 48),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
+            return Column(
+              children: [
+                ModuleSubNavBar(
+                  moduleId: mod.id,
+                  currentTab: 'overview',
+                  canManageAccess: perms.canManageAccess,
+                  isPendingConfig: mod.isPendingConfiguration,
+                ),
+                Expanded(
+                  child: RefreshIndicator(
+                    color: AppColors.primary,
+                    onRefresh: () async {
+                      ref.invalidate(moduleDetailsProvider(widget.moduleId));
+                      await ref.read(moduleDetailsProvider(widget.moduleId).future);
+                    },
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(24, 20, 24, 48),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                     // 1. Pending Configuration Banner (SCR-16 draft resume)
                     if (mod.isPendingConfiguration) ...[
                       Container(
@@ -444,6 +455,62 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
+
+                    // Radiometric Scan & Thermal Matrix (SCR-10)
+                    if (!mod.isPendingConfiguration) ...[
+                      RadiometricScanCard(module: mod),
+                      const SizedBox(height: 14),
+
+                      // Telemetry & Cleanings Shortcuts
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => context.push(
+                                '/modules/${mod.id}/measurements',
+                              ),
+                              icon: const Icon(
+                                Icons.show_chart_rounded,
+                                size: 18,
+                              ),
+                              label: const Text('Measurements'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                side: const BorderSide(color: AppColors.border),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: () => context.push(
+                                '/modules/${mod.id}/cleanings',
+                              ),
+                              icon: const Icon(
+                                Icons.wash_rounded,
+                                size: 18,
+                              ),
+                              label: const Text('Cleanings'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                side: const BorderSide(color: AppColors.border),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     // 3. Quick Action Buttons (SCR-13 & SCR-14)
                     if (!mod.isPendingConfiguration) ...[
@@ -767,8 +834,11 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                   ],
                 ),
               ),
-            );
-          },
+            ),
+          ),
+        ],
+      );
+    },
         ),
       ),
     );

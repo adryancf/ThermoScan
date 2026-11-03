@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/network/api_exception.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
@@ -148,7 +149,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       appBar: ThermoScanAppBar(
         title: 'Account Profile',
         role: user.role,
-        showBack: true,
+        showBack: context.canPop(),
         showProfileAction: false,
       ),
       body: SafeArea(
@@ -215,6 +216,67 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               ),
             ),
             const SizedBox(height: 20),
+
+            // Company Administration Card (Manager shortcut - SCR-24)
+            if (user.isManager) ...[
+              InkWell(
+                onTap: () => context.go('/manager'),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.primarySoft,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.shield_outlined,
+                          color: AppColors.primary,
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Company Administration',
+                              style: AppTypography.body.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Users, clients and module access',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.textSecondary,
+                        size: 22,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+            ],
 
             // Responsible Managers Card (Only for Technicians)
             if (user.isTechnician) ...[

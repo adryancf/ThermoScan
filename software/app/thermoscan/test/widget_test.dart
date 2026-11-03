@@ -225,6 +225,7 @@ void main() {
           authRepositoryProvider.overrideWithValue(
             _FakeAuthRepository(initialUser: techUser),
           ),
+          userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
         ],
         child: const ThermoScanApp(),
@@ -272,5 +273,174 @@ void main() {
 
     expect(find.text('Companies'), findsOneWidget);
     expect(find.text('SolTech Energy Ltd'), findsOneWidget);
+    // Bottom navigation bar must be suppressed for System Admin
+    expect(find.text('Modules'), findsNothing);
+    expect(find.text('Alerts'), findsNothing);
+  });
+
+  testWidgets(
+      'Bottom navigation bar allows switching between Modules, Alerts and Settings for Technician',
+      (WidgetTester tester) async {
+    final tokenStorage = InMemoryTokenStorage();
+    await tokenStorage.saveTokens(
+      accessToken: 'fake-access',
+      refreshToken: 'fake-refresh',
+    );
+
+    const techUser = AuthUser(
+      id: 'tech-1',
+      companyId: 'comp-1',
+      name: 'Marco Silva',
+      email: 'marco@soltech.io',
+      role: 'technician',
+      isActive: true,
+      mustChangePassword: false,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          tokenStorageProvider.overrideWithValue(tokenStorage),
+          authRepositoryProvider.overrideWithValue(
+            _FakeAuthRepository(initialUser: techUser),
+          ),
+          userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
+          moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+        ],
+        child: const ThermoScanApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Verify Tab 0: Modules
+    expect(find.text('Modules'), findsWidgets);
+    expect(find.text('PV-001 Roof Array'), findsOneWidget);
+
+    // Tap Tab 1: Alerts
+    await tester.tap(find.text('Alerts'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Active Field Alerts'), findsWidgets);
+    expect(find.text('Hotspot Unresolved: PV-001 Roof Array'), findsOneWidget);
+
+    // Tap Tab 2: Settings
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Profile Details'), findsOneWidget);
+    expect(find.text('Responsible Managers'), findsOneWidget);
+
+    // Tap back to Tab 0: Modules
+    await tester.tap(find.text('Modules'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('PV-001 Roof Array'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Bottom navigation bar allows switching for Manager and suppresses on Wizard',
+      (WidgetTester tester) async {
+    final tokenStorage = InMemoryTokenStorage();
+    await tokenStorage.saveTokens(
+      accessToken: 'fake-access',
+      refreshToken: 'fake-refresh',
+    );
+
+    const managerUser = AuthUser(
+      id: 'mgr-1',
+      companyId: 'comp-1',
+      name: 'Elena Rostova',
+      email: 'elena@soltech.io',
+      role: 'manager',
+      isActive: true,
+      mustChangePassword: false,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          tokenStorageProvider.overrideWithValue(tokenStorage),
+          authRepositoryProvider.overrideWithValue(
+            _FakeAuthRepository(initialUser: managerUser),
+          ),
+          userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
+          moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+        ],
+        child: const ThermoScanApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Manager starts on Administration Home (SCR-24)
+    expect(find.text('Administration'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
+
+    // Tap Modules tab
+    await tester.tap(find.text('Modules'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('PV-001 Roof Array'), findsOneWidget);
+
+    // Tap Alerts tab
+    await tester.tap(find.text('Alerts'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Active Field Alerts'), findsWidgets);
+
+    // Tap Settings tab (returns to Manager administration)
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Company Users'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Bottom navigation bar is suppressed during Installation Wizard (SCR-16)',
+      (WidgetTester tester) async {
+    final tokenStorage = InMemoryTokenStorage();
+    await tokenStorage.saveTokens(
+      accessToken: 'fake-access',
+      refreshToken: 'fake-refresh',
+    );
+
+    const techUser = AuthUser(
+      id: 'tech-1',
+      companyId: 'comp-1',
+      name: 'Marco Silva',
+      email: 'marco@soltech.io',
+      role: 'technician',
+      isActive: true,
+      mustChangePassword: false,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          tokenStorageProvider.overrideWithValue(tokenStorage),
+          authRepositoryProvider.overrideWithValue(
+            _FakeAuthRepository(initialUser: techUser),
+          ),
+          userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
+          moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+        ],
+        child: const ThermoScanApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Tap Install button on Modules Home
+    await tester.tap(find.text('Install'));
+    await tester.pumpAndSettle();
+
+    // Verify wizard screen loaded
+    expect(find.text('Install Module'), findsOneWidget);
+
+    // Bottom Navigation Bar must be suppressed on wizard
+    expect(find.text('Modules'), findsNothing);
+    expect(find.text('Alerts'), findsNothing);
+    expect(find.text('Settings'), findsNothing);
   });
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:thermoscan/core/widgets/scaffold_with_bottom_nav_bar.dart';
+import 'package:thermoscan/features/alerts/presentation/alerts_feed_screen.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/auth/presentation/login_screen.dart';
 import 'package:thermoscan/features/auth/presentation/mandatory_password_change_screen.dart';
@@ -92,10 +94,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const MandatoryPasswordChangeScreen(),
       ),
       GoRoute(
-        path: '/profile',
-        builder: (context, state) => const ProfileScreen(),
-      ),
-      GoRoute(
         path: '/admin/companies',
         builder: (context, state) => const CompaniesHomeScreen(),
       ),
@@ -109,10 +107,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final companyId = state.pathParameters['companyId'] ?? '';
           return CompanyDetailsScreen(companyId: companyId);
         },
-      ),
-      GoRoute(
-        path: '/manager',
-        builder: (context, state) => const ManagerAdminHomeScreen(),
       ),
       GoRoute(
         path: '/manager/users',
@@ -131,25 +125,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const CreateClientScreen(),
       ),
       GoRoute(
-        path: '/home',
-        builder: (context, state) => const ModulesHomeScreen(),
-      ),
-      GoRoute(
-        path: '/modules',
-        builder: (context, state) => const ModulesHomeScreen(
-          showBackButton: true,
-        ),
-      ),
-      GoRoute(
         path: '/modules/install',
         builder: (context, state) => const ModuleInstallationWizardScreen(),
-      ),
-      GoRoute(
-        path: '/modules/:moduleId',
-        builder: (context, state) {
-          final moduleId = state.pathParameters['moduleId'] ?? '';
-          return ModuleOverviewScreen(moduleId: moduleId);
-        },
       ),
       GoRoute(
         path: '/modules/:moduleId/install',
@@ -171,6 +148,45 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final moduleId = state.pathParameters['moduleId'] ?? '';
           return ModuleAccessScreen(moduleId: moduleId);
         },
+      ),
+
+      // Primary authenticated tabs wrapped in persistent BottomNavigationBar shell
+      ShellRoute(
+        builder: (context, state, child) {
+          return ScaffoldWithBottomNavBar(
+            currentLocation: state.matchedLocation,
+            child: child,
+          );
+        },
+        routes: [
+          GoRoute(
+            path: '/home',
+            builder: (context, state) => const ModulesHomeScreen(),
+          ),
+          GoRoute(
+            path: '/modules',
+            builder: (context, state) => const ModulesHomeScreen(),
+          ),
+          GoRoute(
+            path: '/modules/:moduleId',
+            builder: (context, state) {
+              final moduleId = state.pathParameters['moduleId'] ?? '';
+              return ModuleOverviewScreen(moduleId: moduleId);
+            },
+          ),
+          GoRoute(
+            path: '/alerts',
+            builder: (context, state) => const AlertsFeedScreen(),
+          ),
+          GoRoute(
+            path: '/manager',
+            builder: (context, state) => const ManagerAdminHomeScreen(),
+          ),
+          GoRoute(
+            path: '/profile',
+            builder: (context, state) => const ProfileScreen(),
+          ),
+        ],
       ),
     ],
   );

@@ -131,6 +131,10 @@ type Module struct {
 	LimitsCheckPassed     bool
 	ThermalSensorActive   bool
 	LastPingAt            *time.Time
+	ConfigVersion         int32
+	ConfigAppliedVersion  int32
+	ConfigAppliedAt       *time.Time
+	ConfigApplyError      pgtype.Text
 	IsActive              bool
 	MonitoringStatus      string
 	PanelLengthCm         pgtype.Numeric

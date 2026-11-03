@@ -194,7 +194,8 @@ INSERT INTO modules (
     minimum_solar_angle_deg,
     inspection_interval_days,
     reservoir_nominal_capacity_ml,
-    configured_at
+    configured_at,
+    config_version
 ) VALUES (
     $1,
     $2,
@@ -216,7 +217,8 @@ INSERT INTO modules (
     $18,
     $19,
     $20,
-    $21
+    $21,
+    $22
 )
 RETURNING
     id,
@@ -242,7 +244,11 @@ RETURNING
     reservoir_nominal_capacity_ml,
     configured_at,
     created_at,
-    updated_at
+    updated_at,
+    config_version,
+    config_applied_version,
+    config_applied_at,
+    config_apply_error
 `
 
 type CreateModuleParams struct {
@@ -267,6 +273,7 @@ type CreateModuleParams struct {
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
 	ConfiguredAt               *time.Time
+	ConfigVersion              int32
 }
 
 type CreateModuleRow struct {
@@ -294,6 +301,10 @@ type CreateModuleRow struct {
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+	ConfigVersion              int32
+	ConfigAppliedVersion       int32
+	ConfigAppliedAt            *time.Time
+	ConfigApplyError           pgtype.Text
 }
 
 func (q *Queries) CreateModule(ctx context.Context, arg CreateModuleParams) (CreateModuleRow, error) {
@@ -319,6 +330,7 @@ func (q *Queries) CreateModule(ctx context.Context, arg CreateModuleParams) (Cre
 		arg.InspectionIntervalDays,
 		arg.ReservoirNominalCapacityMl,
 		arg.ConfiguredAt,
+		arg.ConfigVersion,
 	)
 	var i CreateModuleRow
 	err := row.Scan(
@@ -346,6 +358,10 @@ func (q *Queries) CreateModule(ctx context.Context, arg CreateModuleParams) (Cre
 		&i.ConfiguredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfigVersion,
+		&i.ConfigAppliedVersion,
+		&i.ConfigAppliedAt,
+		&i.ConfigApplyError,
 	)
 	return i, err
 }
@@ -431,7 +447,7 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 }
 
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -448,6 +464,10 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.LimitsCheckPassed,
 		&i.ThermalSensorActive,
 		&i.LastPingAt,
+		&i.ConfigVersion,
+		&i.ConfigAppliedVersion,
+		&i.ConfigAppliedAt,
+		&i.ConfigApplyError,
 		&i.IsActive,
 		&i.MonitoringStatus,
 		&i.PanelLengthCm,
@@ -501,7 +521,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -543,6 +567,10 @@ type GetModuleByIDRow struct {
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+	ConfigVersion              int32
+	ConfigAppliedVersion       int32
+	ConfigAppliedAt            *time.Time
+	ConfigApplyError           pgtype.Text
 }
 
 func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (GetModuleByIDRow, error) {
@@ -578,6 +606,55 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.ConfiguredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfigVersion,
+		&i.ConfigAppliedVersion,
+		&i.ConfigAppliedAt,
+		&i.ConfigApplyError,
+	)
+	return i, err
+}
+
+const getModuleByIDForDevice = `-- name: GetModuleByIDForDevice :one
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
+WHERE id = $1
+`
+
+func (q *Queries) GetModuleByIDForDevice(ctx context.Context, id pgtype.UUID) (Module, error) {
+	row := q.db.QueryRow(ctx, getModuleByIDForDevice, id)
+	var i Module
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.InstallerTechnicianID,
+		&i.Name,
+		&i.MacAddress,
+		&i.DeviceToken,
+		&i.LimitsCheckPassed,
+		&i.ThermalSensorActive,
+		&i.LastPingAt,
+		&i.ConfigVersion,
+		&i.ConfigAppliedVersion,
+		&i.ConfigAppliedAt,
+		&i.ConfigApplyError,
+		&i.IsActive,
+		&i.MonitoringStatus,
+		&i.PanelLengthCm,
+		&i.PanelWidthCm,
+		&i.PanelCount,
+		&i.PanelSpacingCm,
+		&i.Latitude,
+		&i.Longitude,
+		&i.ElevationM,
+		&i.AzimuthDeg,
+		&i.TiltDeg,
+		&i.AzimuthSource,
+		&i.TiltSource,
+		&i.MinimumSolarAngleDeg,
+		&i.InspectionIntervalDays,
+		&i.ReservoirNominalCapacityMl,
+		&i.ConfiguredAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -610,7 +687,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 WHERE m.company_id = $1
   AND m.id = $2
@@ -650,6 +731,10 @@ type GetModuleByIDForUpdateRow struct {
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+	ConfigVersion              int32
+	ConfigAppliedVersion       int32
+	ConfigAppliedAt            *time.Time
+	ConfigApplyError           pgtype.Text
 }
 
 func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDForUpdateParams) (GetModuleByIDForUpdateRow, error) {
@@ -683,12 +768,16 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.ConfiguredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfigVersion,
+		&i.ConfigAppliedVersion,
+		&i.ConfigAppliedAt,
+		&i.ConfigApplyError,
 	)
 	return i, err
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -705,6 +794,10 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.LimitsCheckPassed,
 		&i.ThermalSensorActive,
 		&i.LastPingAt,
+		&i.ConfigVersion,
+		&i.ConfigAppliedVersion,
+		&i.ConfigAppliedAt,
+		&i.ConfigApplyError,
 		&i.IsActive,
 		&i.MonitoringStatus,
 		&i.PanelLengthCm,
@@ -1126,7 +1219,11 @@ SELECT
     m.configured_at,
     m.created_at,
     m.updated_at,
-    mc.operational_email_enabled
+    mc.operational_email_enabled,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_clients mc ON mc.company_id = m.company_id AND mc.module_id = m.id
@@ -1171,6 +1268,10 @@ type ListModulesForClientRow struct {
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	OperationalEmailEnabled    bool
+	ConfigVersion              int32
+	ConfigAppliedVersion       int32
+	ConfigAppliedAt            *time.Time
+	ConfigApplyError           pgtype.Text
 }
 
 func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForClientParams) ([]ListModulesForClientRow, error) {
@@ -1215,6 +1316,10 @@ func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForCl
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OperationalEmailEnabled,
+			&i.ConfigVersion,
+			&i.ConfigAppliedVersion,
+			&i.ConfigAppliedAt,
+			&i.ConfigApplyError,
 		); err != nil {
 			return nil, err
 		}
@@ -1256,7 +1361,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -1300,6 +1409,10 @@ type ListModulesForManagerRow struct {
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+	ConfigVersion              int32
+	ConfigAppliedVersion       int32
+	ConfigAppliedAt            *time.Time
+	ConfigApplyError           pgtype.Text
 }
 
 func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForManagerParams) ([]ListModulesForManagerRow, error) {
@@ -1341,6 +1454,10 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.ConfiguredAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ConfigVersion,
+			&i.ConfigAppliedVersion,
+			&i.ConfigAppliedAt,
+			&i.ConfigApplyError,
 		); err != nil {
 			return nil, err
 		}
@@ -1382,7 +1499,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_technicians mt ON mt.company_id = m.company_id AND mt.module_id = m.id
@@ -1430,6 +1551,10 @@ type ListModulesForTechnicianRow struct {
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+	ConfigVersion              int32
+	ConfigAppliedVersion       int32
+	ConfigAppliedAt            *time.Time
+	ConfigApplyError           pgtype.Text
 }
 
 func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesForTechnicianParams) ([]ListModulesForTechnicianRow, error) {
@@ -1476,6 +1601,10 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.ConfiguredAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ConfigVersion,
+			&i.ConfigAppliedVersion,
+			&i.ConfigAppliedAt,
+			&i.ConfigApplyError,
 		); err != nil {
 			return nil, err
 		}
@@ -1636,6 +1765,32 @@ func (q *Queries) UpdateModuleClientEmailPreference(ctx context.Context, arg Upd
 	return i, err
 }
 
+const updateModuleConfigAck = `-- name: UpdateModuleConfigAck :exec
+UPDATE modules
+SET config_applied_version = $2,
+    config_applied_at = $3,
+    config_apply_error = $4,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+type UpdateModuleConfigAckParams struct {
+	ID                   pgtype.UUID
+	ConfigAppliedVersion int32
+	ConfigAppliedAt      *time.Time
+	ConfigApplyError     pgtype.Text
+}
+
+func (q *Queries) UpdateModuleConfigAck(ctx context.Context, arg UpdateModuleConfigAckParams) error {
+	_, err := q.db.Exec(ctx, updateModuleConfigAck,
+		arg.ID,
+		arg.ConfigAppliedVersion,
+		arg.ConfigAppliedAt,
+		arg.ConfigApplyError,
+	)
+	return err
+}
+
 const updateModuleConfiguration = `-- name: UpdateModuleConfiguration :one
 UPDATE modules
 SET
@@ -1655,7 +1810,10 @@ SET
     minimum_solar_angle_deg = $14,
     inspection_interval_days = $15,
     reservoir_nominal_capacity_ml = $16,
-    configured_at = $17
+    configured_at = $17,
+    config_version = modules.config_version + 1,
+    config_apply_error = NULL,
+    updated_at = NOW()
 WHERE company_id = $18
   AND id = $19
 RETURNING
@@ -1682,7 +1840,11 @@ RETURNING
     reservoir_nominal_capacity_ml,
     configured_at,
     created_at,
-    updated_at
+    updated_at,
+    config_version,
+    config_applied_version,
+    config_applied_at,
+    config_apply_error
 `
 
 type UpdateModuleConfigurationParams struct {
@@ -1732,6 +1894,10 @@ type UpdateModuleConfigurationRow struct {
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
+	ConfigVersion              int32
+	ConfigAppliedVersion       int32
+	ConfigAppliedAt            *time.Time
+	ConfigApplyError           pgtype.Text
 }
 
 func (q *Queries) UpdateModuleConfiguration(ctx context.Context, arg UpdateModuleConfigurationParams) (UpdateModuleConfigurationRow, error) {
@@ -1782,6 +1948,10 @@ func (q *Queries) UpdateModuleConfiguration(ctx context.Context, arg UpdateModul
 		&i.ConfiguredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConfigVersion,
+		&i.ConfigAppliedVersion,
+		&i.ConfigAppliedAt,
+		&i.ConfigApplyError,
 	)
 	return i, err
 }

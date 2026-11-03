@@ -8,6 +8,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,16 +38,48 @@ const (
 )
 
 var (
-	ErrInvalidInput          = errors.New("invalid module input")
-	ErrNotFound              = errors.New("module not found")
-	ErrForbidden             = errors.New("insufficient permissions for this module operation")
-	ErrMACConflict           = errors.New("a module with this MAC address is already registered")
-	ErrManagerRequired             = errors.New("at least one active responsible manager from the same company is required")
+	ErrInvalidInput                  = errors.New("invalid module input")
+	ErrNotFound                      = errors.New("module not found")
+	ErrForbidden                     = errors.New("insufficient permissions for this module operation")
+	ErrMACConflict                   = errors.New("a module with this MAC address is already registered")
+	ErrManagerRequired               = errors.New("at least one active responsible manager from the same company is required")
 	ErrTechnicianHasNoActiveManagers = errors.New("technician has no active responsible managers")
-	ErrTargetNotTechnician         = errors.New("target user is not a technician in this company")
-	ErrTargetNotClient             = errors.New("one or more target users are not active clients in this company")
-	ErrModuleHasOperationalHistory = errors.New("module contains operational history or pending operations and cannot be deleted; deactivate it instead")
+	ErrTargetNotTechnician           = errors.New("target user is not a technician in this company")
+	ErrTargetNotClient               = errors.New("one or more target users are not active clients in this company")
+	ErrModuleHasOperationalHistory   = errors.New("module contains operational history or pending operations and cannot be deleted; deactivate it instead")
+	ErrStaleConfig                   = errors.New("stale configuration version")
 )
+
+type ConfigurationSyncDTO struct {
+	State                string  `json:"state"`
+	ConfigVersion        int32   `json:"config_version"`
+	ConfigAppliedVersion int32   `json:"config_applied_version"`
+	ConfigAppliedAt      *string `json:"config_applied_at"`
+	ConfigApplyError     *string `json:"config_apply_error"`
+}
+
+func computeConfigurationSync(configVersion, configAppliedVersion int32, configAppliedAt *time.Time, configApplyError *string) ConfigurationSyncDTO {
+	state := "pending"
+	if configApplyError != nil && strings.TrimSpace(*configApplyError) != "" {
+		state = "failed"
+	} else if configAppliedVersion == configVersion {
+		state = "synced"
+	}
+
+	var appliedAtStr *string
+	if configAppliedAt != nil {
+		s := configAppliedAt.UTC().Format(time.RFC3339)
+		appliedAtStr = &s
+	}
+
+	return ConfigurationSyncDTO{
+		State:                state,
+		ConfigVersion:        configVersion,
+		ConfigAppliedVersion: configAppliedVersion,
+		ConfigAppliedAt:      appliedAtStr,
+		ConfigApplyError:     configApplyError,
+	}
+}
 
 type ModulePermissionsDTO struct {
 	CanEditGeometryAndLocation bool `json:"can_edit_geometry_and_location"`
@@ -86,6 +119,9 @@ type ModuleDTO struct {
 	UserRelationship           string               `json:"user_relationship"`
 	Permissions                ModulePermissionsDTO `json:"permissions"`
 	OperationalEmailEnabled    *bool                `json:"operational_email_enabled,omitempty"`
+	ConfigurationSync          ConfigurationSyncDTO `json:"configuration_sync"`
+	PingIntervalSeconds        int                  `json:"ping_interval_seconds"`
+	OnlineWindowSeconds        int                  `json:"online_window_seconds"`
 }
 
 type ModuleManagerDTO struct {
@@ -121,6 +157,9 @@ type ModuleDetailsDTO struct {
 	CompanyManagers     []ModuleManagerDTO          `json:"company_managers,omitempty"`
 	CompanyTechnicians  []ModuleTechnicianAccessDTO `json:"company_technicians,omitempty"`
 	CompanyClients      []ModuleClientAccessDTO     `json:"company_clients,omitempty"`
+	ConfigurationSync   ConfigurationSyncDTO        `json:"configuration_sync"`
+	PingIntervalSeconds int                         `json:"ping_interval_seconds"`
+	OnlineWindowSeconds int                         `json:"online_window_seconds"`
 }
 
 type IntervalChangeLogDTO struct {
@@ -184,16 +223,49 @@ type UpdateConfigurationInput struct {
 	ClientIDs                  *[]pgtype.UUID
 }
 
+const DefaultPingIntervalSeconds = 300
+
+func getDevicePingIntervalSeconds() int {
+	valStr := os.Getenv("DEVICE_PING_INTERVAL_SECONDS")
+	if valStr != "" {
+		if val, err := strconv.Atoi(strings.TrimSpace(valStr)); err == nil && val > 0 {
+			return val
+		}
+	}
+	return DefaultPingIntervalSeconds
+}
+
 type Service struct {
-	database auth.DB
-	queries  *db.Queries
+	database            auth.DB
+	queries             *db.Queries
+	pingIntervalSeconds int
 }
 
 func NewService(database auth.DB) *Service {
 	return &Service{
-		database: database,
-		queries:  db.New(database),
+		database:            database,
+		queries:             db.New(database),
+		pingIntervalSeconds: getDevicePingIntervalSeconds(),
 	}
+}
+
+func (s *Service) PingIntervalSeconds() int {
+	if s.pingIntervalSeconds <= 0 {
+		return DefaultPingIntervalSeconds
+	}
+	return s.pingIntervalSeconds
+}
+
+func (s *Service) OnlineWindowSeconds() int {
+	return 3 * s.PingIntervalSeconds()
+}
+
+func (s *Service) IsOnline(lastPingAt *time.Time) bool {
+	if lastPingAt == nil {
+		return false
+	}
+	window := time.Duration(s.OnlineWindowSeconds()) * time.Second
+	return time.Since(*lastPingAt) < window
 }
 
 func (s *Service) ListActiveCompanyManagers(ctx context.Context, companyID pgtype.UUID) ([]ModuleManagerDTO, error) {
@@ -338,6 +410,11 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		return ModuleDetailsDTO{}, ErrTechnicianHasNoActiveManagers
 	}
 
+	var configVersion int32 = 0
+	if isComplete {
+		configVersion = 1
+	}
+
 	created, err := qtx.CreateModule(ctx, db.CreateModuleParams{
 		CompanyID:                  in.CompanyID,
 		InstallerTechnicianID:      in.InstallerTechnicianID,
@@ -360,6 +437,7 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		InspectionIntervalDays:     intervalDays,
 		ReservoirNominalCapacityMl: floatPtrToNumeric(in.ReservoirNominalCapacityMl),
 		ConfiguredAt:               configuredAt,
+		ConfigVersion:              configVersion,
 	})
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -442,7 +520,7 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 		}
 		out := make([]ModuleDTO, 0, len(rows))
 		for _, r := range rows {
-			out = append(out, mapGetModuleRowToDTO(db.GetModuleByIDRow(r), RelManager, nil))
+			out = append(out, s.mapGetModuleRowToDTO(db.GetModuleByIDRow(r), RelManager, nil))
 		}
 		return out, nil
 
@@ -462,7 +540,7 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 			if r.InstallerTechnicianID.Bytes == principal.ID.Bytes {
 				rel = RelInstallerTechnician
 			}
-			out = append(out, mapGetModuleRowToDTO(db.GetModuleByIDRow(r), rel, nil))
+			out = append(out, s.mapGetModuleRowToDTO(db.GetModuleByIDRow(r), rel, nil))
 		}
 		return out, nil
 
@@ -506,8 +584,12 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 				ConfiguredAt:               r.ConfiguredAt,
 				CreatedAt:                  r.CreatedAt,
 				UpdatedAt:                  r.UpdatedAt,
+				ConfigVersion:              r.ConfigVersion,
+				ConfigAppliedVersion:       r.ConfigAppliedVersion,
+				ConfigAppliedAt:            r.ConfigAppliedAt,
+				ConfigApplyError:           r.ConfigApplyError,
 			}
-			out = append(out, mapGetModuleRowToDTO(baseRow, RelAssignedClient, &emailEnabled))
+			out = append(out, s.mapGetModuleRowToDTO(baseRow, RelAssignedClient, &emailEnabled))
 		}
 		return out, nil
 
@@ -558,9 +640,13 @@ func (s *Service) GetModuleDetails(ctx context.Context, principal auth.Principal
 		})
 	}
 
+	modDTO := s.mapGetModuleRowToDTO(row, rel, emailEnabled)
 	details := ModuleDetailsDTO{
-		Module:              mapGetModuleRowToDTO(row, rel, emailEnabled),
+		Module:              modDTO,
 		ResponsibleManagers: respMgrs,
+		ConfigurationSync:   modDTO.ConfigurationSync,
+		PingIntervalSeconds: s.PingIntervalSeconds(),
+		OnlineWindowSeconds: s.OnlineWindowSeconds(),
 	}
 
 	// If caller is a Manager, include company users state for SCR-14 access management
@@ -1356,12 +1442,24 @@ func permissionsForRelationship(rel string) ModulePermissionsDTO {
 	}
 }
 
-func mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operationalEmailEnabled *bool) ModuleDTO {
+func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operationalEmailEnabled *bool) ModuleDTO {
 	var configuredAtStr *string
 	if r.ConfiguredAt != nil {
-		s := r.ConfiguredAt.UTC().Format(time.RFC3339)
-		configuredAtStr = &s
+		str := r.ConfiguredAt.UTC().Format(time.RFC3339)
+		configuredAtStr = &str
 	}
+
+	var configApplyErr *string
+	if r.ConfigApplyError.Valid && strings.TrimSpace(r.ConfigApplyError.String) != "" {
+		errStr := r.ConfigApplyError.String
+		configApplyErr = &errStr
+	}
+	configSync := computeConfigurationSync(
+		r.ConfigVersion,
+		r.ConfigAppliedVersion,
+		r.ConfigAppliedAt,
+		configApplyErr,
+	)
 
 	return ModuleDTO{
 		ID:                         auth.FormatUUID(r.ID),
@@ -1393,6 +1491,9 @@ func mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operationalEmailEna
 		UserRelationship:           rel,
 		Permissions:                permissionsForRelationship(rel),
 		OperationalEmailEnabled:    operationalEmailEnabled,
+		ConfigurationSync:          configSync,
+		PingIntervalSeconds:        s.PingIntervalSeconds(),
+		OnlineWindowSeconds:        s.OnlineWindowSeconds(),
 	}
 }
 
@@ -1903,18 +2004,21 @@ func computeBandsFromMeasurements(widthPixels int32, measurements []db.ListMeasu
 }
 
 type DeviceStatusDTO struct {
-	ModuleID            string  `json:"module_id"`
-	MACAddress          string  `json:"mac_address"`
-	MonitoringStatus    string  `json:"monitoring_status"`
-	IsConfigured        bool    `json:"is_configured"`
-	ConfiguredAt        *string `json:"configured_at,omitempty"`
-	IsOnline            bool    `json:"is_online"`
-	LastSeenAt          *string `json:"last_seen_at,omitempty"`
-	WaterAvailable      *bool   `json:"water_available,omitempty"`
-	WaterStatus         string  `json:"water_status"`
-	LimitsCheckPassed   bool    `json:"limits_check_passed"`
-	ThermalSensorActive bool    `json:"thermal_sensor_active"`
-	LatestMeasurementAt *string `json:"latest_measurement_at,omitempty"`
+	ModuleID            string               `json:"module_id"`
+	MACAddress          string               `json:"mac_address"`
+	MonitoringStatus    string               `json:"monitoring_status"`
+	IsConfigured        bool                 `json:"is_configured"`
+	ConfiguredAt        *string              `json:"configured_at,omitempty"`
+	IsOnline            bool                 `json:"is_online"`
+	LastSeenAt          *string              `json:"last_seen_at,omitempty"`
+	WaterAvailable      *bool                `json:"water_available,omitempty"`
+	WaterStatus         string               `json:"water_status"`
+	LimitsCheckPassed   bool                 `json:"limits_check_passed"`
+	ThermalSensorActive bool                 `json:"thermal_sensor_active"`
+	LatestMeasurementAt *string              `json:"latest_measurement_at,omitempty"`
+	ConfigurationSync   ConfigurationSyncDTO `json:"configuration_sync"`
+	PingIntervalSeconds int                  `json:"ping_interval_seconds"`
+	OnlineWindowSeconds int                  `json:"online_window_seconds"`
 }
 
 func newRandomUUID() pgtype.UUID {
@@ -1963,13 +2067,26 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 
 	isOnline := false
 	var lastSeenTime *time.Time
+	onlineWindow := time.Duration(s.OnlineWindowSeconds()) * time.Second
 
 	if row.LastPingAt != nil {
 		lastSeenTime = row.LastPingAt
-		if time.Since(*row.LastPingAt) < 15*time.Minute {
+		if s.IsOnline(row.LastPingAt) {
 			isOnline = true
 		}
 	}
+
+	var configApplyErr *string
+	if row.ConfigApplyError.Valid && strings.TrimSpace(row.ConfigApplyError.String) != "" {
+		errStr := row.ConfigApplyError.String
+		configApplyErr = &errStr
+	}
+	syncDTO := computeConfigurationSync(
+		row.ConfigVersion,
+		row.ConfigAppliedVersion,
+		row.ConfigAppliedAt,
+		configApplyErr,
+	)
 
 	dto := &DeviceStatusDTO{
 		ModuleID:            auth.FormatUUID(row.ID),
@@ -1980,6 +2097,9 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		WaterStatus:         "unknown",
 		LimitsCheckPassed:   row.LimitsCheckPassed,
 		ThermalSensorActive: row.ThermalSensorActive,
+		ConfigurationSync:   syncDTO,
+		PingIntervalSeconds: s.PingIntervalSeconds(),
+		OnlineWindowSeconds: s.OnlineWindowSeconds(),
 	}
 
 	resReading, err := s.queries.GetLatestReservoirReadingByModule(ctx, moduleID)
@@ -1994,7 +2114,7 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		} else if resReading.WaterAvailable.Valid && !resReading.WaterAvailable.Bool {
 			dto.WaterStatus = "insufficient"
 		}
-		if time.Since(resReading.MeasuredAt) < 15*time.Minute {
+		if time.Since(resReading.MeasuredAt) < onlineWindow {
 			isOnline = true
 		}
 	}
@@ -2012,7 +2132,7 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 			t := m.MeasuredAt
 			lastSeenTime = &t
 		}
-		if time.Since(m.MeasuredAt) < 15*time.Minute {
+		if time.Since(m.MeasuredAt) < onlineWindow {
 			isOnline = true
 		}
 	}
@@ -2097,6 +2217,7 @@ type ClaimDeviceDTO struct {
 	DeviceToken            string `json:"device_token"`
 	Status                 string `json:"status"`
 	InspectionIntervalDays int32  `json:"inspection_interval_days"`
+	PingIntervalSeconds    int    `json:"ping_interval_seconds"`
 	Message                string `json:"message"`
 }
 
@@ -2170,8 +2291,121 @@ func (s *Service) ClaimDevice(ctx context.Context, input ClaimDeviceInput) (*Cla
 		DeviceToken:            deviceToken,
 		Status:                 "claimed",
 		InspectionIntervalDays: mod.InspectionIntervalDays,
+		PingIntervalSeconds:    s.PingIntervalSeconds(),
 		Message:                "Device successfully claimed and paired",
 	}, nil
+}
+
+type DeviceGeometryDTO struct {
+	PanelLengthCm  *float64 `json:"panel_length_cm"`
+	PanelWidthCm   *float64 `json:"panel_width_cm"`
+	PanelCount     *int32   `json:"panel_count"`
+	PanelSpacingCm *float64 `json:"panel_spacing_cm"`
+}
+
+type DeviceConfigurationDTO struct {
+	ConfigVersion       int32             `json:"config_version"`
+	Geometry            DeviceGeometryDTO `json:"geometry"`
+	MinSolarAngle       *float64          `json:"min_solar_angle"`
+	IntervalDays        int32             `json:"interval_days"`
+	PingIntervalSeconds int               `json:"ping_interval_seconds"`
+}
+
+func (s *Service) GetDeviceConfiguration(ctx context.Context, moduleID pgtype.UUID) (*DeviceConfigurationDTO, error) {
+	if !moduleID.Valid {
+		return nil, ErrInvalidInput
+	}
+
+	mod, err := s.queries.GetModuleByIDForDevice(ctx, moduleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if !mod.IsActive {
+		return nil, ErrForbidden
+	}
+
+	return &DeviceConfigurationDTO{
+		ConfigVersion: mod.ConfigVersion,
+		Geometry: DeviceGeometryDTO{
+			PanelLengthCm:  numericToFloatPtr(mod.PanelLengthCm),
+			PanelWidthCm:   numericToFloatPtr(mod.PanelWidthCm),
+			PanelCount:     pgInt4ToInt32Ptr(mod.PanelCount),
+			PanelSpacingCm: numericToFloatPtr(mod.PanelSpacingCm),
+		},
+		MinSolarAngle:       numericToFloatPtr(mod.MinimumSolarAngleDeg),
+		IntervalDays:        mod.InspectionIntervalDays,
+		PingIntervalSeconds: s.PingIntervalSeconds(),
+	}, nil
+}
+
+type AcknowledgeDeviceConfigurationInput struct {
+	ConfigVersion int32   `json:"config_version"`
+	Applied       bool    `json:"applied"`
+	Checksum      string  `json:"checksum"`
+	Error         *string `json:"error,omitempty"`
+}
+
+func (s *Service) AcknowledgeDeviceConfiguration(ctx context.Context, moduleID pgtype.UUID, req AcknowledgeDeviceConfigurationInput) (*ConfigurationSyncDTO, error) {
+	if !moduleID.Valid {
+		return nil, ErrInvalidInput
+	}
+
+	mod, err := s.queries.GetModuleByIDForDevice(ctx, moduleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if !mod.IsActive {
+		return nil, ErrForbidden
+	}
+
+	if req.ConfigVersion != mod.ConfigVersion {
+		return nil, ErrStaleConfig
+	}
+
+	now := time.Now().UTC()
+	var appliedAt *time.Time
+	var applyErr pgtype.Text
+	appliedVersion := mod.ConfigAppliedVersion
+
+	if req.Applied {
+		appliedAt = &now
+		appliedVersion = req.ConfigVersion
+		applyErr = pgtype.Text{Valid: false}
+	} else {
+		appliedAt = mod.ConfigAppliedAt
+		errText := ""
+		if req.Error != nil {
+			errText = strings.TrimSpace(*req.Error)
+		}
+		if errText == "" {
+			errText = "device failed to apply configuration"
+		}
+		applyErr = pgtype.Text{String: errText, Valid: true}
+	}
+
+	if err := s.queries.UpdateModuleConfigAck(ctx, db.UpdateModuleConfigAckParams{
+		ID:                   moduleID,
+		ConfigAppliedVersion: appliedVersion,
+		ConfigAppliedAt:      appliedAt,
+		ConfigApplyError:     applyErr,
+	}); err != nil {
+		return nil, err
+	}
+
+	var applyErrPtr *string
+	if applyErr.Valid && applyErr.String != "" {
+		applyErrPtr = &applyErr.String
+	}
+	syncState := computeConfigurationSync(mod.ConfigVersion, appliedVersion, appliedAt, applyErrPtr)
+	return &syncState, nil
 }
 
 type IngestTelemetryInput struct {

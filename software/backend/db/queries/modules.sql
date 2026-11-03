@@ -49,7 +49,8 @@ INSERT INTO modules (
     minimum_solar_angle_deg,
     inspection_interval_days,
     reservoir_nominal_capacity_ml,
-    configured_at
+    configured_at,
+    config_version
 ) VALUES (
     sqlc.arg('company_id'),
     sqlc.arg('installer_technician_id'),
@@ -71,7 +72,8 @@ INSERT INTO modules (
     sqlc.narg('minimum_solar_angle_deg'),
     sqlc.arg('inspection_interval_days'),
     sqlc.narg('reservoir_nominal_capacity_ml'),
-    sqlc.narg('configured_at')
+    sqlc.narg('configured_at'),
+    sqlc.arg('config_version')
 )
 RETURNING
     id,
@@ -97,7 +99,11 @@ RETURNING
     reservoir_nominal_capacity_ml,
     configured_at,
     created_at,
-    updated_at;
+    updated_at,
+    config_version,
+    config_applied_version,
+    config_applied_at,
+    config_apply_error;
 
 -- name: GetModuleByID :one
 SELECT
@@ -129,7 +135,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -163,7 +173,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 WHERE m.company_id = $1
   AND m.id = $2
@@ -199,7 +213,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -236,7 +254,11 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.created_at,
-    m.updated_at
+    m.updated_at,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_technicians mt ON mt.company_id = m.company_id AND mt.module_id = m.id
@@ -274,7 +296,11 @@ SELECT
     m.configured_at,
     m.created_at,
     m.updated_at,
-    mc.operational_email_enabled
+    mc.operational_email_enabled,
+    m.config_version,
+    m.config_applied_version,
+    m.config_applied_at,
+    m.config_apply_error
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_clients mc ON mc.company_id = m.company_id AND mc.module_id = m.id
@@ -302,7 +328,10 @@ SET
     minimum_solar_angle_deg = sqlc.narg('minimum_solar_angle_deg'),
     inspection_interval_days = sqlc.arg('inspection_interval_days'),
     reservoir_nominal_capacity_ml = sqlc.narg('reservoir_nominal_capacity_ml'),
-    configured_at = sqlc.narg('configured_at')
+    configured_at = sqlc.narg('configured_at'),
+    config_version = modules.config_version + 1,
+    config_apply_error = NULL,
+    updated_at = NOW()
 WHERE company_id = sqlc.arg('company_id')
   AND id = sqlc.arg('id')
 RETURNING
@@ -329,7 +358,11 @@ RETURNING
     reservoir_nominal_capacity_ml,
     configured_at,
     created_at,
-    updated_at;
+    updated_at,
+    config_version,
+    config_applied_version,
+    config_applied_at,
+    config_apply_error;
 
 -- name: AddModuleManager :one
 INSERT INTO module_managers (
@@ -556,5 +589,18 @@ SET limits_check_passed = coalesce(sqlc.narg('limits_check_passed'), limits_chec
     updated_at = now()
 WHERE id = sqlc.arg('id')
 RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at;
+
+-- name: UpdateModuleConfigAck :exec
+UPDATE modules
+SET config_applied_version = $2,
+    config_applied_at = $3,
+    config_apply_error = $4,
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: GetModuleByIDForDevice :one
+SELECT * FROM modules
+WHERE id = $1;
+
 
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"backend/internal/auth"
 	"backend/internal/db"
@@ -27,8 +28,30 @@ func NewHandler(service *Service, queries *db.Queries, tokens *auth.TokenManager
 	}
 }
 
+func parseModuleIDParam(r *http.Request) (pgtype.UUID, error) {
+	raw := chi.URLParam(r, "id")
+	if raw == "" {
+		raw = chi.URLParam(r, "moduleID")
+	}
+	return auth.ParseUUID(raw)
+}
+
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	r.Post("/devices/claim", h.handleClaimDevice)
+	// Dedicated devices route group
+	r.Route("/devices", func(r chi.Router) {
+		r.Post("/claim", h.handleClaimDevice)
+
+		r.Group(func(r chi.Router) {
+			r.Use(auth.Authenticate(h.queries, h.tokens))
+			r.Route("/{id}", func(r chi.Router) {
+				r.Get("/configuration", h.handleGetDeviceConfiguration)
+				r.Post("/configuration/ack", h.handleAcknowledgeDeviceConfiguration)
+				r.Post("/ping", h.handleRecordDevicePing)
+				r.Post("/telemetry", h.handleIngestTelemetry)
+				r.Post("/cleanings", h.handleIngestCleaning)
+			})
+		})
+	})
 
 	r.Route("/alerts", func(r chi.Router) {
 		r.Use(auth.Authenticate(h.queries, h.tokens))
@@ -55,6 +78,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{moduleID}/thermal-map", h.handleGetLatestThermalMap)
 		r.Get("/{moduleID}/device-status", h.handleGetDeviceStatus)
 		r.Post("/{moduleID}/device-ping", h.handleRecordDevicePing)
+		r.Get("/{moduleID}/device-configuration", h.handleGetDeviceConfiguration)
+		r.Post("/{moduleID}/device-configuration/ack", h.handleAcknowledgeDeviceConfiguration)
 		r.Post("/{moduleID}/telemetry", h.handleIngestTelemetry)
 		r.Post("/{moduleID}/cleanings", h.handleIngestCleaning)
 		r.Put("/{moduleID}/managers", h.handleSetModuleManagers)
@@ -798,9 +823,14 @@ func (h *Handler) handleRecordDevicePing(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	moduleID, err := parseModuleIDParam(r)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	if strings.HasPrefix(principal.Email, "device@") && principal.ID.Bytes != moduleID.Bytes {
+		httpjson.WriteError(w, http.StatusForbidden, "device token does not match module", "FORBIDDEN")
 		return
 	}
 
@@ -825,6 +855,84 @@ func (h *Handler) handleRecordDevicePing(w http.ResponseWriter, r *http.Request)
 	})
 }
 
+func (h *Handler) handleGetDeviceConfiguration(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := parseModuleIDParam(r)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	if strings.HasPrefix(principal.Email, "device@") && principal.ID.Bytes != moduleID.Bytes {
+		httpjson.WriteError(w, http.StatusForbidden, "device token does not match module", "FORBIDDEN")
+		return
+	}
+
+	cfg, err := h.service.GetDeviceConfiguration(r.Context(), moduleID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, cfg)
+}
+
+func (h *Handler) handleAcknowledgeDeviceConfiguration(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := parseModuleIDParam(r)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	if strings.HasPrefix(principal.Email, "device@") && principal.ID.Bytes != moduleID.Bytes {
+		httpjson.WriteError(w, http.StatusForbidden, "device token does not match module", "FORBIDDEN")
+		return
+	}
+
+	var req AcknowledgeDeviceConfigurationInput
+	if err := httpjson.DecodeJSON(r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		return
+	}
+
+	syncState, err := h.service.AcknowledgeDeviceConfiguration(r.Context(), moduleID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrStaleConfig):
+			httpjson.WriteError(w, http.StatusConflict, "stale configuration version", "STALE_CONFIG")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"configuration_sync": syncState,
+		"message":            "configuration acknowledgment recorded",
+	})
+}
 
 func (h *Handler) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
@@ -833,9 +941,14 @@ func (h *Handler) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	moduleID, err := parseModuleIDParam(r)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	if strings.HasPrefix(principal.Email, "device@") && principal.ID.Bytes != moduleID.Bytes {
+		httpjson.WriteError(w, http.StatusForbidden, "device token does not match module", "FORBIDDEN")
 		return
 	}
 
@@ -870,9 +983,14 @@ func (h *Handler) handleIngestCleaning(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	moduleID, err := parseModuleIDParam(r)
 	if err != nil {
 		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	if strings.HasPrefix(principal.Email, "device@") && principal.ID.Bytes != moduleID.Bytes {
+		httpjson.WriteError(w, http.StatusForbidden, "device token does not match module", "FORBIDDEN")
 		return
 	}
 

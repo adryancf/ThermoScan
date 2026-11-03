@@ -774,9 +774,10 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected 200 claiming device, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var claimResp struct {
-		ModuleID    string `json:"module_id"`
-		DeviceToken string `json:"device_token"`
-		Status      string `json:"status"`
+		ModuleID            string `json:"module_id"`
+		DeviceToken         string `json:"device_token"`
+		Status              string `json:"status"`
+		PingIntervalSeconds int    `json:"ping_interval_seconds"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &claimResp); err != nil {
 		t.Fatalf("failed to decode claim response: %v", err)
@@ -784,33 +785,195 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if claimResp.DeviceToken == "" || !strings.HasPrefix(claimResp.DeviceToken, "dev_sec_") {
 		t.Fatalf("expected valid device_token starting with dev_sec_, got %q", claimResp.DeviceToken)
 	}
+	if claimResp.PingIntervalSeconds != 300 {
+		t.Fatalf("expected ping_interval_seconds 300, got %d", claimResp.PingIntervalSeconds)
+	}
 
-	// Test device-ping with full diagnostic health flags using ONLY device_token
-	rec = doJSON(http.MethodPost, "/api/v1/modules/"+claimResp.ModuleID+"/device-ping", claimResp.DeviceToken, map[string]any{
+	// Test dedicated device route POST /api/v1/devices/{id}/ping
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/ping", claimResp.DeviceToken, map[string]any{
 		"water_available":       true,
 		"limits_check_passed":   true,
 		"thermal_sensor_active": true,
 	})
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 recording device-ping with device_token, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var pingResp struct {
-		DeviceStatus struct {
-			IsOnline            bool `json:"is_online"`
-			LimitsCheckPassed   bool `json:"limits_check_passed"`
-			ThermalSensorActive bool `json:"thermal_sensor_active"`
-			WaterAvailable      bool `json:"water_available"`
-		} `json:"device_status"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &pingResp); err != nil {
-		t.Fatalf("failed to decode ping response: %v", err)
-	}
-	if !pingResp.DeviceStatus.IsOnline || !pingResp.DeviceStatus.LimitsCheckPassed || !pingResp.DeviceStatus.ThermalSensorActive || !pingResp.DeviceStatus.WaterAvailable {
-		t.Fatalf("expected all diagnostic flags to be true, got: %+v", pingResp.DeviceStatus)
+		t.Fatalf("expected 200 pinging device via /devices/{id}/ping, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Test telemetry ingestion using ONLY device_token
-	rec = doJSON(http.MethodPost, "/api/v1/modules/"+claimResp.ModuleID+"/telemetry", claimResp.DeviceToken, map[string]any{
+	// Test GET /api/v1/devices/{id}/configuration with device_token
+	rec = doJSON(http.MethodGet, "/api/v1/devices/"+claimResp.ModuleID+"/configuration", claimResp.DeviceToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting device configuration, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var devCfgResp struct {
+		ConfigVersion       int32   `json:"config_version"`
+		MinSolarAngle       float64 `json:"min_solar_angle"`
+		IntervalDays        int32   `json:"interval_days"`
+		PingIntervalSeconds int     `json:"ping_interval_seconds"`
+		Geometry            struct {
+			PanelLengthCm  float64 `json:"panel_length_cm"`
+			PanelWidthCm   float64 `json:"panel_width_cm"`
+			PanelCount     int32   `json:"panel_count"`
+			PanelSpacingCm float64 `json:"panel_spacing_cm"`
+		} `json:"geometry"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &devCfgResp); err != nil {
+		t.Fatalf("failed to decode device configuration response: %v", err)
+	}
+	initialVer := devCfgResp.ConfigVersion
+	if initialVer < 1 {
+		t.Fatalf("expected positive config_version, got %d", initialVer)
+	}
+	if devCfgResp.PingIntervalSeconds != 300 {
+		t.Fatalf("expected ping_interval_seconds 300, got %d", devCfgResp.PingIntervalSeconds)
+	}
+	if devCfgResp.Geometry.PanelCount != 10 {
+		t.Fatalf("expected panel_count 10, got %d", devCfgResp.Geometry.PanelCount)
+	}
+
+	// Test POST /api/v1/devices/{id}/configuration/ack with STALE config version -> 409 Conflict
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/configuration/ack", claimResp.DeviceToken, map[string]any{
+		"config_version": initialVer + 99,
+		"applied":        true,
+		"checksum":       "abc123",
+	})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict for stale config_version, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Test POST /api/v1/devices/{id}/configuration/ack reporting failure -> 200 OK with failed state
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/configuration/ack", claimResp.DeviceToken, map[string]any{
+		"config_version": initialVer,
+		"applied":        false,
+		"checksum":       "abc123",
+		"error":          "NVS write timeout",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 acking failed config, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var failAckResp struct {
+		ConfigurationSync struct {
+			State            string  `json:"state"`
+			ConfigVersion    int32   `json:"config_version"`
+			ConfigApplyError *string `json:"config_apply_error"`
+		} `json:"configuration_sync"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &failAckResp); err != nil {
+		t.Fatalf("failed to decode fail ack response: %v", err)
+	}
+	if failAckResp.ConfigurationSync.State != "failed" {
+		t.Fatalf("expected state failed, got %q", failAckResp.ConfigurationSync.State)
+	}
+	if failAckResp.ConfigurationSync.ConfigApplyError == nil || *failAckResp.ConfigurationSync.ConfigApplyError != "NVS write timeout" {
+		t.Fatalf("expected apply error 'NVS write timeout', got %+v", failAckResp.ConfigurationSync.ConfigApplyError)
+	}
+
+	// Test POST /api/v1/devices/{id}/configuration/ack reporting success -> 200 OK with synced state
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/configuration/ack", claimResp.DeviceToken, map[string]any{
+		"config_version": initialVer,
+		"applied":        true,
+		"checksum":       "sha256_mock_1",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 acking successful config, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var successAckResp struct {
+		ConfigurationSync struct {
+			State                string  `json:"state"`
+			ConfigVersion        int32   `json:"config_version"`
+			ConfigAppliedVersion int32   `json:"config_applied_version"`
+			ConfigAppliedAt      *string `json:"config_applied_at"`
+			ConfigApplyError     *string `json:"config_apply_error"`
+		} `json:"configuration_sync"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &successAckResp); err != nil {
+		t.Fatalf("failed to decode success ack response: %v", err)
+	}
+	if successAckResp.ConfigurationSync.State != "synced" {
+		t.Fatalf("expected state synced, got %q", successAckResp.ConfigurationSync.State)
+	}
+	if successAckResp.ConfigurationSync.ConfigAppliedVersion != initialVer || successAckResp.ConfigurationSync.ConfigAppliedAt == nil {
+		t.Fatalf("expected applied_version %d and non-nil applied_at, got %+v", initialVer, successAckResp.ConfigurationSync)
+	}
+
+	// Verify device status endpoint reflects synced configuration
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+claimResp.ModuleID+"/device-status", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting device status, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var devStatusCheck struct {
+		DeviceStatus struct {
+			IsOnline            bool `json:"is_online"`
+			PingIntervalSeconds int  `json:"ping_interval_seconds"`
+			OnlineWindowSeconds int  `json:"online_window_seconds"`
+			ConfigurationSync   struct {
+				State string `json:"state"`
+			} `json:"configuration_sync"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &devStatusCheck); err != nil {
+		t.Fatalf("failed to decode dev status check: %v", err)
+	}
+	if devStatusCheck.DeviceStatus.ConfigurationSync.State != "synced" {
+		t.Fatalf("expected device status sync state synced, got %q", devStatusCheck.DeviceStatus.ConfigurationSync.State)
+	}
+	if devStatusCheck.DeviceStatus.PingIntervalSeconds != 300 || devStatusCheck.DeviceStatus.OnlineWindowSeconds != 900 {
+		t.Fatalf("expected ping 300 and online window 900, got %d / %d", devStatusCheck.DeviceStatus.PingIntervalSeconds, devStatusCheck.DeviceStatus.OnlineWindowSeconds)
+	}
+
+	// Update module configuration via PATCH -> increments config_version to initialVer+1 and resets state to pending
+	rec = doJSON(http.MethodPatch, "/api/v1/modules/"+claimResp.ModuleID+"/configuration", tech1Auth.AccessToken, map[string]any{
+		"panel_count": 14,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 updating configuration, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var patchResp struct {
+		ConfigurationSync struct {
+			State         string `json:"state"`
+			ConfigVersion int32  `json:"config_version"`
+		} `json:"configuration_sync"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &patchResp); err != nil {
+		t.Fatalf("failed to decode patch response: %v", err)
+	}
+	expectedNextVer := initialVer + 1
+	if patchResp.ConfigurationSync.ConfigVersion != expectedNextVer {
+		t.Fatalf("expected config_version %d after update, got %d", expectedNextVer, patchResp.ConfigurationSync.ConfigVersion)
+	}
+	if patchResp.ConfigurationSync.State != "pending" {
+		t.Fatalf("expected sync state pending after update, got %q", patchResp.ConfigurationSync.State)
+	}
+
+	// Device fetches updated configuration
+	rec = doJSON(http.MethodGet, "/api/v1/devices/"+claimResp.ModuleID+"/configuration", claimResp.DeviceToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 fetching updated config, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &devCfgResp); err != nil {
+		t.Fatalf("failed to decode dev cfg: %v", err)
+	}
+	if devCfgResp.ConfigVersion != expectedNextVer || devCfgResp.Geometry.PanelCount != 14 {
+		t.Fatalf("expected config_version %d and panel_count 14, got v=%d count=%d", expectedNextVer, devCfgResp.ConfigVersion, devCfgResp.Geometry.PanelCount)
+	}
+
+	// Device acks next version
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/configuration/ack", claimResp.DeviceToken, map[string]any{
+		"config_version": expectedNextVer,
+		"applied":        true,
+		"checksum":       "sha256_mock_2",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 acking v2 config, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &successAckResp); err != nil {
+		t.Fatalf("failed to decode success ack: %v", err)
+	}
+	if successAckResp.ConfigurationSync.State != "synced" || successAckResp.ConfigurationSync.ConfigAppliedVersion != expectedNextVer {
+		t.Fatalf("expected synced v%d, got %+v", expectedNextVer, successAckResp.ConfigurationSync)
+	}
+
+	// Test telemetry ingestion using ONLY device_token via dedicated /devices/{id}/telemetry
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/telemetry", claimResp.DeviceToken, map[string]any{
 		"x_position_cm":          8.0,
 		"baseline_temperature_c": 36.0,
 		"max_temperature_c":      38.0,
@@ -823,8 +986,8 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected 201 ingesting telemetry with device_token, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Test cleaning ingestion using ONLY device_token
-	rec = doJSON(http.MethodPost, "/api/v1/modules/"+claimResp.ModuleID+"/cleanings", claimResp.DeviceToken, map[string]any{
+	// Test cleaning ingestion using ONLY device_token via dedicated /devices/{id}/cleanings
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/cleanings", claimResp.DeviceToken, map[string]any{
 		"target_x_position_cm": 12.0,
 		"pump_actuated":        false,
 		"status":               "refused",

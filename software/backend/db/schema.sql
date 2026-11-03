@@ -65,6 +65,10 @@ CREATE TABLE modules (
     limits_check_passed boolean NOT NULL DEFAULT false,
     thermal_sensor_active boolean NOT NULL DEFAULT false,
     last_ping_at timestamptz,
+    config_version int NOT NULL DEFAULT 0,
+    config_applied_version int NOT NULL DEFAULT 0,
+    config_applied_at timestamptz,
+    config_apply_error text,
     is_active boolean NOT NULL DEFAULT true,
     monitoring_status text NOT NULL DEFAULT 'pending_configuration'
         CHECK (monitoring_status IN ('pending_configuration', 'active', 'maintenance', 'inactive')),

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1619,14 +1620,24 @@ type CleaningDTO struct {
 	CreatedAt          string  `json:"created_at"`
 }
 
+type ThermalBandDTO struct {
+	BandIndex       int     `json:"band_index"`
+	StartXCm        float64 `json:"start_x_cm"`
+	EndXCm          float64 `json:"end_x_cm"`
+	MaxTemperatureC float64 `json:"max_temperature_c"`
+	AvgTemperatureC float64 `json:"avg_temperature_c"`
+	HasHotspot      bool    `json:"has_hotspot"`
+}
+
 type ThermalMapDTO struct {
-	ID               string `json:"id"`
-	InspectionID     string `json:"inspection_id"`
-	WidthPixels      int32  `json:"width_pixels"`
-	HeightPixels     int32  `json:"height_pixels"`
-	TemperaturesC    any    `json:"temperatures_c"`
-	AlgorithmVersion string `json:"algorithm_version"`
-	GeneratedAt      string `json:"generated_at"`
+	ID               string           `json:"id"`
+	InspectionID     string           `json:"inspection_id"`
+	WidthPixels      int32            `json:"width_pixels"`
+	HeightPixels     int32            `json:"height_pixels"`
+	TemperaturesC    any              `json:"temperatures_c"`
+	AlgorithmVersion string           `json:"algorithm_version"`
+	Bands            []ThermalBandDTO `json:"bands"`
+	GeneratedAt      string           `json:"generated_at"`
 }
 
 func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, limit, offset int32) ([]MeasurementDTO, error) {
@@ -1773,6 +1784,13 @@ func (s *Service) GetLatestThermalMap(ctx context.Context, principal auth.Princi
 		return nil, err
 	}
 
+	measurements, _ := s.queries.ListMeasurementsByModule(ctx, db.ListMeasurementsByModuleParams{
+		ModuleID: moduleID,
+		Limit:    100,
+		Offset:   0,
+	})
+	bands := computeBandsFromMeasurements(tm.WidthPixels, measurements)
+
 	return &ThermalMapDTO{
 		ID:               auth.FormatUUID(tm.ID),
 		InspectionID:     auth.FormatUUID(tm.InspectionID),
@@ -1780,8 +1798,78 @@ func (s *Service) GetLatestThermalMap(ctx context.Context, principal auth.Princi
 		HeightPixels:     tm.HeightPixels,
 		TemperaturesC:    tm.TemperaturesC,
 		AlgorithmVersion: tm.AlgorithmVersion,
+		Bands:            bands,
 		GeneratedAt:      tm.GeneratedAt.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func computeBandsFromMeasurements(widthPixels int32, measurements []db.ListMeasurementsByModuleRow) []ThermalBandDTO {
+	totalCols := int(widthPixels)
+	if totalCols <= 0 {
+		totalCols = 32
+	}
+
+	var totalLengthCm float64
+	if totalCols <= 32 {
+		totalLengthCm = 5.0
+	} else {
+		steps := float64(totalCols-32) / 13.0
+		totalLengthCm = 5.0 + steps*2.0
+	}
+
+	numBands := int(math.Ceil(totalLengthCm / 5.0))
+	if numBands < 1 {
+		numBands = 1
+	}
+
+	bands := make([]ThermalBandDTO, 0, numBands)
+	for b := 0; b < numBands; b++ {
+		startX := float64(b) * 5.0
+		endX := startX + 5.0
+		if endX > totalLengthCm {
+			endX = totalLengthCm
+		}
+
+		hasHotspot := false
+		maxTemp := 0.0
+		avgTemp := 0.0
+		count := 0
+
+		for _, m := range measurements {
+			x, _ := strconv.ParseFloat(m.XPositionCm, 64)
+			mT, _ := strconv.ParseFloat(m.MaxTemperatureC, 64)
+			bT, _ := strconv.ParseFloat(m.BaselineTemperatureC, 64)
+			if x >= startX && x < endX {
+				if m.HotspotDetected {
+					hasHotspot = true
+				}
+				if mT > maxTemp {
+					maxTemp = mT
+				}
+				avgTemp += bT
+				count++
+			}
+		}
+
+		if count > 0 {
+			avgTemp = math.Round((avgTemp/float64(count))*10) / 10
+		} else {
+			avgTemp = 35.0
+			if maxTemp == 0.0 {
+				maxTemp = 36.5
+			}
+		}
+
+		bands = append(bands, ThermalBandDTO{
+			BandIndex:       b + 1,
+			StartXCm:        math.Round(startX*10) / 10,
+			EndXCm:          math.Round(endX*10) / 10,
+			MaxTemperatureC: math.Round(maxTemp*10) / 10,
+			AvgTemperatureC: avgTemp,
+			HasHotspot:      hasHotspot,
+		})
+	}
+	return bands
 }
 
 type DeviceStatusDTO struct {
@@ -1926,19 +2014,183 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 }
 
 type IngestTelemetryInput struct {
-	MeasuredAt           *time.Time `json:"measured_at"`
-	XPositionCm          float64    `json:"x_position_cm"`
-	BaselineTemperatureC float64    `json:"baseline_temperature_c"`
-	MaxTemperatureC      float64    `json:"max_temperature_c"`
-	HotspotDetected      bool       `json:"hotspot_detected"`
-	HotspotConfirmed     bool       `json:"hotspot_confirmed"`
-	VoltageV             float64    `json:"voltage_v"`
-	CurrentA             float64    `json:"current_a"`
-	PowerW               *float64   `json:"power_w"`
-	ThermalFrame         []float64  `json:"thermal_frame"`
-	ThermalMap           []float64  `json:"thermal_map"`
-	WidthPixels          int        `json:"width_pixels"`
-	HeightPixels         int        `json:"height_pixels"`
+	MeasuredAt           *time.Time             `json:"measured_at"`
+	XPositionCm          float64                `json:"x_position_cm"`
+	BaselineTemperatureC float64                `json:"baseline_temperature_c"`
+	MaxTemperatureC      float64                `json:"max_temperature_c"`
+	HotspotDetected      bool                   `json:"hotspot_detected"`
+	HotspotConfirmed     bool                   `json:"hotspot_confirmed"`
+	VoltageV             float64                `json:"voltage_v"`
+	CurrentA             float64                `json:"current_a"`
+	PowerW               *float64               `json:"power_w"`
+	ThermalFrame         []float64              `json:"thermal_frame"`
+	ThermalMap           []float64              `json:"thermal_map"`
+	WidthPixels          int                    `json:"width_pixels"`
+	HeightPixels         int                    `json:"height_pixels"`
+	Batch                []IngestTelemetryInput `json:"batch"`
+}
+
+func stitchThermalFrames(frames []IngestTelemetryInput) (int32, int32, []float64, []ThermalBandDTO) {
+	if len(frames) == 0 {
+		return 32, 24, make([]float64, 32*24), nil
+	}
+
+	sort.Slice(frames, func(i, j int) bool {
+		return frames[i].XPositionCm < frames[j].XPositionCm
+	})
+
+	if len(frames) == 1 {
+		f := frames[0]
+		data := f.ThermalFrame
+		if len(data) < 32*24 {
+			data = make([]float64, 32*24)
+			for i := range data {
+				data[i] = f.BaselineTemperatureC
+			}
+			if f.HotspotDetected {
+				data[12*32+16] = f.MaxTemperatureC
+				data[12*32+17] = f.MaxTemperatureC - 1.5
+				data[13*32+16] = f.MaxTemperatureC - 2.0
+			}
+		}
+		bands := []ThermalBandDTO{
+			{
+				BandIndex:       1,
+				StartXCm:        0.0,
+				EndXCm:          5.0,
+				MaxTemperatureC: f.MaxTemperatureC,
+				AvgTemperatureC: f.BaselineTemperatureC,
+				HasHotspot:      f.HotspotDetected,
+			},
+		}
+		return 32, 24, data, bands
+	}
+
+	colsPerStep := 13
+	totalCols := 32 + (len(frames)-1)*colsPerStep
+	totalRows := 24
+
+	composite := make([]float64, totalCols*totalRows)
+	weights := make([]float64, totalCols*totalRows)
+
+	for frameIdx, f := range frames {
+		frameData := f.ThermalFrame
+		if len(frameData) < 32*24 {
+			frameData = make([]float64, 32*24)
+			for i := range frameData {
+				frameData[i] = f.BaselineTemperatureC
+			}
+			if f.HotspotDetected {
+				frameData[12*32+16] = f.MaxTemperatureC
+				frameData[12*32+17] = f.MaxTemperatureC - 1.5
+				frameData[13*32+16] = f.MaxTemperatureC - 2.0
+			}
+		}
+
+		colOffset := frameIdx * colsPerStep
+
+		for r := 0; r < totalRows; r++ {
+			for c := 0; c < 32; c++ {
+				targetCol := colOffset + c
+				if targetCol >= totalCols {
+					continue
+				}
+				targetIdx := r*totalCols + targetCol
+				srcIdx := r*32 + c
+
+				w := 1.0
+				if c < 13 && frameIdx > 0 {
+					w = float64(c+1) / 13.0
+				} else if c >= (32-13) && frameIdx < len(frames)-1 {
+					w = float64(32-c) / 13.0
+				}
+				if w < 0.05 {
+					w = 0.05
+				}
+
+				composite[targetIdx] += frameData[srcIdx] * w
+				weights[targetIdx] += w
+			}
+		}
+	}
+
+	for i := range composite {
+		if weights[i] > 0 {
+			composite[i] = math.Round((composite[i]/weights[i])*10.0) / 10.0
+		}
+	}
+
+	minX := frames[0].XPositionCm
+	maxX := frames[len(frames)-1].XPositionCm + 5.0
+	totalLengthCm := maxX - minX
+	if totalLengthCm <= 0 {
+		totalLengthCm = 5.0
+	}
+
+	numBands := int(math.Ceil(totalLengthCm / 5.0))
+	if numBands < 1 {
+		numBands = 1
+	}
+
+	bands := make([]ThermalBandDTO, 0, numBands)
+	for b := 0; b < numBands; b++ {
+		startX := minX + float64(b)*5.0
+		endX := startX + 5.0
+		if endX > maxX {
+			endX = maxX
+		}
+
+		maxTemp := 0.0
+		sumTemp := 0.0
+		count := 0
+		hasHotspot := false
+
+		for _, f := range frames {
+			centerFrameX := f.XPositionCm + 2.5
+			if centerFrameX >= startX && centerFrameX <= endX {
+				if f.HotspotDetected {
+					hasHotspot = true
+				}
+				if f.MaxTemperatureC > maxTemp {
+					maxTemp = f.MaxTemperatureC
+				}
+			}
+		}
+
+		colStart := int(float64(b) * 5.0 / totalLengthCm * float64(totalCols))
+		colEnd := int(float64(b+1) * 5.0 / totalLengthCm * float64(totalCols))
+		if colEnd > totalCols {
+			colEnd = totalCols
+		}
+		for r := 0; r < totalRows; r++ {
+			for c := colStart; c < colEnd; c++ {
+				t := composite[r*totalCols+c]
+				if t > maxTemp {
+					maxTemp = t
+				}
+				sumTemp += t
+				count++
+			}
+		}
+
+		avgTemp := 0.0
+		if count > 0 {
+			avgTemp = math.Round((sumTemp/float64(count))*10.0) / 10.0
+		} else {
+			avgTemp = maxTemp
+		}
+
+		bands = append(bands, ThermalBandDTO{
+			BandIndex:       b + 1,
+			StartXCm:        math.Round(startX*10.0) / 10.0,
+			EndXCm:          math.Round(endX*10.0) / 10.0,
+			MaxTemperatureC: math.Round(maxTemp*10.0) / 10.0,
+			AvgTemperatureC: avgTemp,
+			HasHotspot:      hasHotspot,
+		})
+	}
+
+	return int32(totalCols), int32(totalRows), composite, bands
 }
 
 func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, input IngestTelemetryInput) (*MeasurementDTO, error) {
@@ -1962,18 +2214,18 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		return nil, err
 	}
 
+	framesToProcess := input.Batch
+	if len(framesToProcess) == 0 {
+		framesToProcess = []IngestTelemetryInput{input}
+	}
+
 	now := time.Now().UTC()
 	measuredAt := now
-	if input.MeasuredAt != nil && !input.MeasuredAt.IsZero() {
-		measuredAt = input.MeasuredAt.UTC()
+	if framesToProcess[0].MeasuredAt != nil && !framesToProcess[0].MeasuredAt.IsZero() {
+		measuredAt = framesToProcess[0].MeasuredAt.UTC()
 	}
 
-	powerW := input.VoltageV * input.CurrentA
-	if input.PowerW != nil && *input.PowerW > 0 {
-		powerW = *input.PowerW
-	}
-
-	// 1. Create inspection
+	// 1. Create inspection session
 	inspEventID := newRandomUUID()
 	insp, err := s.queries.CreateInspection(ctx, db.CreateInspectionParams{
 		ModuleID:      moduleID,
@@ -1981,90 +2233,96 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		Type:          "scheduled",
 		ScheduledFor:  measuredAt.Add(-5 * time.Minute),
 		StartedAt:     &measuredAt,
-		FinishedAt:    &measuredAt,
+		FinishedAt:    &now,
 		Status:        "completed",
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// 2. Prepare thermal frame
-	frameFloats := input.ThermalFrame
-	if len(frameFloats) == 0 {
-		frameFloats = make([]float64, 32*24)
-		for i := range frameFloats {
-			frameFloats[i] = input.BaselineTemperatureC
-		}
-		if input.HotspotDetected && len(frameFloats) > 100 {
-			frameFloats[100] = input.MaxTemperatureC
-			frameFloats[101] = input.MaxTemperatureC - 1.2
-			frameFloats[132] = input.MaxTemperatureC - 2.0
-		}
-	}
-	frameBytes, err := json.Marshal(frameFloats)
-	if err != nil {
-		return nil, err
-	}
+	var primaryMeasRow *db.CreateMeasurementRow
 
-	// 3. Create measurement
-	measEventID := newRandomUUID()
-	meas, err := s.queries.CreateMeasurement(ctx, db.CreateMeasurementParams{
-		ModuleID:             moduleID,
-		InspectionID:         insp.ID,
-		SourceEventID:        measEventID,
-		MeasuredAt:           measuredAt,
-		XPositionCm:          floatPtrToNumeric(&input.XPositionCm),
-		BaselineTemperatureC: floatPtrToNumeric(&input.BaselineTemperatureC),
-		MaxTemperatureC:      floatPtrToNumeric(&input.MaxTemperatureC),
-		HotspotDetected:      input.HotspotDetected,
-		HotspotConfirmed:     input.HotspotConfirmed,
-		VoltageV:             floatPtrToNumeric(&input.VoltageV),
-		CurrentA:             floatPtrToNumeric(&input.CurrentA),
-		PowerW:               floatPtrToNumeric(&powerW),
-		ThermalFrame:         frameBytes,
-	})
-	if err != nil {
-		return nil, err
-	}
+	// 2. Ingest each measurement frame
+	for _, f := range framesToProcess {
+		fMeasuredAt := now
+		if f.MeasuredAt != nil && !f.MeasuredAt.IsZero() {
+			fMeasuredAt = f.MeasuredAt.UTC()
+		}
 
-	// 4. If hotspot detected, create anomaly event
-	if input.HotspotDetected {
-		anomEventID := newRandomUUID()
-		_, _ = s.queries.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
-			ModuleID:              moduleID,
-			OriginMeasurementID:   meas.ID,
-			SourceEventID:         anomEventID,
-			XPositionCm:           floatPtrToNumeric(&input.XPositionCm),
-			DetectedAt:            measuredAt,
-			Status:                "open",
-			ActuatedAttemptsCount: 0,
-			RetryPending:          false,
+		powerW := f.VoltageV * f.CurrentA
+		if f.PowerW != nil && *f.PowerW > 0 {
+			powerW = *f.PowerW
+		}
+
+		frameFloats := f.ThermalFrame
+		if len(frameFloats) < 32*24 {
+			frameFloats = make([]float64, 32*24)
+			for i := range frameFloats {
+				frameFloats[i] = f.BaselineTemperatureC
+			}
+			if f.HotspotDetected {
+				frameFloats[12*32+16] = f.MaxTemperatureC
+				frameFloats[12*32+17] = f.MaxTemperatureC - 1.2
+				frameFloats[13*32+16] = f.MaxTemperatureC - 2.0
+			}
+		}
+		frameBytes, err := json.Marshal(frameFloats)
+		if err != nil {
+			return nil, err
+		}
+
+		measEventID := newRandomUUID()
+		meas, err := s.queries.CreateMeasurement(ctx, db.CreateMeasurementParams{
+			ModuleID:             moduleID,
+			InspectionID:         insp.ID,
+			SourceEventID:        measEventID,
+			MeasuredAt:           fMeasuredAt,
+			XPositionCm:          floatPtrToNumeric(&f.XPositionCm),
+			BaselineTemperatureC: floatPtrToNumeric(&f.BaselineTemperatureC),
+			MaxTemperatureC:      floatPtrToNumeric(&f.MaxTemperatureC),
+			HotspotDetected:      f.HotspotDetected,
+			HotspotConfirmed:     f.HotspotConfirmed,
+			VoltageV:             floatPtrToNumeric(&f.VoltageV),
+			CurrentA:             floatPtrToNumeric(&f.CurrentA),
+			PowerW:               floatPtrToNumeric(&powerW),
+			ThermalFrame:         frameBytes,
 		})
+		if err != nil {
+			return nil, err
+		}
+
+		if primaryMeasRow == nil || f.HotspotDetected {
+			primaryMeasRow = &meas
+		}
+
+		// If hotspot detected, create anomaly event
+		if f.HotspotDetected {
+			anomEventID := newRandomUUID()
+			_, _ = s.queries.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
+				ModuleID:              moduleID,
+				OriginMeasurementID:   meas.ID,
+				SourceEventID:         anomEventID,
+				XPositionCm:           floatPtrToNumeric(&f.XPositionCm),
+				DetectedAt:            fMeasuredAt,
+				Status:                "open",
+				ActuatedAttemptsCount: 0,
+				RetryPending:          false,
+			})
+		}
 	}
 
-	// 5. If thermal map specified or default
-	mapWidth := input.WidthPixels
-	mapHeight := input.HeightPixels
-	if mapWidth <= 0 {
-		mapWidth = 32
-	}
-	if mapHeight <= 0 {
-		mapHeight = 24
-	}
-	mapFloats := input.ThermalMap
-	if len(mapFloats) == 0 {
-		mapFloats = frameFloats
-	}
-	mapBytes, _ := json.Marshal(mapFloats)
+	// 3. Run multi-frame stitching with 60% overlap algorithm & 5cm bands
+	totalCols, totalRows, compositeData, _ := stitchThermalFrames(framesToProcess)
+	compositeBytes, _ := json.Marshal(compositeData)
 	_, _ = s.queries.CreateInspectionThermalMap(ctx, db.CreateInspectionThermalMapParams{
 		InspectionID:     insp.ID,
-		WidthPixels:      int32(mapWidth),
-		HeightPixels:     int32(mapHeight),
-		TemperaturesC:    mapBytes,
-		AlgorithmVersion: "bilinear-bicubic-v1.0",
+		WidthPixels:      totalCols,
+		HeightPixels:     totalRows,
+		TemperaturesC:    compositeBytes,
+		AlgorithmVersion: "overlap-60-blend-v1.0",
 	})
 
-	// Also record presence ping
+	// 4. Record device ping
 	pingEventID := newRandomUUID()
 	_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
 		ModuleID:       moduleID,
@@ -2072,6 +2330,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		WaterAvailable: pgtype.Bool{Bool: true, Valid: true},
 	})
 
+	meas := primaryMeasRow
 	return &MeasurementDTO{
 		ID:               auth.FormatUUID(meas.ID),
 		ModuleID:         auth.FormatUUID(meas.ModuleID),

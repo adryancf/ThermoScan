@@ -55,7 +55,7 @@ SELECT
 FROM inspection_thermal_maps tm
 JOIN inspections i ON i.id = tm.inspection_id
 WHERE i.module_id = $1
-ORDER BY tm.generated_at DESC
+ORDER BY i.started_at DESC, tm.generated_at DESC
 LIMIT 1;
 
 -- name: GetLatestReservoirReadingByModule :one

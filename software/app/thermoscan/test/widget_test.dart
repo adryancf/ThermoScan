@@ -602,6 +602,7 @@ void main() {
 
     // Verify SCR-10 Radiometric Scan & Telemetry metrics
     expect(find.text('32×24 Sensor Interpolation'), findsOneWidget);
+    expect(find.text('Discretização do Painel (Faixas de 5 cm)'), findsOneWidget);
     expect(find.text('Peak Temperature'), findsOneWidget);
     expect(find.text('DC Output Voltage'), findsOneWidget);
     expect(find.text('Active Power'), findsOneWidget);

@@ -476,6 +476,37 @@ class ModuleCleaning {
   }
 }
 
+class ThermalBand {
+  const ThermalBand({
+    required this.bandIndex,
+    required this.startXCm,
+    required this.endXCm,
+    required this.maxTemperatureC,
+    required this.avgTemperatureC,
+    required this.hasHotspot,
+  });
+
+  final int bandIndex;
+  final double startXCm;
+  final double endXCm;
+  final double maxTemperatureC;
+  final double avgTemperatureC;
+  final bool hasHotspot;
+
+  String get label => 'F$bandIndex (${startXCm.toStringAsFixed(0)}-${endXCm.toStringAsFixed(0)}cm)';
+
+  factory ThermalBand.fromJson(Map<String, dynamic> json) {
+    return ThermalBand(
+      bandIndex: (json['band_index'] as num?)?.toInt() ?? 1,
+      startXCm: (json['start_x_cm'] as num?)?.toDouble() ?? 0.0,
+      endXCm: (json['end_x_cm'] as num?)?.toDouble() ?? 5.0,
+      maxTemperatureC: (json['max_temperature_c'] as num?)?.toDouble() ?? 0.0,
+      avgTemperatureC: (json['avg_temperature_c'] as num?)?.toDouble() ?? 0.0,
+      hasHotspot: json['has_hotspot'] as bool? ?? false,
+    );
+  }
+}
+
 class ModuleThermalMap {
   const ModuleThermalMap({
     required this.id,
@@ -485,6 +516,7 @@ class ModuleThermalMap {
     required this.algorithmVersion,
     required this.generatedAt,
     this.temperatures,
+    this.bands = const [],
   });
 
   final String id;
@@ -494,8 +526,16 @@ class ModuleThermalMap {
   final String algorithmVersion;
   final String generatedAt;
   final List<dynamic>? temperatures;
+  final List<ThermalBand> bands;
 
   factory ModuleThermalMap.fromJson(Map<String, dynamic> json) {
+    final rawBands = json['bands'] as List<dynamic>?;
+    final parsedBands = rawBands != null
+        ? rawBands
+            .map((b) => ThermalBand.fromJson(b as Map<String, dynamic>))
+            .toList()
+        : <ThermalBand>[];
+
     return ModuleThermalMap(
       id: json['id'] as String? ?? '',
       inspectionId: json['inspection_id'] as String? ?? '',
@@ -504,6 +544,7 @@ class ModuleThermalMap {
       algorithmVersion: json['algorithm_version'] as String? ?? 'v1',
       generatedAt: json['generated_at'] as String? ?? '',
       temperatures: json['temperatures_c'] as List<dynamic>?,
+      bands: parsedBands,
     );
   }
 }

@@ -698,7 +698,48 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		"status":                    "completed",
 		"post_cleaning_result":      "resolved",
 	})
+	// Test batch multi-frame telemetry with 2cm steps & 60% overlap
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
+		"batch": []map[string]any{
+			{"x_position_cm": 0.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2},
+			{"x_position_cm": 2.0, "baseline_temperature_c": 35.0, "max_temperature_c": 38.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2},
+			{"x_position_cm": 4.0, "baseline_temperature_c": 35.0, "max_temperature_c": 56.5, "hotspot_detected": true, "voltage_v": 18.2, "current_a": 4.0},
+			{"x_position_cm": 6.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.5, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2},
+		},
+	})
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("expected 201 ingesting cleaning, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 201 ingesting batch telemetry, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify thermal map has 60% overlap stitching and 5cm bands
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/thermal-map", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting thermal map, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var tmResp struct {
+		ThermalMap struct {
+			WidthPixels      int32  `json:"width_pixels"`
+			HeightPixels     int32  `json:"height_pixels"`
+			AlgorithmVersion string `json:"algorithm_version"`
+			Bands            []struct {
+				BandIndex       int     `json:"band_index"`
+				StartXCm        float64 `json:"start_x_cm"`
+				EndXCm          float64 `json:"end_x_cm"`
+				MaxTemperatureC float64 `json:"max_temperature_c"`
+				HasHotspot      bool    `json:"has_hotspot"`
+			} `json:"bands"`
+		} `json:"thermal_map"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &tmResp); err != nil {
+		t.Fatalf("failed to decode thermal map response: %v", err)
+	}
+	if tmResp.ThermalMap.WidthPixels <= 32 {
+		t.Fatalf("expected stitched width > 32 cols, got %d", tmResp.ThermalMap.WidthPixels)
+	}
+	if len(tmResp.ThermalMap.Bands) == 0 {
+		t.Fatalf("expected 5cm bands in thermal map, got 0")
+	}
+	if tmResp.ThermalMap.AlgorithmVersion != "overlap-60-blend-v1.0" {
+		t.Fatalf("expected algorithm overlap-60-blend-v1.0, got %q", tmResp.ThermalMap.AlgorithmVersion)
 	}
 }

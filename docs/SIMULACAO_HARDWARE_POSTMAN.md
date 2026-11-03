@@ -82,26 +82,35 @@ Recomendamos abrir o **Aplicativo Flutter** (no emulador ou dispositivo físico)
 
 ---
 
-### Passo 4: Envio de Varredura Normal (Sem Anomalia)
-1. No App, navegue para a tela de detalhes do módulo (**Overview**).
-2. Se nenhuma telemetria tiver sido enviada, o card exibe honestamente:
-   > *"Awaiting Radiometric Telemetry — No thermal frames or electrical readings recorded yet by the ESP32."*
-3. No Postman, abra a pasta `03 - Telemetria & Varredura Térmica (MLX90640)` e dispare:
-   - `01. Varredura Normal (Sem Hotspot - Painel Saudável)`
-4. **Resultado no App:**
-   - Ao puxar a tela para atualizar (*Pull to Refresh*) ou reentrar, o **Card Radiométrico (SCR-10)** exibe o gradiente térmico homogêneo, temperatura de pico de 37.8°C, tensão de 18.6V, corrente de 4.4A e o status **Delta: 3.3°C (Normal)** em verde.
-   - A tela de **Telemetry History (SCR-11)** ganha o registro detalhado dessa medição.
+### Passo 4: Varredura com Passos de 2cm & Sobreposição de 60%
+A câmera térmica MLX90640 tem abertura física de 5 cm. O carrinho avança em passos de **2 cm** ($\Delta X = 2\text{ cm}$), gerando uma **sobreposição óptica de 60%** (3 cm compartilhados entre frames adjacentes).
+
+O backend Go executa a costura ponderada (*linear blending*) e divide o painel em **faixas operacionais de 5 cm** (Faixa 1: [0-5cm], Faixa 2: [5-10cm], Faixa 3: [10-15cm], etc.).
+
+1. No Postman, abra a pasta `03 - Telemetria & Varredura Térmica (Passos 2cm - Sobreposição 60%)`:
+   - Dispare os passos individuais consecutivamente:
+     - `01. Passo 1: X = 0.0 cm (Faixa 1 [0-5cm])`
+     - `02. Passo 2: X = 2.0 cm (Sobreposição 60%)`
+     - `03. Passo 3: X = 4.0 cm (Transição de faixa)`
+   - Ou execute a varredura completa em lote:
+     - `05. Ingestão em Lote (Varredura Completa - Passos de 2cm)`
+2. **Resultado no App:**
+   - No **Card Radiométrico (SCR-10)**, o Canvas desenha:
+     - As **divisões verticais pontilhadas das faixas de 5 cm** ao longo de todo o comprimento.
+     - As etiquetas superiores de cada faixa (`F1 0-5cm`, `F2 5-10cm`, `F3 10-15cm`).
+     - A barra horizontal de resumo das faixas com temperatura máxima e média de cada setor.
 
 ---
 
-### Passo 5: Detecção de Hotspot Crítico (Ponto Quente)
+### Passo 5: Detecção Local de Hotspot (Faixa 2 [5-10cm])
+A ESP32 calcula o gradiente térmico **localmente** durante o passo de 2 cm. Ao identificar $\Delta T > 15^\circ\text{C}$ na posição $X = 6.0\text{ cm}$, a anomalia é associada à **Faixa 2 (5-10 cm)**.
+
 1. No Postman, execute:
-   - `02. Detecção de Hotspot Crítico (Delta > 15°C - Anomalia Térmica)`
-   *(Envia T_max = 58.4°C vs Baseline = 35.0°C na posição X = 24.2 cm)*.
+   - `04. Passo 4: X = 6.0 cm (Hotspot Crítico na Faixa 2 [5-10cm])`
 2. **Resultado no App:**
-   - O Card Radiométrico exibe badge vermelha de alerta: **Delta: +23.4°C (Hotspot)**.
-   - O retículo de mira do atuador centraliza na coordenada do hotspot.
-   - A aba de **Alerts** do app passa a listar a anomalia aberta exigindo atenção.
+   - A **Faixa 2 (5-10 cm)** do mapa térmico fica contornada em vermelho com a badge `🔥 Hotspot Detectado`.
+   - No breakdown de faixas abaixo do canvas, a Faixa 2 é destacada com status de perigo e temperatura de pico de 58.4°C.
+   - O atuador é orientado para a coordenada exata da anomalia.
 
 ---
 

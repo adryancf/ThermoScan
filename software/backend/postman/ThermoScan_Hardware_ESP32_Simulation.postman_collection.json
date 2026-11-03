@@ -270,11 +270,11 @@
 			]
 		},
 		{
-			"name": "03 - Telemetria & Varredura Térmica (MLX90640)",
-			"description": "Simula o envio de inspeções programadas, dados elétricos e frames termográficos da câmera 32x24.",
+			"name": "03 - Telemetria & Varredura Térmica (Passos 2cm - Sobreposição 60%)",
+			"description": "Simula o carrinho avançando em passos de 2 cm ao longo do trilho. O sensor MLX90640 (janela de 5 cm) gera sobreposição óptica de 60% (3 cm compartilhados), e o backend compõe o mapa térmico contínuo dividido nas faixas operacionais de 5 cm.",
 			"item": [
 				{
-					"name": "01. Varredura Normal (Sem Hotspot - Painel Saudável)",
+					"name": "01. Passo 1: X = 0.0 cm (Início do Painel - Faixa 1 [0-5cm])",
 					"request": {
 						"auth": {
 							"type": "bearer",
@@ -295,7 +295,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"x_position_cm\": 15.0,\n    \"baseline_temperature_c\": 34.5,\n    \"max_temperature_c\": 37.8,\n    \"hotspot_detected\": false,\n    \"hotspot_confirmed\": false,\n    \"voltage_v\": 18.6,\n    \"current_a\": 4.4,\n    \"width_pixels\": 32,\n    \"height_pixels\": 24\n}"
+							"raw": "{\n    \"x_position_cm\": 0.0,\n    \"baseline_temperature_c\": 34.8,\n    \"max_temperature_c\": 37.2,\n    \"hotspot_detected\": false,\n    \"hotspot_confirmed\": false,\n    \"voltage_v\": 18.6,\n    \"current_a\": 4.4\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/telemetry",
@@ -310,12 +310,12 @@
 								"telemetry"
 							]
 						},
-						"description": "Envia o resultado de uma inspeção saudável ao longo do trilho. Atualiza o Card Radiométrico do Flutter com gradiente térmico homogêneo, delta baixo (3.3°C) e dados elétricos normais."
+						"description": "Primeira captura na posição X = 0.0 cm (origem/fim de curso). Registra leitura normal na Faixa 1 (0-5 cm)."
 					},
 					"response": []
 				},
 				{
-					"name": "02. Detecção de Hotspot Crítico (Delta > 15°C - Anomalia Térmica)",
+					"name": "02. Passo 2: X = 2.0 cm (Avanço 2cm - Sobreposição 60%)",
 					"request": {
 						"auth": {
 							"type": "bearer",
@@ -336,7 +336,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"x_position_cm\": 24.2,\n    \"baseline_temperature_c\": 35.0,\n    \"max_temperature_c\": 58.4,\n    \"hotspot_detected\": true,\n    \"hotspot_confirmed\": true,\n    \"voltage_v\": 16.1,\n    \"current_a\": 3.7,\n    \"width_pixels\": 32,\n    \"height_pixels\": 24\n}"
+							"raw": "{\n    \"x_position_cm\": 2.0,\n    \"baseline_temperature_c\": 35.0,\n    \"max_temperature_c\": 37.5,\n    \"hotspot_detected\": false,\n    \"hotspot_confirmed\": false,\n    \"voltage_v\": 18.5,\n    \"current_a\": 4.3\n}"
 						},
 						"url": {
 							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/telemetry",
@@ -351,7 +351,130 @@
 								"telemetry"
 							]
 						},
-						"description": "Simula a detecção de um ponto quente crítico (58.4°C vs 35.0°C baseline = delta 23.4°C). Registra o evento de anomalia no backend, exibe retículo vermelho no app e prepara a fila para o ciclo de lavagem pontual."
+						"description": "Avanço de 2.0 cm pelo motor de passo. O frame compartilha 3 cm de sobreposição com a captura anterior (60% overlap)."
+					},
+					"response": []
+				},
+				{
+					"name": "03. Passo 3: X = 4.0 cm (Avanço 2cm - Faixa 1 e 2)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"x_position_cm\": 4.0,\n    \"baseline_temperature_c\": 35.0,\n    \"max_temperature_c\": 38.0,\n    \"hotspot_detected\": false,\n    \"hotspot_confirmed\": false,\n    \"voltage_v\": 18.4,\n    \"current_a\": 4.3\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/telemetry",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"telemetry"
+							]
+						},
+						"description": "Avanço para X = 4.0 cm transicionando da Faixa 1 para a Faixa 2."
+					},
+					"response": []
+				},
+				{
+					"name": "04. Passo 4: X = 6.0 cm (Hotspot Crítico na Faixa 2 [5-10cm])",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"x_position_cm\": 6.0,\n    \"baseline_temperature_c\": 35.0,\n    \"max_temperature_c\": 58.4,\n    \"hotspot_detected\": true,\n    \"hotspot_confirmed\": true,\n    \"voltage_v\": 16.2,\n    \"current_a\": 3.8\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/telemetry",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"telemetry"
+							]
+						},
+						"description": "Simula a detecção de um ponto quente crítico (58.4°C vs 35.0°C baseline = delta 23.4°C) na Faixa 2 (5-10 cm). A ESP32 identifica o hotspot localmente, registra a anomalia e posiciona o bocal."
+					},
+					"response": []
+				},
+				{
+					"name": "05. Ingestão em Lote (Varredura Completa - Passos de 2cm)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"batch\": [\n        {\"x_position_cm\": 0.0, \"baseline_temperature_c\": 34.8, \"max_temperature_c\": 37.0, \"hotspot_detected\": false, \"voltage_v\": 18.6, \"current_a\": 4.4},\n        {\"x_position_cm\": 2.0, \"baseline_temperature_c\": 35.0, \"max_temperature_c\": 37.5, \"hotspot_detected\": false, \"voltage_v\": 18.5, \"current_a\": 4.3},\n        {\"x_position_cm\": 4.0, \"baseline_temperature_c\": 35.0, \"max_temperature_c\": 38.0, \"hotspot_detected\": false, \"voltage_v\": 18.4, \"current_a\": 4.3},\n        {\"x_position_cm\": 6.0, \"baseline_temperature_c\": 35.0, \"max_temperature_c\": 58.4, \"hotspot_detected\": true, \"hotspot_confirmed\": true, \"voltage_v\": 16.2, \"current_a\": 3.8},\n        {\"x_position_cm\": 8.0, \"baseline_temperature_c\": 35.0, \"max_temperature_c\": 42.0, \"hotspot_detected\": false, \"voltage_v\": 17.5, \"current_a\": 4.1},\n        {\"x_position_cm\": 10.0, \"baseline_temperature_c\": 34.9, \"max_temperature_c\": 37.2, \"hotspot_detected\": false, \"voltage_v\": 18.5, \"current_a\": 4.3}\n    ]\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/telemetry",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"telemetry"
+							]
+						},
+						"description": "Ingere a varredura completa da inspeção em lote. O backend executa o algoritmo de sobreposição ponderada de 60%, divide nas faixas de 5 cm (Faixa 1 [0-5cm], Faixa 2 [5-10cm], Faixa 3 [10-15cm]) e gera o mapa térmico composto final."
 					},
 					"response": []
 				}

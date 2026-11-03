@@ -277,6 +277,8 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
             final latestMeasurement = measurementsAsync.valueOrNull?.isNotEmpty == true
                 ? measurementsAsync.valueOrNull!.first
                 : null;
+            final thermalMapAsync = ref.watch(moduleThermalMapProvider(mod.id));
+            final thermalMap = thermalMapAsync.valueOrNull;
 
             return Column(
               children: [
@@ -292,6 +294,7 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                     onRefresh: () async {
                       ref.invalidate(moduleDetailsProvider(widget.moduleId));
                       ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+                      ref.invalidate(moduleThermalMapProvider(widget.moduleId));
                       await ref.read(moduleDetailsProvider(widget.moduleId).future);
                     },
                     child: SingleChildScrollView(
@@ -484,6 +487,7 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                       RadiometricScanCard(
                         module: mod,
                         latestMeasurement: latestMeasurement,
+                        thermalMap: thermalMap,
                       ),
                       const SizedBox(height: 14),
 

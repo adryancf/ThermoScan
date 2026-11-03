@@ -273,6 +273,10 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
           data: (details) {
             final mod = details.module;
             final perms = mod.permissions;
+            final measurementsAsync = ref.watch(moduleMeasurementsProvider(mod.id));
+            final latestMeasurement = measurementsAsync.valueOrNull?.isNotEmpty == true
+                ? measurementsAsync.valueOrNull!.first
+                : null;
 
             return Column(
               children: [
@@ -287,6 +291,7 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                     color: AppColors.primary,
                     onRefresh: () async {
                       ref.invalidate(moduleDetailsProvider(widget.moduleId));
+                      ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
                       await ref.read(moduleDetailsProvider(widget.moduleId).future);
                     },
                     child: SingleChildScrollView(
@@ -476,7 +481,10 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
 
                     // Radiometric Scan & Thermal Matrix (SCR-10)
                     if (!mod.isPendingConfiguration) ...[
-                      RadiometricScanCard(module: mod),
+                      RadiometricScanCard(
+                        module: mod,
+                        latestMeasurement: latestMeasurement,
+                      ),
                       const SizedBox(height: 14),
 
                       // Telemetry & Cleanings Shortcuts

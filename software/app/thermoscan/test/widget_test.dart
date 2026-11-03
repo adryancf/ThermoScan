@@ -629,7 +629,7 @@ void main() {
   });
 
   testWidgets(
-      'ESP32 Hardware Handshake checklist (Abordagem A) displays verification steps and handles ping simulation',
+      'ESP32 Hardware Handshake checklist (Abordagem A) displays verification steps and navigates to overview',
       (WidgetTester tester) async {
     final tokenStorage = InMemoryTokenStorage();
     await tokenStorage.saveTokens(
@@ -688,22 +688,6 @@ void main() {
     expect(find.text('2. Wi-Fi & HTTPS REST Connection'), findsOneWidget);
     expect(find.text('3. Binary Water Level Sensor'), findsOneWidget);
     expect(find.text('4. Hardware Interlocks & Radiometer'), findsOneWidget);
-
-    // Verify Device Connection Status section and Simulate ESP32 Handshake button
-    final simulateBtnFinder = find.text('Simulate ESP32 Handshake (Test)');
-    expect(simulateBtnFinder, findsOneWidget);
-    await tester.ensureVisible(simulateBtnFinder);
-    await tester.pumpAndSettle();
-
-    // Tap Simulate ESP32 Ping button
-    await tester.tap(simulateBtnFinder);
-    await tester.pumpAndSettle();
-
-    // Verify feedback message
-    expect(
-      find.text('ESP32 handshake ping received! All systems operational.'),
-      findsOneWidget,
-    );
 
     // Tap View Module Overview escape button
     final overviewBtnFinder = find.text('View Module Overview');

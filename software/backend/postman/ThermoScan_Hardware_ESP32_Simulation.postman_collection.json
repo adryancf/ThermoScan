@@ -1,0 +1,598 @@
+{
+	"info": {
+		"_postman_id": "c1f73b88-5182-41f2-9381-8b01a14eb392",
+		"name": "ThermoScan - Simulação de Hardware & Firmware ESP32",
+		"description": "Collection oficial para simular o ciclo de vida completo do dispositivo embarcado ESP32 (Wi-Fi, HTTPS REST, Câmera Térmica MLX90640, Sensor Capacitivo de Água, Minibomba e Microswitches NC) comunicando-se com a API Go do ThermoScan.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "00 - Autenticação & Configuração Inicial",
+			"description": "Rotas para login do técnico ou gestor e obtenção do JWT para autenticar as requisições.",
+			"item": [
+				{
+					"name": "01. Login do Técnico (Obter Token JWT)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var data = pm.response.json();",
+									"if (data.tokens && data.tokens.access_token) {",
+									"    pm.collectionVariables.set(\"token\", data.tokens.access_token);",
+									"    console.log(\"Token JWT atualizado com sucesso!\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{email}}\",\n    \"password\": \"{{password}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Realiza login na API Go como Técnico ou Gestor e armazena automaticamente o token de acesso na variável de coleção `token`."
+					},
+					"response": []
+				},
+				{
+					"name": "02. Listar Módulos (Identificar ID do Módulo)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var data = pm.response.json();",
+									"if (data.modules && data.modules.length > 0) {",
+									"    pm.collectionVariables.set(\"moduleId\", data.modules[0].id);",
+									"    console.log(\"ID do primeiro módulo capturado:\", data.modules[0].id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules"
+							]
+						},
+						"description": "Lista os módulos autorizados da empresa. Se encontrar módulos, define automaticamente o primeiro na variável `moduleId`."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "01 - Handshake & Conectividade Inicial (ESP32 Boot)",
+			"description": "Simula a primeira ligação da placa ESP32 no campo após a montagem mecânica.",
+			"item": [
+				{
+					"name": "01. Ping Inicial ESP32 (Conexão Wi-Fi OK + Água Presente)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"water_available\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/device-ping",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"device-ping"
+							]
+						},
+						"description": "Simula a primeira comunicação HTTPS da ESP32 ao obter endereço IP. Informa ao backend que o hardware está online e que o sensor binário capacitivo detectou água no tanque. No Flutter, os itens 2 e 3 do Checklist de Handshake ficam verdes instantaneamente."
+					},
+					"response": []
+				},
+				{
+					"name": "02. Consultar Status do Dispositivo (Checklist Handshake)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/device-status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"device-status"
+							]
+						},
+						"description": "Consulta consumida em polling pela tela de Handshake do Flutter para saber se o módulo está configurado, online e com água disponível."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "02 - Sensores de Nível & Interlocks Físicos",
+			"description": "Simula o comportamento do sensor capacitivo de água e a proteção contra operação a seco.",
+			"item": [
+				{
+					"name": "01. Tanque Vazio (water_available = false)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"water_available\": false\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/device-ping",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"device-ping"
+							]
+						},
+						"description": "Simula o esgotamento do reservatório. A telemetria passa a indicar 'insufficient' e o app exibe aviso para reposição de fluido."
+					},
+					"response": []
+				},
+				{
+					"name": "02. Tanque Reabastecido (water_available = true)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"water_available\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/device-ping",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"device-ping"
+							]
+						},
+						"description": "Simula o técnico abastecendo o reservatório no módulo. O interlock de segurança da bomba é desarmado e ciclos de lavagem voltam a ser permitidos."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "03 - Telemetria & Varredura Térmica (MLX90640)",
+			"description": "Simula o envio de inspeções programadas, dados elétricos e frames termográficos da câmera 32x24.",
+			"item": [
+				{
+					"name": "01. Varredura Normal (Sem Hotspot - Painel Saudável)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"x_position_cm\": 15.0,\n    \"baseline_temperature_c\": 34.5,\n    \"max_temperature_c\": 37.8,\n    \"hotspot_detected\": false,\n    \"hotspot_confirmed\": false,\n    \"voltage_v\": 18.6,\n    \"current_a\": 4.4,\n    \"width_pixels\": 32,\n    \"height_pixels\": 24\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/telemetry",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"telemetry"
+							]
+						},
+						"description": "Envia o resultado de uma inspeção saudável ao longo do trilho. Atualiza o Card Radiométrico do Flutter com gradiente térmico homogêneo, delta baixo (3.3°C) e dados elétricos normais."
+					},
+					"response": []
+				},
+				{
+					"name": "02. Detecção de Hotspot Crítico (Delta > 15°C - Anomalia Térmica)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"x_position_cm\": 24.2,\n    \"baseline_temperature_c\": 35.0,\n    \"max_temperature_c\": 58.4,\n    \"hotspot_detected\": true,\n    \"hotspot_confirmed\": true,\n    \"voltage_v\": 16.1,\n    \"current_a\": 3.7,\n    \"width_pixels\": 32,\n    \"height_pixels\": 24\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/telemetry",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"telemetry"
+							]
+						},
+						"description": "Simula a detecção de um ponto quente crítico (58.4°C vs 35.0°C baseline = delta 23.4°C). Registra o evento de anomalia no backend, exibe retículo vermelho no app e prepara a fila para o ciclo de lavagem pontual."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "04 - Atuação Mecânica & Ciclos de Lavagem",
+			"description": "Simula o atuador motorizado, bocal aspersor e minibomba executando o protocolo de limpeza.",
+			"item": [
+				{
+					"name": "01. Relatório de Lavagem com Sucesso (Tentativa 1)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"target_x_position_cm\": 24.2,\n    \"pump_actuated\": true,\n    \"attempt_number\": 1,\n    \"duration_seconds\": 45.0,\n    \"estimated_water_volume_ml\": 80.0,\n    \"status\": \"completed\",\n    \"post_cleaning_result\": \"resolved\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/cleanings",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"cleanings"
+							]
+						},
+						"description": "Registra que o bocal se deslocou até a posição do hotspot (X=24.2 cm), a bomba atuou por 45s consumindo ~80ml e a inspeção pós-limpeza constatou anomalia sanada ('resolved'). Aparece na tela de Histórico de Lavagens (SCR-12)."
+					},
+					"response": []
+				},
+				{
+					"name": "02. Recusa de Lavagem por Falta d'Água (Interlock Ativado)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"target_x_position_cm\": 24.2,\n    \"pump_actuated\": false,\n    \"duration_seconds\": 0.0,\n    \"estimated_water_volume_ml\": 0.0,\n    \"status\": \"refused\",\n    \"failure_reason\": \"Recusa de segurança: sensor capacitivo detectou nível seco no reservatório\",\n    \"post_cleaning_result\": \"unresolved\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/cleanings",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"cleanings"
+							]
+						},
+						"description": "Simula o firmware recusando o ciclo de lavagem para proteger a bomba contra funcionamento a seco. No app, aparece registrado com status REFUSED e motivo detalhado."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "05 - Leituras & Consultas do Módulo",
+			"description": "Rotas GET idênticas às que o aplicativo Flutter consome para renderizar os dados na tela.",
+			"item": [
+				{
+					"name": "01. Obter Histórico de Medições (SCR-11)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/measurements?limit=20&offset=0",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"measurements"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "20"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Retorna o histórico de telemetria com timestamp, tensão, corrente, potência, temperaturas e posição X."
+					},
+					"response": []
+				},
+				{
+					"name": "02. Obter Histórico de Lavagens (SCR-12)",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/cleanings?limit=20&offset=0",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"cleanings"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "20"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						},
+						"description": "Retorna todos os registros de acionamento do atuador de lavagem, volumes de água e resultado pós-lavagem."
+					},
+					"response": []
+				},
+				{
+					"name": "03. Obter Mapa Térmico Composto",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{token}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/thermal-map",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"modules",
+								"{{moduleId}}",
+								"thermal-map"
+							]
+						},
+						"description": "Retorna a matriz termográfica interpolada gerada para a última inspeção do módulo."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		},
+		{
+			"key": "email",
+			"value": "marco@soltech.io",
+			"type": "string"
+		},
+		{
+			"key": "password",
+			"value": "Senha@123",
+			"type": "string"
+		},
+		{
+			"key": "token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "moduleId",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

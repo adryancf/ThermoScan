@@ -3,6 +3,7 @@ package module
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"math"
 	"net"
@@ -1497,6 +1498,10 @@ func isFinite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
+func floatPtr(v float64) *float64 {
+	return &v
+}
+
 func floatPtrToNumeric(v *float64) pgtype.Numeric {
 	if v == nil {
 		return pgtype.Numeric{Valid: false}
@@ -1918,4 +1923,347 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 	}
 
 	return s.GetDeviceStatus(ctx, principal, moduleID)
+}
+
+type IngestTelemetryInput struct {
+	MeasuredAt           *time.Time `json:"measured_at"`
+	XPositionCm          float64    `json:"x_position_cm"`
+	BaselineTemperatureC float64    `json:"baseline_temperature_c"`
+	MaxTemperatureC      float64    `json:"max_temperature_c"`
+	HotspotDetected      bool       `json:"hotspot_detected"`
+	HotspotConfirmed     bool       `json:"hotspot_confirmed"`
+	VoltageV             float64    `json:"voltage_v"`
+	CurrentA             float64    `json:"current_a"`
+	PowerW               *float64   `json:"power_w"`
+	ThermalFrame         []float64  `json:"thermal_frame"`
+	ThermalMap           []float64  `json:"thermal_map"`
+	WidthPixels          int        `json:"width_pixels"`
+	HeightPixels         int        `json:"height_pixels"`
+}
+
+func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, input IngestTelemetryInput) (*MeasurementDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	measuredAt := now
+	if input.MeasuredAt != nil && !input.MeasuredAt.IsZero() {
+		measuredAt = input.MeasuredAt.UTC()
+	}
+
+	powerW := input.VoltageV * input.CurrentA
+	if input.PowerW != nil && *input.PowerW > 0 {
+		powerW = *input.PowerW
+	}
+
+	// 1. Create inspection
+	inspEventID := newRandomUUID()
+	insp, err := s.queries.CreateInspection(ctx, db.CreateInspectionParams{
+		ModuleID:      moduleID,
+		SourceEventID: inspEventID,
+		Type:          "scheduled",
+		ScheduledFor:  measuredAt.Add(-5 * time.Minute),
+		StartedAt:     &measuredAt,
+		FinishedAt:    &measuredAt,
+		Status:        "completed",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Prepare thermal frame
+	frameFloats := input.ThermalFrame
+	if len(frameFloats) == 0 {
+		frameFloats = make([]float64, 32*24)
+		for i := range frameFloats {
+			frameFloats[i] = input.BaselineTemperatureC
+		}
+		if input.HotspotDetected && len(frameFloats) > 100 {
+			frameFloats[100] = input.MaxTemperatureC
+			frameFloats[101] = input.MaxTemperatureC - 1.2
+			frameFloats[132] = input.MaxTemperatureC - 2.0
+		}
+	}
+	frameBytes, err := json.Marshal(frameFloats)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Create measurement
+	measEventID := newRandomUUID()
+	meas, err := s.queries.CreateMeasurement(ctx, db.CreateMeasurementParams{
+		ModuleID:             moduleID,
+		InspectionID:         insp.ID,
+		SourceEventID:        measEventID,
+		MeasuredAt:           measuredAt,
+		XPositionCm:          floatPtrToNumeric(&input.XPositionCm),
+		BaselineTemperatureC: floatPtrToNumeric(&input.BaselineTemperatureC),
+		MaxTemperatureC:      floatPtrToNumeric(&input.MaxTemperatureC),
+		HotspotDetected:      input.HotspotDetected,
+		HotspotConfirmed:     input.HotspotConfirmed,
+		VoltageV:             floatPtrToNumeric(&input.VoltageV),
+		CurrentA:             floatPtrToNumeric(&input.CurrentA),
+		PowerW:               floatPtrToNumeric(&powerW),
+		ThermalFrame:         frameBytes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 4. If hotspot detected, create anomaly event
+	if input.HotspotDetected {
+		anomEventID := newRandomUUID()
+		_, _ = s.queries.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
+			ModuleID:              moduleID,
+			OriginMeasurementID:   meas.ID,
+			SourceEventID:         anomEventID,
+			XPositionCm:           floatPtrToNumeric(&input.XPositionCm),
+			DetectedAt:            measuredAt,
+			Status:                "open",
+			ActuatedAttemptsCount: 0,
+			RetryPending:          false,
+		})
+	}
+
+	// 5. If thermal map specified or default
+	mapWidth := input.WidthPixels
+	mapHeight := input.HeightPixels
+	if mapWidth <= 0 {
+		mapWidth = 32
+	}
+	if mapHeight <= 0 {
+		mapHeight = 24
+	}
+	mapFloats := input.ThermalMap
+	if len(mapFloats) == 0 {
+		mapFloats = frameFloats
+	}
+	mapBytes, _ := json.Marshal(mapFloats)
+	_, _ = s.queries.CreateInspectionThermalMap(ctx, db.CreateInspectionThermalMapParams{
+		InspectionID:     insp.ID,
+		WidthPixels:      int32(mapWidth),
+		HeightPixels:     int32(mapHeight),
+		TemperaturesC:    mapBytes,
+		AlgorithmVersion: "bilinear-bicubic-v1.0",
+	})
+
+	// Also record presence ping
+	pingEventID := newRandomUUID()
+	_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+		ModuleID:       moduleID,
+		SourceEventID:  pingEventID,
+		WaterAvailable: pgtype.Bool{Bool: true, Valid: true},
+	})
+
+	return &MeasurementDTO{
+		ID:               auth.FormatUUID(meas.ID),
+		ModuleID:         auth.FormatUUID(meas.ModuleID),
+		InspectionID:     auth.FormatUUID(meas.InspectionID),
+		SourceEventID:    auth.FormatUUID(meas.SourceEventID),
+		MeasuredAt:       meas.MeasuredAt.UTC().Format(time.RFC3339),
+		XPositionCM:      meas.XPositionCm,
+		BaselineTempC:    meas.BaselineTemperatureC,
+		MaxTempC:         meas.MaxTemperatureC,
+		HotspotDetected:  meas.HotspotDetected,
+		HotspotConfirmed: meas.HotspotConfirmed,
+		VoltageV:         meas.VoltageV,
+		CurrentA:         meas.CurrentA,
+		PowerW:           meas.PowerW,
+		ReceivedAt:       meas.ReceivedAt.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+type IngestCleaningInput struct {
+	TargetXPositionCm      float64  `json:"target_x_position_cm"`
+	PumpActuated           bool     `json:"pump_actuated"`
+	AttemptNumber          *int     `json:"attempt_number"`
+	DurationSeconds        float64  `json:"duration_seconds"`
+	EstimatedWaterVolumeMl float64  `json:"estimated_water_volume_ml"`
+	Status                 string   `json:"status"`
+	FailureReason          *string  `json:"failure_reason"`
+	PostCleaningResult     string   `json:"post_cleaning_result"`
+}
+
+func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, input IngestCleaningInput) (*CleaningDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Ensure an inspection & measurement exists
+	measurements, err := s.queries.ListMeasurementsByModule(ctx, db.ListMeasurementsByModuleParams{
+		ModuleID: moduleID,
+		Limit:    1,
+		Offset:   0,
+	})
+	var originMeasID pgtype.UUID
+	now := time.Now().UTC()
+	if err == nil && len(measurements) > 0 {
+		originMeasID = measurements[0].ID
+	} else {
+		// Create placeholder inspection & measurement
+		inspEventID := newRandomUUID()
+		insp, err := s.queries.CreateInspection(ctx, db.CreateInspectionParams{
+			ModuleID:      moduleID,
+			SourceEventID: inspEventID,
+			Type:          "scheduled",
+			ScheduledFor:  now.Add(-10 * time.Minute),
+			StartedAt:     &now,
+			FinishedAt:    &now,
+			Status:        "completed",
+		})
+		if err != nil {
+			return nil, err
+		}
+		frameBytes, _ := json.Marshal([]float64{35.0, 36.0, 48.0})
+		measEventID := newRandomUUID()
+		meas, err := s.queries.CreateMeasurement(ctx, db.CreateMeasurementParams{
+			ModuleID:             moduleID,
+			InspectionID:         insp.ID,
+			SourceEventID:        measEventID,
+			MeasuredAt:           now,
+			XPositionCm:          floatPtrToNumeric(&input.TargetXPositionCm),
+			BaselineTemperatureC: floatPtrToNumeric(floatPtr(36.0)),
+			MaxTemperatureC:      floatPtrToNumeric(floatPtr(48.5)),
+			HotspotDetected:      true,
+			HotspotConfirmed:     true,
+			VoltageV:             floatPtrToNumeric(floatPtr(18.0)),
+			CurrentA:             floatPtrToNumeric(floatPtr(4.0)),
+			PowerW:               floatPtrToNumeric(floatPtr(72.0)),
+			ThermalFrame:         frameBytes,
+		})
+		if err != nil {
+			return nil, err
+		}
+		originMeasID = meas.ID
+	}
+
+	// 2. Create anomaly event
+	anomEventID := newRandomUUID()
+	anom, err := s.queries.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
+		ModuleID:              moduleID,
+		OriginMeasurementID:   originMeasID,
+		SourceEventID:         anomEventID,
+		XPositionCm:           floatPtrToNumeric(&input.TargetXPositionCm),
+		DetectedAt:            now.Add(-2 * time.Minute),
+		Status:                "open",
+		ActuatedAttemptsCount: 1,
+		RetryPending:          false,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Create cleaning operation
+	status := input.Status
+	if status == "" {
+		status = "completed"
+	}
+	postRes := input.PostCleaningResult
+	if postRes == "" {
+		postRes = "resolved"
+	}
+	attemptNum := int32(1)
+	if input.AttemptNumber != nil && *input.AttemptNumber >= 1 && *input.AttemptNumber <= 3 {
+		attemptNum = int32(*input.AttemptNumber)
+	}
+
+	startedAt := now.Add(-time.Duration(input.DurationSeconds) * time.Second)
+	endedAt := now
+
+	cleanEventID := newRandomUUID()
+	var failReason pgtype.Text
+	if input.FailureReason != nil {
+		failReason = pgtype.Text{String: *input.FailureReason, Valid: true}
+	} else if status == "refused" || status == "failed" {
+		failReason = pgtype.Text{String: "Water reservoir depleted", Valid: true}
+	}
+
+	clean, err := s.queries.CreateCleaningOperation(ctx, db.CreateCleaningOperationParams{
+		ModuleID:               moduleID,
+		AnomalyEventID:         anom.ID,
+		SourceEventID:          cleanEventID,
+		TargetXPositionCm:      floatPtrToNumeric(&input.TargetXPositionCm),
+		PumpActuated:           input.PumpActuated,
+		AttemptNumber:          pgtype.Int4{Int32: attemptNum, Valid: input.PumpActuated},
+		StartedAt:              &startedAt,
+		EndedAt:                &endedAt,
+		DurationSeconds:        floatPtrToNumeric(&input.DurationSeconds),
+		EstimatedWaterVolumeMl: floatPtrToNumeric(&input.EstimatedWaterVolumeMl),
+		Status:                 status,
+		FailureReason:          failReason,
+		PostCleaningResult:     postRes,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var attPtr *int32
+	if clean.AttemptNumber.Valid {
+		attPtr = &clean.AttemptNumber.Int32
+	}
+	var fReason *string
+	if clean.FailureReason.Valid {
+		fReason = &clean.FailureReason.String
+	}
+	var startStr *string
+	if clean.StartedAt != nil {
+		s := clean.StartedAt.UTC().Format(time.RFC3339)
+		startStr = &s
+	}
+	var endStr *string
+	if clean.EndedAt != nil {
+		e := clean.EndedAt.UTC().Format(time.RFC3339)
+		endStr = &e
+	}
+
+	return &CleaningDTO{
+		ID:                 auth.FormatUUID(clean.ID),
+		ModuleID:           auth.FormatUUID(clean.ModuleID),
+		AnomalyEventID:     auth.FormatUUID(clean.AnomalyEventID),
+		SourceEventID:      auth.FormatUUID(clean.SourceEventID),
+		TargetXPositionCM:  clean.TargetXPositionCm,
+		PumpActuated:       clean.PumpActuated,
+		AttemptNumber:      attPtr,
+		StartedAt:          startStr,
+		EndedAt:            endStr,
+		DurationSeconds:    clean.DurationSeconds,
+		EstimatedWaterML:   clean.EstimatedWaterVolumeMl,
+		Status:             clean.Status,
+		FailureReason:      fReason,
+		PostCleaningResult: clean.PostCleaningResult,
+		CreatedAt:          clean.CreatedAt.UTC().Format(time.RFC3339),
+	}, nil
 }

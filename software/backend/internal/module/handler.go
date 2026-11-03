@@ -45,6 +45,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{moduleID}/thermal-map", h.handleGetLatestThermalMap)
 		r.Get("/{moduleID}/device-status", h.handleGetDeviceStatus)
 		r.Post("/{moduleID}/device-ping", h.handleRecordDevicePing)
+		r.Post("/{moduleID}/telemetry", h.handleIngestTelemetry)
+		r.Post("/{moduleID}/cleanings", h.handleIngestCleaning)
 		r.Put("/{moduleID}/managers", h.handleSetModuleManagers)
 		r.Put("/{moduleID}/technicians/{technicianID}", h.handleSetTechnicianAccess)
 		r.Put("/{moduleID}/clients", h.handleSetModuleClients)
@@ -792,5 +794,80 @@ func (h *Handler) handleRecordDevicePing(w http.ResponseWriter, r *http.Request)
 
 	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
 		"device_status": status,
+	})
+}
+
+
+func (h *Handler) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	var req IngestTelemetryInput
+	if err := httpjson.DecodeJSON(r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		return
+	}
+
+	meas, err := h.service.IngestTelemetry(r.Context(), principal, moduleID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusCreated, map[string]any{
+		"measurement": meas,
+	})
+}
+
+func (h *Handler) handleIngestCleaning(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	var req IngestCleaningInput
+	if err := httpjson.DecodeJSON(r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		return
+	}
+
+	clean, err := h.service.IngestCleaning(r.Context(), principal, moduleID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusCreated, map[string]any{
+		"cleaning": clean,
 	})
 }

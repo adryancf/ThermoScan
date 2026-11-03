@@ -12,6 +12,414 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createAnomalyEvent = `-- name: CreateAnomalyEvent :one
+INSERT INTO anomaly_events (
+    module_id,
+    origin_measurement_id,
+    source_event_id,
+    x_position_cm,
+    detected_at,
+    status,
+    actuated_attempts_count,
+    retry_pending
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8
+)
+RETURNING id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+`
+
+type CreateAnomalyEventParams struct {
+	ModuleID              pgtype.UUID
+	OriginMeasurementID   pgtype.UUID
+	SourceEventID         pgtype.UUID
+	XPositionCm           pgtype.Numeric
+	DetectedAt            time.Time
+	Status                string
+	ActuatedAttemptsCount int32
+	RetryPending          bool
+}
+
+type CreateAnomalyEventRow struct {
+	ID                    pgtype.UUID
+	ModuleID              pgtype.UUID
+	OriginMeasurementID   pgtype.UUID
+	SourceEventID         pgtype.UUID
+	XPositionCm           string
+	DetectedAt            time.Time
+	Status                string
+	ActuatedAttemptsCount int32
+	RetryPending          bool
+	ClosedAt              *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) CreateAnomalyEvent(ctx context.Context, arg CreateAnomalyEventParams) (CreateAnomalyEventRow, error) {
+	row := q.db.QueryRow(ctx, createAnomalyEvent,
+		arg.ModuleID,
+		arg.OriginMeasurementID,
+		arg.SourceEventID,
+		arg.XPositionCm,
+		arg.DetectedAt,
+		arg.Status,
+		arg.ActuatedAttemptsCount,
+		arg.RetryPending,
+	)
+	var i CreateAnomalyEventRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.OriginMeasurementID,
+		&i.SourceEventID,
+		&i.XPositionCm,
+		&i.DetectedAt,
+		&i.Status,
+		&i.ActuatedAttemptsCount,
+		&i.RetryPending,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createCleaningOperation = `-- name: CreateCleaningOperation :one
+INSERT INTO cleaning_operations (
+    module_id,
+    anomaly_event_id,
+    source_event_id,
+    target_x_position_cm,
+    pump_actuated,
+    attempt_number,
+    started_at,
+    ended_at,
+    duration_seconds,
+    estimated_water_volume_ml,
+    status,
+    failure_reason,
+    post_cleaning_result
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    $11,
+    $12,
+    $13
+)
+RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at
+`
+
+type CreateCleaningOperationParams struct {
+	ModuleID               pgtype.UUID
+	AnomalyEventID         pgtype.UUID
+	SourceEventID          pgtype.UUID
+	TargetXPositionCm      pgtype.Numeric
+	PumpActuated           bool
+	AttemptNumber          pgtype.Int4
+	StartedAt              *time.Time
+	EndedAt                *time.Time
+	DurationSeconds        pgtype.Numeric
+	EstimatedWaterVolumeMl pgtype.Numeric
+	Status                 string
+	FailureReason          pgtype.Text
+	PostCleaningResult     string
+}
+
+type CreateCleaningOperationRow struct {
+	ID                     pgtype.UUID
+	ModuleID               pgtype.UUID
+	AnomalyEventID         pgtype.UUID
+	SourceEventID          pgtype.UUID
+	TargetXPositionCm      string
+	PumpActuated           bool
+	AttemptNumber          pgtype.Int4
+	StartedAt              *time.Time
+	EndedAt                *time.Time
+	DurationSeconds        string
+	EstimatedWaterVolumeMl string
+	Status                 string
+	FailureReason          pgtype.Text
+	PostCleaningResult     string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+func (q *Queries) CreateCleaningOperation(ctx context.Context, arg CreateCleaningOperationParams) (CreateCleaningOperationRow, error) {
+	row := q.db.QueryRow(ctx, createCleaningOperation,
+		arg.ModuleID,
+		arg.AnomalyEventID,
+		arg.SourceEventID,
+		arg.TargetXPositionCm,
+		arg.PumpActuated,
+		arg.AttemptNumber,
+		arg.StartedAt,
+		arg.EndedAt,
+		arg.DurationSeconds,
+		arg.EstimatedWaterVolumeMl,
+		arg.Status,
+		arg.FailureReason,
+		arg.PostCleaningResult,
+	)
+	var i CreateCleaningOperationRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.AnomalyEventID,
+		&i.SourceEventID,
+		&i.TargetXPositionCm,
+		&i.PumpActuated,
+		&i.AttemptNumber,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.DurationSeconds,
+		&i.EstimatedWaterVolumeMl,
+		&i.Status,
+		&i.FailureReason,
+		&i.PostCleaningResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createInspection = `-- name: CreateInspection :one
+INSERT INTO inspections (
+    module_id,
+    source_event_id,
+    type,
+    scheduled_for,
+    started_at,
+    finished_at,
+    status
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7
+)
+RETURNING id, module_id, source_event_id, type, cleaning_operation_id, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at
+`
+
+type CreateInspectionParams struct {
+	ModuleID      pgtype.UUID
+	SourceEventID pgtype.UUID
+	Type          string
+	ScheduledFor  time.Time
+	StartedAt     *time.Time
+	FinishedAt    *time.Time
+	Status        string
+}
+
+type CreateInspectionRow struct {
+	ID                  pgtype.UUID
+	ModuleID            pgtype.UUID
+	SourceEventID       pgtype.UUID
+	Type                string
+	CleaningOperationID pgtype.UUID
+	ScheduledFor        time.Time
+	StartedAt           *time.Time
+	FinishedAt          *time.Time
+	Status              string
+	VerificationResult  pgtype.Text
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+func (q *Queries) CreateInspection(ctx context.Context, arg CreateInspectionParams) (CreateInspectionRow, error) {
+	row := q.db.QueryRow(ctx, createInspection,
+		arg.ModuleID,
+		arg.SourceEventID,
+		arg.Type,
+		arg.ScheduledFor,
+		arg.StartedAt,
+		arg.FinishedAt,
+		arg.Status,
+	)
+	var i CreateInspectionRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.SourceEventID,
+		&i.Type,
+		&i.CleaningOperationID,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.VerificationResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createInspectionThermalMap = `-- name: CreateInspectionThermalMap :one
+INSERT INTO inspection_thermal_maps (
+    inspection_id,
+    width_pixels,
+    height_pixels,
+    temperatures_c,
+    algorithm_version
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5
+)
+RETURNING id, inspection_id, width_pixels, height_pixels, temperatures_c, algorithm_version, generated_at
+`
+
+type CreateInspectionThermalMapParams struct {
+	InspectionID     pgtype.UUID
+	WidthPixels      int32
+	HeightPixels     int32
+	TemperaturesC    []byte
+	AlgorithmVersion string
+}
+
+func (q *Queries) CreateInspectionThermalMap(ctx context.Context, arg CreateInspectionThermalMapParams) (InspectionThermalMap, error) {
+	row := q.db.QueryRow(ctx, createInspectionThermalMap,
+		arg.InspectionID,
+		arg.WidthPixels,
+		arg.HeightPixels,
+		arg.TemperaturesC,
+		arg.AlgorithmVersion,
+	)
+	var i InspectionThermalMap
+	err := row.Scan(
+		&i.ID,
+		&i.InspectionID,
+		&i.WidthPixels,
+		&i.HeightPixels,
+		&i.TemperaturesC,
+		&i.AlgorithmVersion,
+		&i.GeneratedAt,
+	)
+	return i, err
+}
+
+const createMeasurement = `-- name: CreateMeasurement :one
+INSERT INTO measurements (
+    module_id,
+    inspection_id,
+    source_event_id,
+    measured_at,
+    x_position_cm,
+    baseline_temperature_c,
+    max_temperature_c,
+    hotspot_detected,
+    hotspot_confirmed,
+    voltage_v,
+    current_a,
+    power_w,
+    thermal_frame
+) VALUES (
+    $1,
+    $2,
+    $3,
+    $4,
+    $5,
+    $6,
+    $7,
+    $8,
+    $9,
+    $10,
+    $11,
+    $12,
+    $13
+)
+RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, baseline_temperature_c::text AS baseline_temperature_c, max_temperature_c::text AS max_temperature_c, hotspot_detected, hotspot_confirmed, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at
+`
+
+type CreateMeasurementParams struct {
+	ModuleID             pgtype.UUID
+	InspectionID         pgtype.UUID
+	SourceEventID        pgtype.UUID
+	MeasuredAt           time.Time
+	XPositionCm          pgtype.Numeric
+	BaselineTemperatureC pgtype.Numeric
+	MaxTemperatureC      pgtype.Numeric
+	HotspotDetected      bool
+	HotspotConfirmed     bool
+	VoltageV             pgtype.Numeric
+	CurrentA             pgtype.Numeric
+	PowerW               pgtype.Numeric
+	ThermalFrame         []byte
+}
+
+type CreateMeasurementRow struct {
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+	InspectionID         pgtype.UUID
+	SourceEventID        pgtype.UUID
+	MeasuredAt           time.Time
+	XPositionCm          string
+	BaselineTemperatureC string
+	MaxTemperatureC      string
+	HotspotDetected      bool
+	HotspotConfirmed     bool
+	VoltageV             string
+	CurrentA             string
+	PowerW               string
+	ThermalFrame         []byte
+	ReceivedAt           time.Time
+}
+
+func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementParams) (CreateMeasurementRow, error) {
+	row := q.db.QueryRow(ctx, createMeasurement,
+		arg.ModuleID,
+		arg.InspectionID,
+		arg.SourceEventID,
+		arg.MeasuredAt,
+		arg.XPositionCm,
+		arg.BaselineTemperatureC,
+		arg.MaxTemperatureC,
+		arg.HotspotDetected,
+		arg.HotspotConfirmed,
+		arg.VoltageV,
+		arg.CurrentA,
+		arg.PowerW,
+		arg.ThermalFrame,
+	)
+	var i CreateMeasurementRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.InspectionID,
+		&i.SourceEventID,
+		&i.MeasuredAt,
+		&i.XPositionCm,
+		&i.BaselineTemperatureC,
+		&i.MaxTemperatureC,
+		&i.HotspotDetected,
+		&i.HotspotConfirmed,
+		&i.VoltageV,
+		&i.CurrentA,
+		&i.PowerW,
+		&i.ThermalFrame,
+		&i.ReceivedAt,
+	)
+	return i, err
+}
+
 const getLatestReservoirReadingByModule = `-- name: GetLatestReservoirReadingByModule :one
 SELECT
     r.id,

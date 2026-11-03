@@ -17,15 +17,56 @@ class RadiometricScanCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final m = latestMeasurement;
-    final hasTelemetry = m != null;
+    if (m == null) {
+      return Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.border),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
+        child: Column(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: AppColors.primarySoft,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Icon(
+                Icons.grid_view_rounded,
+                color: AppColors.primary,
+                size: 28,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Awaiting Radiometric Telemetry',
+              style: AppTypography.h3,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'No thermal frames or electrical readings recorded yet by the ESP32. Real telemetry and 2D radiometric heatmap will appear here upon the first hardware inspection scan.',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.textSecondary,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
 
-    final peakTemp = hasTelemetry ? m.maxTemperatureC : 42.5;
-    final baselineTemp = hasTelemetry ? m.baselineTemperatureC : 36.4;
-    final voltage = hasTelemetry ? m.voltageV : 18.2;
-    final current = hasTelemetry ? m.currentA : 4.1;
-    final power = hasTelemetry ? m.powerW : (voltage * current);
-    final xPos = hasTelemetry ? m.xPositionCm : 12.0;
-    final isHotspot = hasTelemetry && m.hotspotDetected;
+    final peakTemp = m.maxTemperatureC;
+    final baselineTemp = m.baselineTemperatureC;
+    final voltage = m.voltageV;
+    final current = m.currentA;
+    final power = m.powerW;
+    final xPos = m.xPositionCm;
+    final isHotspot = m.hotspotDetected;
     final delta = peakTemp - baselineTemp;
 
     return Container(
@@ -132,9 +173,7 @@ class RadiometricScanCard extends StatelessWidget {
                 Positioned(
                   bottom: 8,
                   left: 8,
-                  child: _buildBadge(
-                    hasTelemetry ? 'Scan #Live' : 'Actuator: Idle',
-                  ),
+                  child: _buildBadge('Scan #Live'),
                 ),
                 Positioned(
                   bottom: 8,

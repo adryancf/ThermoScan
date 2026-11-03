@@ -671,4 +671,34 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if devPingResp.DeviceStatus.WaterStatus != "available" {
 		t.Fatalf("expected waterStatus 'available', got %q", devPingResp.DeviceStatus.WaterStatus)
 	}
+
+	// Test telemetry ingestion
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
+		"x_position_cm":          25.5,
+		"baseline_temperature_c": 35.0,
+		"max_temperature_c":      52.0,
+		"hotspot_detected":      true,
+		"hotspot_confirmed":     true,
+		"voltage_v":              18.4,
+		"current_a":              4.2,
+		"width_pixels":           32,
+		"height_pixels":          24,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 ingesting telemetry, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Test cleaning operation ingestion
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/cleanings", tech1Auth.AccessToken, map[string]any{
+		"target_x_position_cm":      25.5,
+		"pump_actuated":             true,
+		"attempt_number":            1,
+		"duration_seconds":          42.0,
+		"estimated_water_volume_ml": 85.0,
+		"status":                    "completed",
+		"post_cleaning_result":      "resolved",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 ingesting cleaning, got %d: %s", rec.Code, rec.Body.String())
+	}
 }

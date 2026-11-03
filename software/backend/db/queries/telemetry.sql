@@ -91,3 +91,126 @@ INSERT INTO reservoir_readings (
 )
 RETURNING id, module_id, measured_at, reading_status, water_available, context, received_at;
 
+-- name: CreateInspection :one
+INSERT INTO inspections (
+    module_id,
+    source_event_id,
+    type,
+    scheduled_for,
+    started_at,
+    finished_at,
+    status
+) VALUES (
+    sqlc.arg('module_id'),
+    sqlc.arg('source_event_id'),
+    sqlc.arg('type'),
+    sqlc.arg('scheduled_for'),
+    sqlc.arg('started_at'),
+    sqlc.arg('finished_at'),
+    sqlc.arg('status')
+)
+RETURNING id, module_id, source_event_id, type, cleaning_operation_id, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at;
+
+-- name: CreateMeasurement :one
+INSERT INTO measurements (
+    module_id,
+    inspection_id,
+    source_event_id,
+    measured_at,
+    x_position_cm,
+    baseline_temperature_c,
+    max_temperature_c,
+    hotspot_detected,
+    hotspot_confirmed,
+    voltage_v,
+    current_a,
+    power_w,
+    thermal_frame
+) VALUES (
+    sqlc.arg('module_id'),
+    sqlc.arg('inspection_id'),
+    sqlc.arg('source_event_id'),
+    sqlc.arg('measured_at'),
+    sqlc.arg('x_position_cm'),
+    sqlc.arg('baseline_temperature_c'),
+    sqlc.arg('max_temperature_c'),
+    sqlc.arg('hotspot_detected'),
+    sqlc.arg('hotspot_confirmed'),
+    sqlc.arg('voltage_v'),
+    sqlc.arg('current_a'),
+    sqlc.arg('power_w'),
+    sqlc.arg('thermal_frame')
+)
+RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, baseline_temperature_c::text AS baseline_temperature_c, max_temperature_c::text AS max_temperature_c, hotspot_detected, hotspot_confirmed, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at;
+
+-- name: CreateInspectionThermalMap :one
+INSERT INTO inspection_thermal_maps (
+    inspection_id,
+    width_pixels,
+    height_pixels,
+    temperatures_c,
+    algorithm_version
+) VALUES (
+    sqlc.arg('inspection_id'),
+    sqlc.arg('width_pixels'),
+    sqlc.arg('height_pixels'),
+    sqlc.arg('temperatures_c'),
+    sqlc.arg('algorithm_version')
+)
+RETURNING id, inspection_id, width_pixels, height_pixels, temperatures_c, algorithm_version, generated_at;
+
+-- name: CreateAnomalyEvent :one
+INSERT INTO anomaly_events (
+    module_id,
+    origin_measurement_id,
+    source_event_id,
+    x_position_cm,
+    detected_at,
+    status,
+    actuated_attempts_count,
+    retry_pending
+) VALUES (
+    sqlc.arg('module_id'),
+    sqlc.arg('origin_measurement_id'),
+    sqlc.arg('source_event_id'),
+    sqlc.arg('x_position_cm'),
+    sqlc.arg('detected_at'),
+    sqlc.arg('status'),
+    sqlc.arg('actuated_attempts_count'),
+    sqlc.arg('retry_pending')
+)
+RETURNING id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
+
+-- name: CreateCleaningOperation :one
+INSERT INTO cleaning_operations (
+    module_id,
+    anomaly_event_id,
+    source_event_id,
+    target_x_position_cm,
+    pump_actuated,
+    attempt_number,
+    started_at,
+    ended_at,
+    duration_seconds,
+    estimated_water_volume_ml,
+    status,
+    failure_reason,
+    post_cleaning_result
+) VALUES (
+    sqlc.arg('module_id'),
+    sqlc.arg('anomaly_event_id'),
+    sqlc.arg('source_event_id'),
+    sqlc.arg('target_x_position_cm'),
+    sqlc.arg('pump_actuated'),
+    sqlc.arg('attempt_number'),
+    sqlc.arg('started_at'),
+    sqlc.arg('ended_at'),
+    sqlc.arg('duration_seconds'),
+    sqlc.arg('estimated_water_volume_ml'),
+    sqlc.arg('status'),
+    sqlc.arg('failure_reason'),
+    sqlc.arg('post_cleaning_result')
+)
+RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
+
+

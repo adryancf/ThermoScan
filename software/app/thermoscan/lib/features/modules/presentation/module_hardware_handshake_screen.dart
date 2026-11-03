@@ -7,7 +7,6 @@ import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
-import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 
 /// Post-installation Hardware Handshake & Checklist Screen (Abordagem A)
@@ -27,8 +26,6 @@ class ModuleHardwareHandshakeScreen extends ConsumerStatefulWidget {
 class _ModuleHardwareHandshakeScreenState
     extends ConsumerState<ModuleHardwareHandshakeScreen> {
   Timer? _pollTimer;
-  bool _isSimulating = false;
-  String? _simMessage;
 
   @override
   void initState() {
@@ -45,37 +42,6 @@ class _ModuleHardwareHandshakeScreenState
   void dispose() {
     _pollTimer?.cancel();
     super.dispose();
-  }
-
-  Future<void> _simulatePing() async {
-    setState(() {
-      _isSimulating = true;
-      _simMessage = null;
-    });
-
-    try {
-      final repo = ref.read(moduleRepositoryProvider);
-      await repo.recordDevicePing(
-        moduleId: widget.moduleId,
-        waterAvailable: true,
-      );
-      ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
-      ref.invalidate(moduleDetailsProvider(widget.moduleId));
-      ref.invalidate(modulesListProvider);
-      if (!mounted) return;
-      setState(() {
-        _simMessage = 'ESP32 handshake ping received! All systems operational.';
-      });
-    } catch (err) {
-      if (!mounted) return;
-      setState(() {
-        _simMessage = 'Simulation error: $err';
-      });
-    } finally {
-      if (mounted) {
-        setState(() => _isSimulating = false);
-      }
-    }
   }
 
   @override
@@ -267,52 +233,6 @@ class _ModuleHardwareHandshakeScreenState
                 },
               ),
               const SizedBox(height: 24),
-
-              if (_simMessage != null) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: AppColors.successBackground,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.successBorder),
-                  ),
-                  child: Text(
-                    _simMessage!,
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.success,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-
-              // Dev/Demo Simulator Button
-              OutlinedButton.icon(
-                onPressed: _isSimulating ? null : _simulatePing,
-                icon: _isSimulating
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.bolt_rounded, size: 18),
-                label: Text(
-                  _isSimulating
-                      ? 'Simulating Handshake...'
-                      : 'Simulate ESP32 Handshake (Test)',
-                ),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  side: const BorderSide(color: AppColors.primary),
-                  foregroundColor: AppColors.primary,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
 
               // Finish & Proceed Button
               PrimaryButton(

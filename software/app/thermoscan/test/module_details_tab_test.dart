@@ -8,8 +8,11 @@ import 'package:thermoscan/features/auth/domain/auth_user.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
+import 'package:thermoscan/core/network/api_exception.dart';
+import 'package:thermoscan/core/widgets/app_text_field.dart';
 import 'package:thermoscan/features/modules/presentation/module_details_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_hardware_handshake_screen.dart';
+import 'package:thermoscan/features/modules/presentation/module_installation_wizard_screen.dart';
 
 class _FakeAuthController extends StateNotifier<AuthState>
     implements AuthController {
@@ -34,11 +37,92 @@ class _MockAuthRepo extends AuthRepository {
 }
 
 class _MockModuleRepo extends ModuleRepository {
-  _MockModuleRepo({required this.details, required this.status})
-      : super(dio: Dio());
+  _MockModuleRepo({
+    this.details = const ModuleDetails(
+      module: PvModule(
+        id: 'mod-1',
+        companyId: 'comp-1',
+        installerTechnicianId: 'tech-1',
+        installerName: 'Marco Silva',
+        installerEmail: 'marco@soltech.io',
+        name: 'PV-001 Roof Array',
+        macAddress: 'AA:BB:CC:DD:EE:01',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        createdAt: '2026-10-29T10:00:00Z',
+        updatedAt: '2026-10-29T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      ),
+      responsibleManagers: [],
+      companyManagers: [],
+      companyTechnicians: [],
+      companyClients: [],
+    ),
+    this.status = const DeviceStatus(
+      moduleId: 'mod-1',
+      macAddress: 'AA:BB:CC:DD:EE:01',
+      monitoringStatus: 'active',
+      isConfigured: true,
+      isOnline: true,
+      waterAvailable: true,
+      waterStatus: 'ok',
+      limitsCheckPassed: true,
+      thermalSensorActive: true,
+    ),
+    this.createModuleError,
+  }) : super(dio: Dio());
 
   final ModuleDetails details;
   final DeviceStatus status;
+  final Object? createModuleError;
+
+  @override
+  Future<ModuleDetails> createModule({
+    required String name,
+    required String macAddress,
+    List<String> managerIds = const [],
+    List<String>? clientIds,
+    double? panelLengthCm,
+    double? panelWidthCm,
+    int? panelCount,
+    double? panelSpacingCm,
+    double? latitude,
+    double? longitude,
+    double? elevationM,
+    double? azimuthDeg,
+    double? tiltDeg,
+    String? azimuthSource,
+    String? tiltSource,
+    double? minimumSolarAngleDeg,
+    int? inspectionIntervalDays,
+    double? reservoirNominalCapacityMl,
+  }) async {
+    if (createModuleError != null) {
+      throw createModuleError!;
+    }
+    return details;
+  }
+
+  @override
+  Future<List<ModuleManagerItem>> listCompanyManagers() async => const [
+        ModuleManagerItem(
+          id: 'mgr-1',
+          name: 'Default Manager',
+          email: 'manager@thermoscan.com',
+          isActive: true,
+          isDefaultManager: true,
+        ),
+      ];
+
+  @override
+  Future<List<ModuleClientItem>> listCompanyClients() async => const [];
 
   @override
   Future<ModuleDetails> getModuleDetails(String moduleId) async => details;
@@ -421,6 +505,58 @@ void main() {
 
       // Cleanly dispose periodic timer by unmounting widget
       await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets(
+        'Wizard Step 1 halts and shows error when MAC address already exists',
+        (tester) async {
+      final mockRepo = _MockModuleRepo(
+        createModuleError: const ApiException(
+          message: 'A module with this MAC address is already registered.',
+          code: 'MAC_CONFLICT',
+          statusCode: 409,
+        ),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider
+                .overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: const MaterialApp(
+            home: ModuleInstallationWizardScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Enter module name and MAC address
+      await tester.enterText(
+        find.widgetWithText(AppTextField, 'Module Name'),
+        'New PV Array',
+      );
+      await tester.enterText(
+        find.widgetWithText(AppTextField, 'Device MAC Address'),
+        'AA:BB:CC:DD:EE:01',
+      );
+      await tester.pumpAndSettle();
+
+      // Scroll to button and tap Continue to Site Location
+      await tester.ensureVisible(find.text('Continue to Site Location'));
+      await tester.tap(find.text('Continue to Site Location'));
+      await tester.pumpAndSettle();
+
+      // Verify it halted on Step 1 and displayed the MAC conflict error
+      expect(find.text('Module & Embedded Device'), findsOneWidget);
+      expect(
+        find.text('A module with this MAC address is already registered.'),
+        findsWidgets,
+      );
     });
   });
 }

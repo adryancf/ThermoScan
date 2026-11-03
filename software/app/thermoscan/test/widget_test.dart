@@ -76,6 +76,90 @@ class _FakeModuleRepository extends ModuleRepository {
   _FakeModuleRepository() : super(dio: Dio());
 
   @override
+  Future<ModuleDetails> createModule({
+    required String name,
+    required String macAddress,
+    List<String> managerIds = const [],
+    List<String>? clientIds,
+    double? panelLengthCm,
+    double? panelWidthCm,
+    int? panelCount,
+    double? panelSpacingCm,
+    double? latitude,
+    double? longitude,
+    double? elevationM,
+    double? azimuthDeg,
+    double? tiltDeg,
+    String? azimuthSource,
+    String? tiltSource,
+    double? minimumSolarAngleDeg,
+    int? inspectionIntervalDays,
+    double? reservoirNominalCapacityMl,
+  }) async {
+    return ModuleDetails(
+      module: PvModule(
+        id: 'mod-created-1',
+        companyId: 'comp-1',
+        installerTechnicianId: 'tech-1',
+        installerName: 'Marco Silva',
+        installerEmail: 'marco@soltech.io',
+        name: name,
+        macAddress: macAddress,
+        isActive: true,
+        monitoringStatus: 'pending_configuration',
+        inspectionIntervalDays: inspectionIntervalDays ?? 7,
+        createdAt: DateTime.now().toIso8601String(),
+        updatedAt: DateTime.now().toIso8601String(),
+        userRelationship: 'installer_technician',
+        permissions: const ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      ),
+      responsibleManagers: const [],
+      companyManagers: const [],
+      companyTechnicians: const [],
+      companyClients: const [],
+    );
+  }
+
+  @override
+  Future<ModuleDetails> updateConfiguration({
+    required String moduleId,
+    required Map<String, dynamic> payload,
+  }) async {
+    return const ModuleDetails(
+      module: PvModule(
+        id: 'mod-1',
+        companyId: 'comp-1',
+        installerTechnicianId: 'tech-1',
+        installerName: 'Marco Silva',
+        installerEmail: 'marco@soltech.io',
+        name: 'PV-001 Roof Array',
+        macAddress: 'AA:BB:CC:DD:EE:01',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        createdAt: '2026-10-29T10:00:00Z',
+        updatedAt: '2026-10-29T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      ),
+      responsibleManagers: [],
+      companyManagers: [],
+      companyTechnicians: [],
+      companyClients: [],
+    );
+  }
+
+  @override
   Future<List<PvModule>> listModules({
     int limit = 100,
     int offset = 0,

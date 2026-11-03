@@ -83,6 +83,7 @@ class _ModuleInstallationWizardScreenState
   // Step 5 (SCR-19B): Client Access Assignment (Optional)
   final Set<String> _selectedClientIds = {};
   final _clientSearchCtrl = TextEditingController();
+  final _scrollCtrl = ScrollController();
 
   bool _saving = false;
   String? _errorMsg;
@@ -126,7 +127,30 @@ class _ModuleInstallationWizardScreenState
     _intervalCtrl.dispose();
     _reservoirCtrl.dispose();
     _clientSearchCtrl.dispose();
+    _scrollCtrl.dispose();
     super.dispose();
+  }
+
+  void _scrollToTop() {
+    if (_scrollCtrl.hasClients) {
+      _scrollCtrl.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.error,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   void _hydrateFromExistingDetails(ModuleDetails details) {
@@ -271,7 +295,10 @@ class _ModuleInstallationWizardScreenState
       context.pushReplacement('/modules/${_persistedModuleId!}');
     } catch (err) {
       if (!mounted) return;
-      setState(() => _errorMsg = err.toString());
+      final errorText = err.toString();
+      setState(() => _errorMsg = errorText);
+      _showErrorSnackBar(errorText);
+      _scrollToTop();
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -279,24 +306,83 @@ class _ModuleInstallationWizardScreenState
     }
   }
 
-  void _nextFromStep1() {
+  Future<void> _nextFromStep1() async {
     setState(() => _errorMsg = null);
     if (!(_step1FormKey.currentState?.validate() ?? false)) return;
     final managers = ref.read(companyManagersOptionsProvider).valueOrNull;
     if (managers != null && managers.isEmpty) {
-      setState(() {
-        _errorMsg =
-            'You do not have any active responsible managers. Please contact a company manager before installing.';
-      });
+      const msg =
+          'You do not have any active responsible managers. Please contact a company manager before installing.';
+      setState(() => _errorMsg = msg);
+      _showErrorSnackBar(msg);
+      _scrollToTop();
       return;
     }
-    setState(() => _currentStep = 1);
+
+    // Persist or validate the module on Step 1 (Fail-Fast for duplicate MAC)
+    if (_persistedModuleId == null) {
+      setState(() => _saving = true);
+      try {
+        final repo = ref.read(moduleRepositoryProvider);
+        final created = await repo.createModule(
+          name: _nameCtrl.text.trim(),
+          macAddress: _macCtrl.text.trim(),
+        );
+        _persistedModuleId = created.module.id;
+        ref.invalidate(modulesListProvider);
+        if (!mounted) return;
+        setState(() {
+          _currentStep = 1;
+        });
+        _scrollToTop();
+      } catch (err) {
+        if (!mounted) return;
+        final errorText = err.toString();
+        setState(() => _errorMsg = errorText);
+        _showErrorSnackBar(errorText);
+        _scrollToTop();
+        return;
+      } finally {
+        if (mounted) {
+          setState(() => _saving = false);
+        }
+      }
+    } else {
+      // If module draft was already created, update its name if changed
+      setState(() => _saving = true);
+      try {
+        final repo = ref.read(moduleRepositoryProvider);
+        await repo.updateConfiguration(
+          moduleId: _persistedModuleId!,
+          payload: {
+            'name': _nameCtrl.text.trim(),
+          },
+        );
+        if (!mounted) return;
+        setState(() {
+          _currentStep = 1;
+        });
+        _scrollToTop();
+      } catch (err) {
+        if (!mounted) return;
+        final errorText = err.toString();
+        setState(() => _errorMsg = errorText);
+        _showErrorSnackBar(errorText);
+        _scrollToTop();
+        return;
+      } finally {
+        if (mounted) {
+          setState(() => _saving = false);
+        }
+      }
+    }
   }
 
   void _nextFromStep2() {
     setState(() => _errorMsg = null);
     if (!(_step2FormKey.currentState?.validate() ?? false)) return;
     setState(() => _currentStep = 2);
+    _scrollToTop();
   }
 
   void _nextFromStep3() {
@@ -307,16 +393,19 @@ class _ModuleInstallationWizardScreenState
             'Capture orientation with the sensors or enter Azimuth and Tilt manually below.';
         _showManualOrientationFields = true;
       });
+      _scrollToTop();
       return;
     }
     if (!(_step3FormKey.currentState?.validate() ?? false)) return;
     setState(() => _currentStep = 3);
+    _scrollToTop();
   }
 
   void _nextFromStep4() {
     setState(() => _errorMsg = null);
     if (!(_step4FormKey.currentState?.validate() ?? false)) return;
     setState(() => _currentStep = 4);
+    _scrollToTop();
   }
 
   void _nextFromStep5() {
@@ -324,6 +413,7 @@ class _ModuleInstallationWizardScreenState
       _errorMsg = null;
       _currentStep = 5;
     });
+    _scrollToTop();
   }
 
   Future<void> _acquireDeviceLocationSample() async {
@@ -595,7 +685,10 @@ class _ModuleInstallationWizardScreenState
       context.pushReplacement('/modules/$targetModuleId/handshake');
     } catch (err) {
       if (!mounted) return;
-      setState(() => _errorMsg = err.toString());
+      final errorText = err.toString();
+      setState(() => _errorMsg = errorText);
+      _showErrorSnackBar(errorText);
+      _scrollToTop();
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -670,6 +763,7 @@ class _ModuleInstallationWizardScreenState
       ),
       body: SafeArea(
         child: SingleChildScrollView(
+          controller: _scrollCtrl,
           physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 48),
           child: Column(

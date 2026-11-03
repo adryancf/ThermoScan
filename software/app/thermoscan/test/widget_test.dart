@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoscan/core/storage/token_storage.dart';
+import 'package:thermoscan/features/alerts/data/alerts_repository.dart';
+import 'package:thermoscan/features/alerts/domain/alert_models.dart';
 import 'package:thermoscan/features/auth/data/auth_repository.dart';
 import 'package:thermoscan/features/auth/domain/auth_user.dart';
 import 'package:thermoscan/features/companies/data/company_repository.dart';
@@ -221,6 +223,34 @@ class _FakeModuleRepository extends ModuleRepository {
   }
 }
 
+class _FakeAlertsRepository extends AlertsRepository {
+  _FakeAlertsRepository() : super(dio: Dio());
+
+  @override
+  Future<AlertsSummary> listAlerts() async {
+    return const AlertsSummary(
+      total: 1,
+      critical: 1,
+      warning: 0,
+      alerts: [
+        FieldAlert(
+          id: 'alert-1',
+          moduleId: 'mod-1',
+          moduleName: 'PV-001 Roof Array',
+          severity: 'critical',
+          type: 'hotspot_unresolved',
+          title: 'Hotspot Unresolved: PV-001 Roof Array',
+          description: 'Thermal anomaly confirmed at coordinate X=12.0 cm.',
+          metaText: 'Delta: +15.3°C vs Baseline',
+          xPositionCm: 12.0,
+          deltaC: 15.3,
+          createdAt: '2026-11-03T10:00:00Z',
+        ),
+      ],
+    );
+  }
+}
+
 void main() {
   testWidgets('Bootstraps from Splash to Login when no session exists',
       (WidgetTester tester) async {
@@ -304,6 +334,7 @@ void main() {
           ),
           userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+          alertsRepositoryProvider.overrideWithValue(_FakeAlertsRepository()),
         ],
         child: const ThermoScanApp(),
       ),
@@ -344,6 +375,7 @@ void main() {
           ),
           userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+          alertsRepositoryProvider.overrideWithValue(_FakeAlertsRepository()),
         ],
         child: const ThermoScanApp(),
       ),
@@ -423,6 +455,7 @@ void main() {
           ),
           userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+          alertsRepositoryProvider.overrideWithValue(_FakeAlertsRepository()),
         ],
         child: const ThermoScanApp(),
       ),
@@ -483,6 +516,7 @@ void main() {
           ),
           userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+          alertsRepositoryProvider.overrideWithValue(_FakeAlertsRepository()),
         ],
         child: const ThermoScanApp(),
       ),
@@ -541,6 +575,7 @@ void main() {
           ),
           userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+          alertsRepositoryProvider.overrideWithValue(_FakeAlertsRepository()),
         ],
         child: const ThermoScanApp(),
       ),
@@ -589,6 +624,7 @@ void main() {
           ),
           userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+          alertsRepositoryProvider.overrideWithValue(_FakeAlertsRepository()),
         ],
         child: const ThermoScanApp(),
       ),
@@ -657,6 +693,7 @@ void main() {
           ),
           userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
           moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+          alertsRepositoryProvider.overrideWithValue(_FakeAlertsRepository()),
         ],
         child: const ThermoScanApp(),
       ),

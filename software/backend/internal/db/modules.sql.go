@@ -431,7 +431,7 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 }
 
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -445,6 +445,9 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.Name,
 		&i.MacAddress,
 		&i.DeviceToken,
+		&i.LimitsCheckPassed,
+		&i.ThermalSensorActive,
+		&i.LastPingAt,
 		&i.IsActive,
 		&i.MonitoringStatus,
 		&i.PanelLengthCm,
@@ -493,6 +496,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -531,6 +537,9 @@ type GetModuleByIDRow struct {
 	MinimumSolarAngleDeg       pgtype.Numeric
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
+	LimitsCheckPassed          bool
+	ThermalSensorActive        bool
+	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
@@ -563,6 +572,9 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.MinimumSolarAngleDeg,
 		&i.InspectionIntervalDays,
 		&i.ReservoirNominalCapacityMl,
+		&i.LimitsCheckPassed,
+		&i.ThermalSensorActive,
+		&i.LastPingAt,
 		&i.ConfiguredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -593,6 +605,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -629,6 +644,9 @@ type GetModuleByIDForUpdateRow struct {
 	MinimumSolarAngleDeg       pgtype.Numeric
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
+	LimitsCheckPassed          bool
+	ThermalSensorActive        bool
+	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
@@ -659,6 +677,9 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.MinimumSolarAngleDeg,
 		&i.InspectionIntervalDays,
 		&i.ReservoirNominalCapacityMl,
+		&i.LimitsCheckPassed,
+		&i.ThermalSensorActive,
+		&i.LastPingAt,
 		&i.ConfiguredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -667,7 +688,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -681,6 +702,9 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.Name,
 		&i.MacAddress,
 		&i.DeviceToken,
+		&i.LimitsCheckPassed,
+		&i.ThermalSensorActive,
+		&i.LastPingAt,
 		&i.IsActive,
 		&i.MonitoringStatus,
 		&i.PanelLengthCm,
@@ -1227,6 +1251,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -1267,6 +1294,9 @@ type ListModulesForManagerRow struct {
 	MinimumSolarAngleDeg       pgtype.Numeric
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
+	LimitsCheckPassed          bool
+	ThermalSensorActive        bool
+	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
@@ -1305,6 +1335,9 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.MinimumSolarAngleDeg,
 			&i.InspectionIntervalDays,
 			&i.ReservoirNominalCapacityMl,
+			&i.LimitsCheckPassed,
+			&i.ThermalSensorActive,
+			&i.LastPingAt,
 			&i.ConfiguredAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -1344,6 +1377,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -1388,6 +1424,9 @@ type ListModulesForTechnicianRow struct {
 	MinimumSolarAngleDeg       pgtype.Numeric
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
+	LimitsCheckPassed          bool
+	ThermalSensorActive        bool
+	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
@@ -1431,6 +1470,9 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.MinimumSolarAngleDeg,
 			&i.InspectionIntervalDays,
 			&i.ReservoirNominalCapacityMl,
+			&i.LimitsCheckPassed,
+			&i.ThermalSensorActive,
+			&i.LastPingAt,
 			&i.ConfiguredAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -1740,6 +1782,43 @@ func (q *Queries) UpdateModuleConfiguration(ctx context.Context, arg UpdateModul
 		&i.ConfiguredAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateModuleDeviceHealth = `-- name: UpdateModuleDeviceHealth :one
+UPDATE modules
+SET limits_check_passed = coalesce($1, limits_check_passed),
+    thermal_sensor_active = coalesce($2, thermal_sensor_active),
+    last_ping_at = now(),
+    updated_at = now()
+WHERE id = $3
+RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at
+`
+
+type UpdateModuleDeviceHealthParams struct {
+	LimitsCheckPassed   pgtype.Bool
+	ThermalSensorActive pgtype.Bool
+	ID                  pgtype.UUID
+}
+
+type UpdateModuleDeviceHealthRow struct {
+	ID                  pgtype.UUID
+	MacAddress          net.HardwareAddr
+	LimitsCheckPassed   bool
+	ThermalSensorActive bool
+	LastPingAt          *time.Time
+}
+
+func (q *Queries) UpdateModuleDeviceHealth(ctx context.Context, arg UpdateModuleDeviceHealthParams) (UpdateModuleDeviceHealthRow, error) {
+	row := q.db.QueryRow(ctx, updateModuleDeviceHealth, arg.LimitsCheckPassed, arg.ThermalSensorActive, arg.ID)
+	var i UpdateModuleDeviceHealthRow
+	err := row.Scan(
+		&i.ID,
+		&i.MacAddress,
+		&i.LimitsCheckPassed,
+		&i.ThermalSensorActive,
+		&i.LastPingAt,
 	)
 	return i, err
 }

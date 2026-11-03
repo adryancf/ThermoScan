@@ -213,4 +213,48 @@ INSERT INTO cleaning_operations (
 )
 RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
 
+-- name: GetAnomalyEventByID :one
+SELECT id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE id = $1 AND module_id = $2;
+
+-- name: GetLatestOpenAnomalyEventByModule :one
+SELECT id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE module_id = $1 AND status = 'open'
+ORDER BY detected_at DESC
+LIMIT 1;
+
+-- name: UpdateAnomalyEventStatus :one
+UPDATE anomaly_events
+SET status = $1,
+    actuated_attempts_count = actuated_attempts_count + $2,
+    closed_at = $3,
+    updated_at = now()
+WHERE id = $4 AND module_id = $5
+RETURNING id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
+
+-- name: ListActiveAnomaliesForCompany :many
+SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.x_position_cm::text AS x_position_cm,
+       a.detected_at, a.status, a.actuated_attempts_count,
+       meas.max_temperature_c::text AS max_temperature_c,
+       meas.baseline_temperature_c::text AS baseline_temperature_c
+FROM anomaly_events a
+JOIN modules m ON m.id = a.module_id
+JOIN measurements meas ON meas.id = a.origin_measurement_id
+WHERE m.company_id = $1 AND a.status IN ('open', 'unresolved')
+ORDER BY a.detected_at DESC;
+
+-- name: ListActiveWaterWarningsForCompany :many
+SELECT r.id, r.module_id, m.name AS module_name, m.installer_technician_id, r.measured_at, r.water_available
+FROM (
+    SELECT DISTINCT ON (module_id) id, module_id, measured_at, water_available
+    FROM reservoir_readings
+    ORDER BY module_id, measured_at DESC
+) r
+JOIN modules m ON m.id = r.module_id
+WHERE m.company_id = $1 AND m.is_active = true AND r.water_available = false
+ORDER BY r.measured_at DESC;
+
+
 

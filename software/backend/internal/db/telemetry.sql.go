@@ -420,6 +420,95 @@ func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementPa
 	return i, err
 }
 
+const getAnomalyEventByID = `-- name: GetAnomalyEventByID :one
+SELECT id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE id = $1 AND module_id = $2
+`
+
+type GetAnomalyEventByIDParams struct {
+	ID       pgtype.UUID
+	ModuleID pgtype.UUID
+}
+
+type GetAnomalyEventByIDRow struct {
+	ID                    pgtype.UUID
+	ModuleID              pgtype.UUID
+	OriginMeasurementID   pgtype.UUID
+	SourceEventID         pgtype.UUID
+	XPositionCm           string
+	DetectedAt            time.Time
+	Status                string
+	ActuatedAttemptsCount int32
+	RetryPending          bool
+	ClosedAt              *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) GetAnomalyEventByID(ctx context.Context, arg GetAnomalyEventByIDParams) (GetAnomalyEventByIDRow, error) {
+	row := q.db.QueryRow(ctx, getAnomalyEventByID, arg.ID, arg.ModuleID)
+	var i GetAnomalyEventByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.OriginMeasurementID,
+		&i.SourceEventID,
+		&i.XPositionCm,
+		&i.DetectedAt,
+		&i.Status,
+		&i.ActuatedAttemptsCount,
+		&i.RetryPending,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getLatestOpenAnomalyEventByModule = `-- name: GetLatestOpenAnomalyEventByModule :one
+SELECT id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE module_id = $1 AND status = 'open'
+ORDER BY detected_at DESC
+LIMIT 1
+`
+
+type GetLatestOpenAnomalyEventByModuleRow struct {
+	ID                    pgtype.UUID
+	ModuleID              pgtype.UUID
+	OriginMeasurementID   pgtype.UUID
+	SourceEventID         pgtype.UUID
+	XPositionCm           string
+	DetectedAt            time.Time
+	Status                string
+	ActuatedAttemptsCount int32
+	RetryPending          bool
+	ClosedAt              *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) GetLatestOpenAnomalyEventByModule(ctx context.Context, moduleID pgtype.UUID) (GetLatestOpenAnomalyEventByModuleRow, error) {
+	row := q.db.QueryRow(ctx, getLatestOpenAnomalyEventByModule, moduleID)
+	var i GetLatestOpenAnomalyEventByModuleRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.OriginMeasurementID,
+		&i.SourceEventID,
+		&i.XPositionCm,
+		&i.DetectedAt,
+		&i.Status,
+		&i.ActuatedAttemptsCount,
+		&i.RetryPending,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getLatestReservoirReadingByModule = `-- name: GetLatestReservoirReadingByModule :one
 SELECT
     r.id,
@@ -492,6 +581,110 @@ func (q *Queries) GetLatestThermalMapByModule(ctx context.Context, moduleID pgty
 		&i.GeneratedAt,
 	)
 	return i, err
+}
+
+const listActiveAnomaliesForCompany = `-- name: ListActiveAnomaliesForCompany :many
+SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.x_position_cm::text AS x_position_cm,
+       a.detected_at, a.status, a.actuated_attempts_count,
+       meas.max_temperature_c::text AS max_temperature_c,
+       meas.baseline_temperature_c::text AS baseline_temperature_c
+FROM anomaly_events a
+JOIN modules m ON m.id = a.module_id
+JOIN measurements meas ON meas.id = a.origin_measurement_id
+WHERE m.company_id = $1 AND a.status IN ('open', 'unresolved')
+ORDER BY a.detected_at DESC
+`
+
+type ListActiveAnomaliesForCompanyRow struct {
+	ID                    pgtype.UUID
+	ModuleID              pgtype.UUID
+	ModuleName            string
+	InstallerTechnicianID pgtype.UUID
+	XPositionCm           string
+	DetectedAt            time.Time
+	Status                string
+	ActuatedAttemptsCount int32
+	MaxTemperatureC       string
+	BaselineTemperatureC  string
+}
+
+func (q *Queries) ListActiveAnomaliesForCompany(ctx context.Context, companyID pgtype.UUID) ([]ListActiveAnomaliesForCompanyRow, error) {
+	rows, err := q.db.Query(ctx, listActiveAnomaliesForCompany, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveAnomaliesForCompanyRow{}
+	for rows.Next() {
+		var i ListActiveAnomaliesForCompanyRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModuleID,
+			&i.ModuleName,
+			&i.InstallerTechnicianID,
+			&i.XPositionCm,
+			&i.DetectedAt,
+			&i.Status,
+			&i.ActuatedAttemptsCount,
+			&i.MaxTemperatureC,
+			&i.BaselineTemperatureC,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listActiveWaterWarningsForCompany = `-- name: ListActiveWaterWarningsForCompany :many
+SELECT r.id, r.module_id, m.name AS module_name, m.installer_technician_id, r.measured_at, r.water_available
+FROM (
+    SELECT DISTINCT ON (module_id) id, module_id, measured_at, water_available
+    FROM reservoir_readings
+    ORDER BY module_id, measured_at DESC
+) r
+JOIN modules m ON m.id = r.module_id
+WHERE m.company_id = $1 AND m.is_active = true AND r.water_available = false
+ORDER BY r.measured_at DESC
+`
+
+type ListActiveWaterWarningsForCompanyRow struct {
+	ID                    pgtype.UUID
+	ModuleID              pgtype.UUID
+	ModuleName            string
+	InstallerTechnicianID pgtype.UUID
+	MeasuredAt            time.Time
+	WaterAvailable        pgtype.Bool
+}
+
+func (q *Queries) ListActiveWaterWarningsForCompany(ctx context.Context, companyID pgtype.UUID) ([]ListActiveWaterWarningsForCompanyRow, error) {
+	rows, err := q.db.Query(ctx, listActiveWaterWarningsForCompany, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveWaterWarningsForCompanyRow{}
+	for rows.Next() {
+		var i ListActiveWaterWarningsForCompanyRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModuleID,
+			&i.ModuleName,
+			&i.InstallerTechnicianID,
+			&i.MeasuredAt,
+			&i.WaterAvailable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listCleaningOperationsByModule = `-- name: ListCleaningOperationsByModule :many
@@ -709,6 +902,65 @@ func (q *Queries) RecordDeviceHandshakePing(ctx context.Context, arg RecordDevic
 		&i.WaterAvailable,
 		&i.Context,
 		&i.ReceivedAt,
+	)
+	return i, err
+}
+
+const updateAnomalyEventStatus = `-- name: UpdateAnomalyEventStatus :one
+UPDATE anomaly_events
+SET status = $1,
+    actuated_attempts_count = actuated_attempts_count + $2,
+    closed_at = $3,
+    updated_at = now()
+WHERE id = $4 AND module_id = $5
+RETURNING id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+`
+
+type UpdateAnomalyEventStatusParams struct {
+	Status                string
+	ActuatedAttemptsCount int32
+	ClosedAt              *time.Time
+	ID                    pgtype.UUID
+	ModuleID              pgtype.UUID
+}
+
+type UpdateAnomalyEventStatusRow struct {
+	ID                    pgtype.UUID
+	ModuleID              pgtype.UUID
+	OriginMeasurementID   pgtype.UUID
+	SourceEventID         pgtype.UUID
+	XPositionCm           string
+	DetectedAt            time.Time
+	Status                string
+	ActuatedAttemptsCount int32
+	RetryPending          bool
+	ClosedAt              *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) UpdateAnomalyEventStatus(ctx context.Context, arg UpdateAnomalyEventStatusParams) (UpdateAnomalyEventStatusRow, error) {
+	row := q.db.QueryRow(ctx, updateAnomalyEventStatus,
+		arg.Status,
+		arg.ActuatedAttemptsCount,
+		arg.ClosedAt,
+		arg.ID,
+		arg.ModuleID,
+	)
+	var i UpdateAnomalyEventStatusRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.OriginMeasurementID,
+		&i.SourceEventID,
+		&i.XPositionCm,
+		&i.DetectedAt,
+		&i.Status,
+		&i.ActuatedAttemptsCount,
+		&i.RetryPending,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

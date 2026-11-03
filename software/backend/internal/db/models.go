@@ -128,6 +128,9 @@ type Module struct {
 	Name                  string
 	MacAddress            net.HardwareAddr
 	DeviceToken           pgtype.Text
+	LimitsCheckPassed     bool
+	ThermalSensorActive   bool
+	LastPingAt            *time.Time
 	IsActive              bool
 	MonitoringStatus      string
 	PanelLengthCm         pgtype.Numeric

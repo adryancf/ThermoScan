@@ -4,8 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
+import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
-import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 
 /// SCR-21: Active Field Alerts Feed
 class AlertsFeedScreen extends ConsumerStatefulWidget {
@@ -18,10 +18,65 @@ class AlertsFeedScreen extends ConsumerStatefulWidget {
 class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
   String _filter = 'all'; // 'all', 'critical', 'warning'
 
+  String _formatTimeAgo(String dateStr) {
+    final parsed = DateTime.tryParse(dateStr);
+    if (parsed == null) return 'recently';
+    final diff = DateTime.now().toUtc().difference(parsed.toUtc());
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
+  }
+
+  Widget _buildAdvisoryBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.primary,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Autonomous ESP32 Telemetry Sync',
+                  style: AppTypography.h3.copyWith(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Field units evaluate safety interlocks and solar geometry locally. Alerts are delivered immediately upon HTTPS REST sync.',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
-    final modulesAsync = ref.watch(modulesListProvider);
+    final alertsAsync = ref.watch(alertsSummaryProvider);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -34,7 +89,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: () async {
-            ref.invalidate(modulesListProvider);
+            ref.invalidate(alertsSummaryProvider);
           },
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
@@ -67,23 +122,49 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Severity Filter Chips
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildFilterChip('all', 'All Alerts (2)'),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('critical', 'Critical (1)'),
-                      const SizedBox(width: 8),
-                      _buildFilterChip('warning', 'Warning (1)'),
-                    ],
+                // Severity Filter Chips with real dynamic counts
+                alertsAsync.when(
+                  loading: () => SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterChip('all', 'All Alerts'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('critical', 'Critical'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('warning', 'Warning'),
+                      ],
+                    ),
+                  ),
+                  error: (_, _) => SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterChip('all', 'All Alerts'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('critical', 'Critical'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('warning', 'Warning'),
+                      ],
+                    ),
+                  ),
+                  data: (summary) => SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildFilterChip('all', 'All Alerts (${summary.total})'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('critical', 'Critical (${summary.critical})'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('warning', 'Warning (${summary.warning})'),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 20),
 
                 // Alerts List
-                modulesAsync.when(
+                alertsAsync.when(
                   loading: () => const Center(
                     child: Padding(
                       padding: EdgeInsets.symmetric(vertical: 40),
@@ -91,6 +172,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                     ),
                   ),
                   error: (error, _) => Container(
+                    width: double.infinity,
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: AppColors.surface,
@@ -98,110 +180,89 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                       border: Border.all(color: AppColors.border),
                     ),
                     child: Text(
-                      'Failed to load modules: $error',
+                      'Failed to load field alerts: $error',
                       style: AppTypography.bodySmall.copyWith(
                         color: AppColors.error,
                       ),
                     ),
                   ),
-                  data: (modules) {
-                    final firstModule = modules.isNotEmpty ? modules.first : null;
-                    final firstModuleName = firstModule?.name ?? 'PV-001 (Main Array)';
-                    final firstModuleId = firstModule?.id;
+                  data: (summary) {
+                    final allAlerts = summary.alerts;
+                    final filteredAlerts = allAlerts.where((a) {
+                      if (_filter == 'critical') return a.isCritical;
+                      if (_filter == 'warning') return !a.isCritical;
+                      return true;
+                    }).toList();
+
+                    if (filteredAlerts.isEmpty) {
+                      return Column(
+                        children: [
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: Column(
+                              children: [
+                                const Icon(
+                                  Icons.check_circle_outline_rounded,
+                                  size: 48,
+                                  color: AppColors.success,
+                                ),
+                                const SizedBox(height: 14),
+                                Text(
+                                  'No Active Field Alerts',
+                                  style: AppTypography.h3,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  _filter == 'all'
+                                      ? 'All modules and safety interlocks are operating within normal parameters.'
+                                      : 'No active alerts matching the selected "$_filter" filter.',
+                                  textAlign: TextAlign.center,
+                                  style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          _buildAdvisoryBanner(),
+                        ],
+                      );
+                    }
 
                     return Column(
                       children: [
-                        // Alert 1: Unresolved Hotspot (Critical)
-                        if (_filter == 'all' || _filter == 'critical') ...[
-                          _buildAlertCard(
-                            context: context,
-                            title: 'Hotspot Unresolved: $firstModuleName',
-                            timeAgo: '12m ago',
-                            severity: 'Critical',
-                            isCritical: true,
-                            icon: Icons.error_outline_rounded,
-                            iconColor: AppColors.error,
-                            borderColor: AppColors.error,
-                            description:
-                                'Thermal anomaly confirmed across consecutive acquisitions at coordinate X=12 cm. Temperature delta > +10.0°C over baseline. Cleaning budget limit: 1 of 3 wash attempts registered.',
-                            metaText: 'Delta: +15.3°C vs Baseline (Med)',
-                            actionLabel: 'View Module Details',
-                            onTap: () {
-                              if (firstModuleId != null) {
-                                context.push('/modules/$firstModuleId');
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                        ],
-
-                        // Alert 2: Low Reservoir Water (Warning)
-                        if (_filter == 'all' || _filter == 'warning') ...[
-                          _buildAlertCard(
-                            context: context,
-                            title: 'Reservoir Low: $firstModuleName',
-                            timeAgo: '1h ago',
-                            severity: 'Warning',
-                            isCritical: false,
-                            icon: Icons.water_drop_outlined,
-                            iconColor: AppColors.warning,
-                            borderColor: AppColors.warning,
-                            description:
-                                'Capacitive binary water sensor tripped (water_available=false). Water level is below safety minimum threshold. Autonomous wash cycles are blocked until manual refill.',
-                            metaText: 'Safety Interlock: Wash Cycles Blocked',
-                            actionLabel: 'Check Status',
-                            onTap: () {
-                              if (firstModuleId != null) {
-                                context.push('/modules/$firstModuleId');
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 14),
-                        ],
-
-                        // Informational Advisory banner
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(
-                                Icons.info_outline_rounded,
-                                color: AppColors.primary,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Autonomous ESP32 Telemetry Sync',
-                                      style: AppTypography.h3.copyWith(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.textPrimary,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      'Field units evaluate safety interlocks and solar geometry locally. Alerts are delivered immediately upon HTTPS REST sync.',
-                                      style: AppTypography.caption.copyWith(
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        ...filteredAlerts.map((alert) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child: _buildAlertCard(
+                              context: context,
+                              title: alert.title,
+                              timeAgo: _formatTimeAgo(alert.createdAt),
+                              severity: alert.isCritical ? 'Critical' : 'Warning',
+                              isCritical: alert.isCritical,
+                              icon: alert.type == 'reservoir_low'
+                                  ? Icons.water_drop_outlined
+                                  : Icons.error_outline_rounded,
+                              iconColor: alert.isCritical ? AppColors.error : AppColors.warning,
+                              borderColor: alert.isCritical ? AppColors.error : AppColors.warning,
+                              description: alert.description,
+                              metaText: alert.metaText,
+                              actionLabel: alert.type == 'reservoir_low' ? 'Check Status' : 'View Module Details',
+                              onTap: () {
+                                if (alert.moduleId.isNotEmpty) {
+                                  context.push('/modules/${alert.moduleId}');
+                                }
+                              },
+                            ),
+                          );
+                        }),
+                        const SizedBox(height: 6),
+                        _buildAdvisoryBanner(),
                       ],
                     );
                   },

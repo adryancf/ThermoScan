@@ -63,44 +63,26 @@ class RadiometricScanCard extends StatelessWidget {
       );
     }
 
-    final peakTemp = m?.maxTemperatureC ?? 36.5;
-    final baselineTemp = m?.baselineTemperatureC ?? 35.0;
-    final voltage = m?.voltageV ?? 18.0;
-    final current = m?.currentA ?? 4.0;
+    final peakTemp = m?.maxTemperatureC ?? 0.0;
+    final baselineTemp = m?.baselineTemperatureC ?? 0.0;
+    final voltage = m?.voltageV ?? 0.0;
+    final current = m?.currentA ?? 0.0;
     final power = m?.powerW ?? (voltage * current);
     final xPos = m?.xPositionCm ?? 0.0;
     final isHotspot = m?.hotspotDetected ?? false;
     final delta = peakTemp - baselineTemp;
 
-    // 5 cm Bands resolution
+    // 5 cm Bands resolution directly from authentic backend telemetry
     List<ThermalBand> bands = tm?.bands ?? [];
-    if (bands.isEmpty) {
-      // Default 3 bands (15 cm total span) if no backend composite yet
-      final targetBand = (xPos / 5.0).floor() + 1;
+    if (bands.isEmpty && m != null) {
       bands = [
         ThermalBand(
           bandIndex: 1,
-          startXCm: 0.0,
-          endXCm: 5.0,
-          maxTemperatureC: targetBand == 1 ? peakTemp : baselineTemp,
+          startXCm: xPos,
+          endXCm: xPos + 5.0,
+          maxTemperatureC: peakTemp,
           avgTemperatureC: baselineTemp,
-          hasHotspot: targetBand == 1 && isHotspot,
-        ),
-        ThermalBand(
-          bandIndex: 2,
-          startXCm: 5.0,
-          endXCm: 10.0,
-          maxTemperatureC: targetBand == 2 ? peakTemp : baselineTemp + 0.5,
-          avgTemperatureC: baselineTemp,
-          hasHotspot: targetBand == 2 && isHotspot,
-        ),
-        ThermalBand(
-          bandIndex: 3,
-          startXCm: 10.0,
-          endXCm: 15.0,
-          maxTemperatureC: targetBand == 3 ? peakTemp : baselineTemp,
-          avgTemperatureC: baselineTemp,
-          hasHotspot: targetBand == 3 && isHotspot,
+          hasHotspot: isHotspot,
         ),
       ];
     }
@@ -422,7 +404,9 @@ class RadiometricScanCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Pico: ${b.maxTemperatureC.toStringAsFixed(1)}°C • Média: ${b.avgTemperatureC.toStringAsFixed(1)}°C',
+                        (b.maxTemperatureC <= 0.0 && b.avgTemperatureC <= 0.0)
+                            ? 'Sem leitura no setor'
+                            : 'Pico: ${b.maxTemperatureC.toStringAsFixed(1)}°C • Média: ${b.avgTemperatureC.toStringAsFixed(1)}°C',
                         style: AppTypography.caption.copyWith(
                           fontSize: 9.5,
                           color: AppColors.textSecondary,

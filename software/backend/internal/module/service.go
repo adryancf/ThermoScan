@@ -1625,12 +1625,34 @@ type CleaningDTO struct {
 }
 
 type ThermalBandDTO struct {
-	BandIndex       int     `json:"band_index"`
-	StartXCm        float64 `json:"start_x_cm"`
-	EndXCm          float64 `json:"end_x_cm"`
-	MaxTemperatureC float64 `json:"max_temperature_c"`
-	AvgTemperatureC float64 `json:"avg_temperature_c"`
-	HasHotspot      bool    `json:"has_hotspot"`
+	BandIndex       int      `json:"band_index"`
+	StartXCm        float64  `json:"start_x_cm"`
+	EndXCm          float64  `json:"end_x_cm"`
+	MaxTemperatureC *float64 `json:"max_temperature_c"`
+	AvgTemperatureC *float64 `json:"avg_temperature_c"`
+	HasHotspot      bool     `json:"has_hotspot"`
+	HasData         bool     `json:"has_data"`
+}
+
+type AlertDTO struct {
+	ID          string   `json:"id"`
+	ModuleID    string   `json:"module_id"`
+	ModuleName  string   `json:"module_name"`
+	Severity    string   `json:"severity"` // 'critical', 'warning'
+	Type        string   `json:"type"`     // 'hotspot_unresolved', 'reservoir_low'
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	MetaText    string   `json:"meta_text"`
+	XPositionCm *float64 `json:"x_position_cm,omitempty"`
+	DeltaC      *float64 `json:"delta_c,omitempty"`
+	CreatedAt   string   `json:"created_at"`
+}
+
+type AlertsSummaryDTO struct {
+	Total    int        `json:"total"`
+	Critical int        `json:"critical"`
+	Warning  int        `json:"warning"`
+	Alerts   []AlertDTO `json:"alerts"`
 }
 
 type ThermalMapDTO struct {
@@ -1855,22 +1877,26 @@ func computeBandsFromMeasurements(widthPixels int32, measurements []db.ListMeasu
 			}
 		}
 
+		var maxTempPtr *float64
+		var avgTempPtr *float64
+		hasData := false
+
 		if count > 0 {
-			avgTemp = math.Round((avgTemp/float64(count))*10) / 10
-		} else {
-			avgTemp = 35.0
-			if maxTemp == 0.0 {
-				maxTemp = 36.5
-			}
+			hasData = true
+			a := math.Round((avgTemp/float64(count))*10) / 10
+			m := math.Round(maxTemp*10) / 10
+			avgTempPtr = &a
+			maxTempPtr = &m
 		}
 
 		bands = append(bands, ThermalBandDTO{
 			BandIndex:       b + 1,
 			StartXCm:        math.Round(startX*10) / 10,
 			EndXCm:          math.Round(endX*10) / 10,
-			MaxTemperatureC: math.Round(maxTemp*10) / 10,
-			AvgTemperatureC: avgTemp,
+			MaxTemperatureC: maxTempPtr,
+			AvgTemperatureC: avgTempPtr,
 			HasHotspot:      hasHotspot,
+			HasData:         hasData,
 		})
 	}
 	return bands
@@ -1935,29 +1961,41 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 	}
 	isConfigured := row.ConfiguredAt != nil && row.MonitoringStatus != StatusPendingConfiguration
 
+	isOnline := false
+	var lastSeenTime *time.Time
+
+	if row.LastPingAt != nil {
+		lastSeenTime = row.LastPingAt
+		if time.Since(*row.LastPingAt) < 15*time.Minute {
+			isOnline = true
+		}
+	}
+
 	dto := &DeviceStatusDTO{
-		ModuleID:         auth.FormatUUID(row.ID),
-		MACAddress:       row.MacAddress,
-		MonitoringStatus: row.MonitoringStatus,
-		IsConfigured:     isConfigured,
-		ConfiguredAt:     configuredAtStr,
-		WaterStatus:      "unknown",
+		ModuleID:            auth.FormatUUID(row.ID),
+		MACAddress:          row.MacAddress,
+		MonitoringStatus:    row.MonitoringStatus,
+		IsConfigured:        isConfigured,
+		ConfiguredAt:        configuredAtStr,
+		WaterStatus:         "unknown",
+		LimitsCheckPassed:   row.LimitsCheckPassed,
+		ThermalSensorActive: row.ThermalSensorActive,
 	}
 
 	resReading, err := s.queries.GetLatestReservoirReadingByModule(ctx, moduleID)
 	if err == nil {
-		lastSeen := resReading.MeasuredAt.UTC().Format(time.RFC3339)
-		dto.LastSeenAt = &lastSeen
+		if lastSeenTime == nil || resReading.MeasuredAt.After(*lastSeenTime) {
+			t := resReading.MeasuredAt
+			lastSeenTime = &t
+		}
 		dto.WaterAvailable = pgBoolToBoolPtr(resReading.WaterAvailable)
 		if resReading.WaterAvailable.Valid && resReading.WaterAvailable.Bool {
 			dto.WaterStatus = "available"
 		} else if resReading.WaterAvailable.Valid && !resReading.WaterAvailable.Bool {
 			dto.WaterStatus = "insufficient"
 		}
-		if time.Since(resReading.MeasuredAt) < time.Hour {
-			dto.IsOnline = true
-			dto.LimitsCheckPassed = true
-			dto.ThermalSensorActive = true
+		if time.Since(resReading.MeasuredAt) < 15*time.Minute {
+			isOnline = true
 		}
 	}
 
@@ -1970,14 +2008,19 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		m := measurements[0]
 		mTime := m.MeasuredAt.UTC().Format(time.RFC3339)
 		dto.LatestMeasurementAt = &mTime
-		if dto.LastSeenAt == nil || m.MeasuredAt.After(resReading.MeasuredAt) {
-			dto.LastSeenAt = &mTime
-			if time.Since(m.MeasuredAt) < time.Hour {
-				dto.IsOnline = true
-				dto.LimitsCheckPassed = true
-				dto.ThermalSensorActive = true
-			}
+		if lastSeenTime == nil || m.MeasuredAt.After(*lastSeenTime) {
+			t := m.MeasuredAt
+			lastSeenTime = &t
 		}
+		if time.Since(m.MeasuredAt) < 15*time.Minute {
+			isOnline = true
+		}
+	}
+
+	dto.IsOnline = isOnline
+	if lastSeenTime != nil {
+		lsStr := lastSeenTime.UTC().Format(time.RFC3339)
+		dto.LastSeenAt = &lsStr
 	}
 
 	return dto, nil
@@ -2010,32 +2053,35 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		return nil, err
 	}
 
-	waterAvail := true
-	if input.WaterAvailable != nil {
-		waterAvail = *input.WaterAvailable
-	}
-
-	eventID := newRandomUUID()
-	_, err = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
-		ModuleID:       moduleID,
-		SourceEventID:  eventID,
-		WaterAvailable: pgtype.Bool{Bool: waterAvail, Valid: true},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	dto, err := s.GetDeviceStatus(ctx, principal, moduleID)
-	if err != nil {
-		return nil, err
-	}
+	// Update persisted hardware health flags in modules table
+	var limitsPassed pgtype.Bool
 	if input.LimitsCheckPassed != nil {
-		dto.LimitsCheckPassed = *input.LimitsCheckPassed
+		limitsPassed = pgtype.Bool{Bool: *input.LimitsCheckPassed, Valid: true}
 	}
+	var thermalActive pgtype.Bool
 	if input.ThermalSensorActive != nil {
-		dto.ThermalSensorActive = *input.ThermalSensorActive
+		thermalActive = pgtype.Bool{Bool: *input.ThermalSensorActive, Valid: true}
 	}
-	return dto, nil
+	_, _ = s.queries.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+		ID:                  moduleID,
+		LimitsCheckPassed:   limitsPassed,
+		ThermalSensorActive: thermalActive,
+	})
+
+	// Only record reservoir ping if water_available was explicitly provided
+	if input.WaterAvailable != nil {
+		eventID := newRandomUUID()
+		_, err = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+			ModuleID:       moduleID,
+			SourceEventID:  eventID,
+			WaterAvailable: pgtype.Bool{Bool: *input.WaterAvailable, Valid: true},
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return s.GetDeviceStatus(ctx, principal, moduleID)
 }
 
 type ClaimDeviceInput struct {
@@ -2076,56 +2122,77 @@ func (s *Service) ClaimDevice(ctx context.Context, input ClaimDeviceInput) (*Cla
 		return nil, ErrForbidden
 	}
 
-	// Generate high-entropy device secret
-	var randBytes [16]byte
-	_, _ = rand.Read(randBytes[:])
-	deviceToken := "dev_sec_" + hex.EncodeToString(randBytes[:])
+	// Idempotent device token: reuse existing if already set, or generate new
+	deviceToken := ""
+	if mod.DeviceToken.Valid && strings.TrimSpace(mod.DeviceToken.String) != "" {
+		deviceToken = mod.DeviceToken.String
+	} else {
+		var randBytes [16]byte
+		_, _ = rand.Read(randBytes[:])
+		deviceToken = "dev_sec_" + hex.EncodeToString(randBytes[:])
 
-	updated, err := s.queries.SetModuleDeviceToken(ctx, db.SetModuleDeviceTokenParams{
-		ID:          mod.ID,
-		DeviceToken: pgtype.Text{String: deviceToken, Valid: true},
-	})
-	if err != nil {
-		return nil, err
+		_, err = s.queries.SetModuleDeviceToken(ctx, db.SetModuleDeviceTokenParams{
+			ID:          mod.ID,
+			DeviceToken: pgtype.Text{String: deviceToken, Valid: true},
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	waterAvail := true
+	// Update persisted hardware health flags in modules table
+	var limitsPassed pgtype.Bool
+	if input.LimitsCheckPassed != nil {
+		limitsPassed = pgtype.Bool{Bool: *input.LimitsCheckPassed, Valid: true}
+	}
+	var thermalActive pgtype.Bool
+	if input.ThermalSensorActive != nil {
+		thermalActive = pgtype.Bool{Bool: *input.ThermalSensorActive, Valid: true}
+	}
+	_, _ = s.queries.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+		ID:                  mod.ID,
+		LimitsCheckPassed:   limitsPassed,
+		ThermalSensorActive: thermalActive,
+	})
+
+	// Only record initial reservoir ping if water_available was explicitly provided
 	if input.WaterAvailable != nil {
-		waterAvail = *input.WaterAvailable
+		eventID := newRandomUUID()
+		_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+			ModuleID:       mod.ID,
+			SourceEventID:  eventID,
+			WaterAvailable: pgtype.Bool{Bool: *input.WaterAvailable, Valid: true},
+		})
 	}
-
-	// Record initial handshake ping
-	eventID := newRandomUUID()
-	_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
-		ModuleID:       mod.ID,
-		SourceEventID:  eventID,
-		WaterAvailable: pgtype.Bool{Bool: waterAvail, Valid: true},
-	})
 
 	return &ClaimDeviceDTO{
-		ModuleID:               auth.FormatUUID(updated.ID),
+		ModuleID:               auth.FormatUUID(mod.ID),
 		DeviceToken:            deviceToken,
 		Status:                 "claimed",
-		InspectionIntervalDays: updated.InspectionIntervalDays,
+		InspectionIntervalDays: mod.InspectionIntervalDays,
 		Message:                "Device successfully claimed and paired",
 	}, nil
 }
 
 type IngestTelemetryInput struct {
-	MeasuredAt           *time.Time             `json:"measured_at"`
-	XPositionCm          float64                `json:"x_position_cm"`
-	BaselineTemperatureC float64                `json:"baseline_temperature_c"`
-	MaxTemperatureC      float64                `json:"max_temperature_c"`
-	HotspotDetected      bool                   `json:"hotspot_detected"`
-	HotspotConfirmed     bool                   `json:"hotspot_confirmed"`
-	VoltageV             float64                `json:"voltage_v"`
-	CurrentA             float64                `json:"current_a"`
-	PowerW               *float64               `json:"power_w"`
-	ThermalFrame         []float64              `json:"thermal_frame"`
-	ThermalMap           []float64              `json:"thermal_map"`
-	WidthPixels          int                    `json:"width_pixels"`
-	HeightPixels         int                    `json:"height_pixels"`
-	Batch                []IngestTelemetryInput `json:"batch"`
+	MeasuredAt             *time.Time             `json:"measured_at"`
+	InspectionScheduledFor *time.Time             `json:"inspection_scheduled_for"`
+	InspectionStartedAt    *time.Time             `json:"inspection_started_at"`
+	InspectionType         *string                `json:"inspection_type"`
+	WaterAvailable         *bool                  `json:"water_available"`
+	XPositionCm            float64                `json:"x_position_cm"`
+	BaselineTemperatureC   float64                `json:"baseline_temperature_c"`
+	MaxTemperatureC        float64                `json:"max_temperature_c"`
+	HotspotDetected        bool                   `json:"hotspot_detected"`
+	HotspotConfirmed       bool                   `json:"hotspot_confirmed"`
+	VoltageV               float64                `json:"voltage_v"`
+	CurrentA               float64                `json:"current_a"`
+	PowerW                 *float64               `json:"power_w"`
+	ThermalFrame           []float64              `json:"thermal_frame"`
+	ThermalMap             []float64              `json:"thermal_map"`
+	WidthPixels            int                    `json:"width_pixels"`
+	HeightPixels           int                    `json:"height_pixels"`
+	Batch                  []IngestTelemetryInput `json:"batch"`
 }
 
 func stitchThermalFrames(frames []IngestTelemetryInput) (int32, int32, []float64, []ThermalBandDTO) {
@@ -2140,25 +2207,17 @@ func stitchThermalFrames(frames []IngestTelemetryInput) (int32, int32, []float64
 	if len(frames) == 1 {
 		f := frames[0]
 		data := f.ThermalFrame
-		if len(data) < 32*24 {
-			data = make([]float64, 32*24)
-			for i := range data {
-				data[i] = f.BaselineTemperatureC
-			}
-			if f.HotspotDetected {
-				data[12*32+16] = f.MaxTemperatureC
-				data[12*32+17] = f.MaxTemperatureC - 1.5
-				data[13*32+16] = f.MaxTemperatureC - 2.0
-			}
-		}
+		maxT := f.MaxTemperatureC
+		baseT := f.BaselineTemperatureC
 		bands := []ThermalBandDTO{
 			{
 				BandIndex:       1,
 				StartXCm:        0.0,
 				EndXCm:          5.0,
-				MaxTemperatureC: f.MaxTemperatureC,
-				AvgTemperatureC: f.BaselineTemperatureC,
+				MaxTemperatureC: &maxT,
+				AvgTemperatureC: &baseT,
 				HasHotspot:      f.HotspotDetected,
+				HasData:         true,
 			},
 		}
 		return 32, 24, data, bands
@@ -2173,18 +2232,6 @@ func stitchThermalFrames(frames []IngestTelemetryInput) (int32, int32, []float64
 
 	for frameIdx, f := range frames {
 		frameData := f.ThermalFrame
-		if len(frameData) < 32*24 {
-			frameData = make([]float64, 32*24)
-			for i := range frameData {
-				frameData[i] = f.BaselineTemperatureC
-			}
-			if f.HotspotDetected {
-				frameData[12*32+16] = f.MaxTemperatureC
-				frameData[12*32+17] = f.MaxTemperatureC - 1.5
-				frameData[13*32+16] = f.MaxTemperatureC - 2.0
-			}
-		}
-
 		colOffset := frameIdx * colsPerStep
 
 		for r := 0; r < totalRows; r++ {
@@ -2271,20 +2318,26 @@ func stitchThermalFrames(frames []IngestTelemetryInput) (int32, int32, []float64
 			}
 		}
 
-		avgTemp := 0.0
+		var avgTempPtr *float64
+		var maxTempPtr *float64
+		hasData := false
+
 		if count > 0 {
-			avgTemp = math.Round((sumTemp/float64(count))*10.0) / 10.0
-		} else {
-			avgTemp = maxTemp
+			hasData = true
+			a := math.Round((sumTemp/float64(count))*10.0) / 10.0
+			m := math.Round(maxTemp*10.0) / 10.0
+			avgTempPtr = &a
+			maxTempPtr = &m
 		}
 
 		bands = append(bands, ThermalBandDTO{
 			BandIndex:       b + 1,
 			StartXCm:        math.Round(startX*10.0) / 10.0,
 			EndXCm:          math.Round(endX*10.0) / 10.0,
-			MaxTemperatureC: math.Round(maxTemp*10.0) / 10.0,
-			AvgTemperatureC: avgTemp,
+			MaxTemperatureC: maxTempPtr,
+			AvgTemperatureC: avgTempPtr,
 			HasHotspot:      hasHotspot,
+			HasData:         hasData,
 		})
 	}
 
@@ -2317,20 +2370,39 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		framesToProcess = []IngestTelemetryInput{input}
 	}
 
+	for _, f := range framesToProcess {
+		if len(f.ThermalFrame) != 32*24 {
+			return nil, ErrInvalidInput
+		}
+	}
+
 	now := time.Now().UTC()
 	measuredAt := now
 	if framesToProcess[0].MeasuredAt != nil && !framesToProcess[0].MeasuredAt.IsZero() {
 		measuredAt = framesToProcess[0].MeasuredAt.UTC()
 	}
 
-	// 1. Create inspection session
+	inspType := "scheduled"
+	if input.InspectionType != nil && *input.InspectionType != "" {
+		inspType = *input.InspectionType
+	}
+	schedFor := measuredAt
+	if input.InspectionScheduledFor != nil {
+		schedFor = *input.InspectionScheduledFor
+	}
+	startedAt := measuredAt
+	if input.InspectionStartedAt != nil {
+		startedAt = *input.InspectionStartedAt
+	}
+
+	// 1. Create inspection session with real timestamps
 	inspEventID := newRandomUUID()
 	insp, err := s.queries.CreateInspection(ctx, db.CreateInspectionParams{
 		ModuleID:      moduleID,
 		SourceEventID: inspEventID,
-		Type:          "scheduled",
-		ScheduledFor:  measuredAt.Add(-5 * time.Minute),
-		StartedAt:     &measuredAt,
+		Type:          inspType,
+		ScheduledFor:  schedFor,
+		StartedAt:     &startedAt,
 		FinishedAt:    &now,
 		Status:        "completed",
 	})
@@ -2340,7 +2412,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 
 	var primaryMeasRow *db.CreateMeasurementRow
 
-	// 2. Ingest each measurement frame
+	// 2. Ingest each measurement frame with authentic sensor data
 	for _, f := range framesToProcess {
 		fMeasuredAt := now
 		if f.MeasuredAt != nil && !f.MeasuredAt.IsZero() {
@@ -2352,19 +2424,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			powerW = *f.PowerW
 		}
 
-		frameFloats := f.ThermalFrame
-		if len(frameFloats) < 32*24 {
-			frameFloats = make([]float64, 32*24)
-			for i := range frameFloats {
-				frameFloats[i] = f.BaselineTemperatureC
-			}
-			if f.HotspotDetected {
-				frameFloats[12*32+16] = f.MaxTemperatureC
-				frameFloats[12*32+17] = f.MaxTemperatureC - 1.2
-				frameFloats[13*32+16] = f.MaxTemperatureC - 2.0
-			}
-		}
-		frameBytes, err := json.Marshal(frameFloats)
+		frameBytes, err := json.Marshal(f.ThermalFrame)
 		if err != nil {
 			return nil, err
 		}
@@ -2393,7 +2453,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			primaryMeasRow = &meas
 		}
 
-		// If hotspot detected, create anomaly event
+		// If hotspot detected, register real anomaly event
 		if f.HotspotDetected {
 			anomEventID := newRandomUUID()
 			_, _ = s.queries.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
@@ -2409,7 +2469,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		}
 	}
 
-	// 3. Run multi-frame stitching with 60% overlap algorithm & 5cm bands
+	// 3. Run multi-frame stitching with authentic overlap-60 blending
 	totalCols, totalRows, compositeData, _ := stitchThermalFrames(framesToProcess)
 	compositeBytes, _ := json.Marshal(compositeData)
 	_, _ = s.queries.CreateInspectionThermalMap(ctx, db.CreateInspectionThermalMapParams{
@@ -2420,13 +2480,18 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		AlgorithmVersion: "overlap-60-blend-v1.0",
 	})
 
-	// 4. Record device ping
-	pingEventID := newRandomUUID()
-	_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
-		ModuleID:       moduleID,
-		SourceEventID:  pingEventID,
-		WaterAvailable: pgtype.Bool{Bool: true, Valid: true},
+	// 4. Update device online timestamp (without overwriting water_available!)
+	_, _ = s.queries.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+		ID: moduleID,
 	})
+	if input.WaterAvailable != nil {
+		pingEventID := newRandomUUID()
+		_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+			ModuleID:       moduleID,
+			SourceEventID:  pingEventID,
+			WaterAvailable: pgtype.Bool{Bool: *input.WaterAvailable, Valid: true},
+		})
+	}
 
 	meas := primaryMeasRow
 	return &MeasurementDTO{
@@ -2448,6 +2513,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 }
 
 type IngestCleaningInput struct {
+	AnomalyEventID         *string  `json:"anomaly_event_id"`
 	TargetXPositionCm      float64  `json:"target_x_position_cm"`
 	PumpActuated           bool     `json:"pump_actuated"`
 	AttemptNumber          *int     `json:"attempt_number"`
@@ -2479,79 +2545,52 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		return nil, err
 	}
 
-	// 1. Ensure an inspection & measurement exists
-	measurements, err := s.queries.ListMeasurementsByModule(ctx, db.ListMeasurementsByModuleParams{
-		ModuleID: moduleID,
-		Limit:    1,
-		Offset:   0,
-	})
-	var originMeasID pgtype.UUID
+	var anomID pgtype.UUID
 	now := time.Now().UTC()
-	if err == nil && len(measurements) > 0 {
-		originMeasID = measurements[0].ID
+
+	// 1. Resolve authentic anomaly event (never fabricated!)
+	if input.AnomalyEventID != nil && strings.TrimSpace(*input.AnomalyEventID) != "" {
+		parsed, err := auth.ParseUUID(strings.TrimSpace(*input.AnomalyEventID))
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+		a, err := s.queries.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+			ID:       parsed,
+			ModuleID: moduleID,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+		anomID = a.ID
 	} else {
-		// Create placeholder inspection & measurement
-		inspEventID := newRandomUUID()
-		insp, err := s.queries.CreateInspection(ctx, db.CreateInspectionParams{
-			ModuleID:      moduleID,
-			SourceEventID: inspEventID,
-			Type:          "scheduled",
-			ScheduledFor:  now.Add(-10 * time.Minute),
-			StartedAt:     &now,
-			FinishedAt:    &now,
-			Status:        "completed",
-		})
+		// Look up latest open anomaly for this module
+		a, err := s.queries.GetLatestOpenAnomalyEventByModule(ctx, moduleID)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrNotFound
+			}
 			return nil, err
 		}
-		frameBytes, _ := json.Marshal([]float64{35.0, 36.0, 48.0})
-		measEventID := newRandomUUID()
-		meas, err := s.queries.CreateMeasurement(ctx, db.CreateMeasurementParams{
-			ModuleID:             moduleID,
-			InspectionID:         insp.ID,
-			SourceEventID:        measEventID,
-			MeasuredAt:           now,
-			XPositionCm:          floatPtrToNumeric(&input.TargetXPositionCm),
-			BaselineTemperatureC: floatPtrToNumeric(floatPtr(36.0)),
-			MaxTemperatureC:      floatPtrToNumeric(floatPtr(48.5)),
-			HotspotDetected:      true,
-			HotspotConfirmed:     true,
-			VoltageV:             floatPtrToNumeric(floatPtr(18.0)),
-			CurrentA:             floatPtrToNumeric(floatPtr(4.0)),
-			PowerW:               floatPtrToNumeric(floatPtr(72.0)),
-			ThermalFrame:         frameBytes,
-		})
-		if err != nil {
-			return nil, err
-		}
-		originMeasID = meas.ID
+		anomID = a.ID
 	}
 
-	// 2. Create anomaly event
-	anomEventID := newRandomUUID()
-	anom, err := s.queries.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
-		ModuleID:              moduleID,
-		OriginMeasurementID:   originMeasID,
-		SourceEventID:         anomEventID,
-		XPositionCm:           floatPtrToNumeric(&input.TargetXPositionCm),
-		DetectedAt:            now.Add(-2 * time.Minute),
-		Status:                "open",
-		ActuatedAttemptsCount: 1,
-		RetryPending:          false,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	// 3. Create cleaning operation
-	status := input.Status
+	// 2. Validate cleaning status
+	status := strings.TrimSpace(input.Status)
 	if status == "" {
-		status = "completed"
+		return nil, ErrInvalidInput
 	}
-	postRes := input.PostCleaningResult
+	postRes := strings.TrimSpace(input.PostCleaningResult)
 	if postRes == "" {
-		postRes = "resolved"
+		if status == "completed" {
+			postRes = "resolved"
+		} else {
+			postRes = "unresolved"
+		}
 	}
+
 	var attemptNum pgtype.Int4
 	if input.PumpActuated {
 		num := int32(1)
@@ -2564,23 +2603,23 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	var startedAtPtr *time.Time
 	var endedAtPtr *time.Time
 	if status != "refused" && status != "scheduled" {
-		s := now.Add(-time.Duration(input.DurationSeconds) * time.Second)
-		e := now
-		startedAtPtr = &s
-		endedAtPtr = &e
+		sTime := now.Add(-time.Duration(input.DurationSeconds) * time.Second)
+		eTime := now
+		startedAtPtr = &sTime
+		endedAtPtr = &eTime
 	}
 
 	cleanEventID := newRandomUUID()
 	var failReason pgtype.Text
-	if input.FailureReason != nil {
-		failReason = pgtype.Text{String: *input.FailureReason, Valid: true}
+	if input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) != "" {
+		failReason = pgtype.Text{String: strings.TrimSpace(*input.FailureReason), Valid: true}
 	} else if status == "refused" || status == "failed" {
 		failReason = pgtype.Text{String: "Water reservoir depleted", Valid: true}
 	}
 
 	clean, err := s.queries.CreateCleaningOperation(ctx, db.CreateCleaningOperationParams{
 		ModuleID:               moduleID,
-		AnomalyEventID:         anom.ID,
+		AnomalyEventID:         anomID,
 		SourceEventID:          cleanEventID,
 		TargetXPositionCm:      floatPtrToNumeric(&input.TargetXPositionCm),
 		PumpActuated:           input.PumpActuated,
@@ -2596,6 +2635,28 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	if err != nil {
 		return nil, err
 	}
+
+	// 3. Update anomaly event status based on authentic cleaning result
+	newAnomStatus := "open"
+	var closedAt *time.Time
+	if postRes == "resolved" {
+		newAnomStatus = "resolved"
+		closedAt = &now
+	} else if postRes == "unresolved" {
+		newAnomStatus = "unresolved"
+		closedAt = &now
+	}
+	attemptsInc := int32(0)
+	if input.PumpActuated {
+		attemptsInc = 1
+	}
+	_, _ = s.queries.UpdateAnomalyEventStatus(ctx, db.UpdateAnomalyEventStatusParams{
+		Status:                newAnomStatus,
+		ActuatedAttemptsCount: attemptsInc,
+		ClosedAt:              closedAt,
+		ID:                    anomID,
+		ModuleID:              moduleID,
+	})
 
 	var attPtr *int32
 	if clean.AttemptNumber.Valid {
@@ -2632,5 +2693,110 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		FailureReason:      fReason,
 		PostCleaningResult: clean.PostCleaningResult,
 		CreatedAt:          clean.CreatedAt.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func (s *Service) ListActiveAlerts(ctx context.Context, principal auth.Principal) (*AlertsSummaryDTO, error) {
+	if !principal.CompanyID.Valid {
+		return nil, ErrForbidden
+	}
+
+	anoms, err := s.queries.ListActiveAnomaliesForCompany(ctx, principal.CompanyID)
+	if err != nil {
+		return nil, err
+	}
+
+	waterWarnings, err := s.queries.ListActiveWaterWarningsForCompany(ctx, principal.CompanyID)
+	if err != nil {
+		return nil, err
+	}
+
+	alerts := make([]AlertDTO, 0, len(anoms)+len(waterWarnings))
+	criticalCount := 0
+	warningCount := 0
+
+	for _, a := range anoms {
+		if principal.Role == auth.RoleTechnician && a.InstallerTechnicianID.Bytes != principal.ID.Bytes {
+			acc, err := s.queries.GetModuleTechnicianAccess(ctx, db.GetModuleTechnicianAccessParams{
+				CompanyID:    principal.CompanyID,
+				ModuleID:     a.ModuleID,
+				TechnicianID: principal.ID,
+			})
+			if err != nil || !acc.CanView {
+				continue
+			}
+		}
+
+		maxT, _ := strconv.ParseFloat(a.MaxTemperatureC, 64)
+		baseT, _ := strconv.ParseFloat(a.BaselineTemperatureC, 64)
+		xPos, _ := strconv.ParseFloat(a.XPositionCm, 64)
+		delta := maxT - baseT
+		if delta < 0 {
+			delta = 0
+		}
+		delta = math.Round(delta*10.0) / 10.0
+
+		severity := "warning"
+		if delta >= 10.0 {
+			severity = "critical"
+			criticalCount++
+		} else {
+			warningCount++
+		}
+
+		xPosRounded := math.Round(xPos*10.0) / 10.0
+		metaText := "Delta: +" + strconv.FormatFloat(delta, 'f', 1, 64) + "°C vs Baseline"
+		desc := "Thermal anomaly confirmed at coordinate X=" + strconv.FormatFloat(xPosRounded, 'f', 1, 64) + " cm. Wash attempts registered: " + strconv.Itoa(int(a.ActuatedAttemptsCount)) + " of 3."
+
+		alerts = append(alerts, AlertDTO{
+			ID:          auth.FormatUUID(a.ID),
+			ModuleID:    auth.FormatUUID(a.ModuleID),
+			ModuleName:  a.ModuleName,
+			Severity:    severity,
+			Type:        "hotspot_unresolved",
+			Title:       "Hotspot Unresolved: " + a.ModuleName,
+			Description: desc,
+			MetaText:    metaText,
+			XPositionCm: &xPosRounded,
+			DeltaC:      &delta,
+			CreatedAt:   a.DetectedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	for _, w := range waterWarnings {
+		if principal.Role == auth.RoleTechnician && w.InstallerTechnicianID.Bytes != principal.ID.Bytes {
+			acc, err := s.queries.GetModuleTechnicianAccess(ctx, db.GetModuleTechnicianAccessParams{
+				CompanyID:    principal.CompanyID,
+				ModuleID:     w.ModuleID,
+				TechnicianID: principal.ID,
+			})
+			if err != nil || !acc.CanView {
+				continue
+			}
+		}
+
+		warningCount++
+		alerts = append(alerts, AlertDTO{
+			ID:          auth.FormatUUID(w.ID),
+			ModuleID:    auth.FormatUUID(w.ModuleID),
+			ModuleName:  w.ModuleName,
+			Severity:    "warning",
+			Type:        "reservoir_low",
+			Title:       "Reservoir Low: " + w.ModuleName,
+			Description: "Capacitive binary water sensor tripped (water_available=false). Water level is below safety minimum threshold. Autonomous wash cycles are blocked until manual refill.",
+			MetaText:    "Safety Interlock: Wash Cycles Blocked",
+			CreatedAt:   w.MeasuredAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	sort.Slice(alerts, func(i, j int) bool {
+		return alerts[i].CreatedAt > alerts[j].CreatedAt
+	})
+
+	return &AlertsSummaryDTO{
+		Total:    len(alerts),
+		Critical: criticalCount,
+		Warning:  warningCount,
+		Alerts:   alerts,
 	}, nil
 }

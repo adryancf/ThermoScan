@@ -673,7 +673,20 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected waterStatus 'available', got %q", devPingResp.DeviceStatus.WaterStatus)
 	}
 
-	// Test telemetry ingestion
+	testFrame768 := func(baseline, hotspot float64) []float64 {
+		f := make([]float64, 32*24)
+		for i := range f {
+			f[i] = baseline
+		}
+		if hotspot > baseline {
+			f[12*32+16] = hotspot
+			f[12*32+17] = hotspot - 1.2
+			f[13*32+16] = hotspot - 2.0
+		}
+		return f
+	}
+
+	// Test telemetry ingestion with authentic 768-float matrix
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
 		"x_position_cm":          25.5,
 		"baseline_temperature_c": 35.0,
@@ -684,12 +697,13 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		"current_a":              4.2,
 		"width_pixels":           32,
 		"height_pixels":          24,
+		"thermal_frame":          testFrame768(35.0, 52.0),
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 ingesting telemetry, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Test cleaning operation ingestion
+	// Test cleaning operation ingestion resolving the open anomaly
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/cleanings", tech1Auth.AccessToken, map[string]any{
 		"target_x_position_cm":      25.5,
 		"pump_actuated":             true,
@@ -699,13 +713,17 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		"status":                    "completed",
 		"post_cleaning_result":      "resolved",
 	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 ingesting cleaning, got %d: %s", rec.Code, rec.Body.String())
+	}
+
 	// Test batch multi-frame telemetry with 2cm steps & 60% overlap
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
 		"batch": []map[string]any{
-			{"x_position_cm": 0.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2},
-			{"x_position_cm": 2.0, "baseline_temperature_c": 35.0, "max_temperature_c": 38.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2},
-			{"x_position_cm": 4.0, "baseline_temperature_c": 35.0, "max_temperature_c": 56.5, "hotspot_detected": true, "voltage_v": 18.2, "current_a": 4.0},
-			{"x_position_cm": 6.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.5, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2},
+			{"x_position_cm": 0.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 37.0)},
+			{"x_position_cm": 2.0, "baseline_temperature_c": 35.0, "max_temperature_c": 38.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 38.0)},
+			{"x_position_cm": 4.0, "baseline_temperature_c": 35.0, "max_temperature_c": 56.5, "hotspot_detected": true, "voltage_v": 18.2, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 56.5)},
+			{"x_position_cm": 6.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.5, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 37.5)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
@@ -799,6 +817,7 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		"hotspot_detected":      false,
 		"voltage_v":              18.6,
 		"current_a":              4.3,
+		"thermal_frame":          testFrame768(36.0, 38.0),
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 ingesting telemetry with device_token, got %d: %s", rec.Code, rec.Body.String())
@@ -813,5 +832,27 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 ingesting cleaning with device_token, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Test GET /api/v1/alerts returns real alerts from open anomalies
+	rec = doJSON(http.MethodGet, "/api/v1/alerts", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing alerts, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var alertsResp struct {
+		Total    int `json:"total"`
+		Critical int `json:"critical"`
+		Warning  int `json:"warning"`
+		Alerts   []struct {
+			ID       string `json:"id"`
+			Severity string `json:"severity"`
+			Type     string `json:"type"`
+		} `json:"alerts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &alertsResp); err != nil {
+		t.Fatalf("failed to decode alerts response: %v", err)
+	}
+	if alertsResp.Total == 0 {
+		t.Fatalf("expected active alerts from open anomaly, got 0")
 	}
 }

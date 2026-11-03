@@ -62,6 +62,9 @@ CREATE TABLE modules (
     name text NOT NULL CHECK (btrim(name) <> ''),
     mac_address macaddr NOT NULL UNIQUE,
     device_token text UNIQUE,
+    limits_check_passed boolean NOT NULL DEFAULT false,
+    thermal_sensor_active boolean NOT NULL DEFAULT false,
+    last_ping_at timestamptz,
     is_active boolean NOT NULL DEFAULT true,
     monitoring_status text NOT NULL DEFAULT 'pending_configuration'
         CHECK (monitoring_status IN ('pending_configuration', 'active', 'maintenance', 'inactive')),

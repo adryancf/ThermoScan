@@ -30,6 +30,14 @@ func NewHandler(service *Service, queries *db.Queries, tokens *auth.TokenManager
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Post("/devices/claim", h.handleClaimDevice)
 
+	r.Route("/alerts", func(r chi.Router) {
+		r.Use(auth.Authenticate(h.queries, h.tokens))
+		r.Use(auth.RequirePasswordChanged)
+		r.Use(auth.RequireRoles(auth.RoleManager, auth.RoleTechnician, auth.RoleClient))
+
+		r.Get("/", h.handleListAlerts)
+	})
+
 	r.Route("/modules", func(r chi.Router) {
 		r.Use(auth.Authenticate(h.queries, h.tokens))
 		r.Use(auth.RequirePasswordChanged)
@@ -890,4 +898,20 @@ func (h *Handler) handleIngestCleaning(w http.ResponseWriter, r *http.Request) {
 	httpjson.WriteJSON(w, http.StatusCreated, map[string]any{
 		"cleaning": clean,
 	})
+}
+
+func (h *Handler) handleListAlerts(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	summary, err := h.service.ListActiveAlerts(r.Context(), principal)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusInternalServerError, "failed to list alerts: "+err.Error(), "INTERNAL_ERROR")
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, summary)
 }

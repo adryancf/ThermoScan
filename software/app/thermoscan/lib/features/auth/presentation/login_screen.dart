@@ -301,7 +301,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   AppTextField(
                     label: 'API Base URL',
                     controller: ctrl,
-                    hintText: 'http://10.178.129.58:8080/api/v1',
+                    hintText: 'http://10.0.2.2:8080/api/v1',
                   ),
                   if (testResult != null) ...[
                     const SizedBox(height: 10),

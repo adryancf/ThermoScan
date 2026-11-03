@@ -124,6 +124,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -155,6 +158,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -188,6 +194,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -222,6 +231,9 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.limits_check_passed,
+    m.thermal_sensor_active,
+    m.last_ping_at,
     m.configured_at,
     m.created_at,
     m.updated_at
@@ -535,4 +547,14 @@ SET device_token = $1,
     updated_at = now()
 WHERE id = $2
 RETURNING id, mac_address, device_token, monitoring_status, inspection_interval_days;
+
+-- name: UpdateModuleDeviceHealth :one
+UPDATE modules
+SET limits_check_passed = coalesce(sqlc.narg('limits_check_passed'), limits_check_passed),
+    thermal_sensor_active = coalesce(sqlc.narg('thermal_sensor_active'), thermal_sensor_active),
+    last_ping_at = now(),
+    updated_at = now()
+WHERE id = sqlc.arg('id')
+RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at;
+
 

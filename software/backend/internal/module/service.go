@@ -912,6 +912,16 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		configApplyErr,
 	)
 
+	var lastPingAtStr *string
+	isOnline := false
+	if r.LastPingAt != nil {
+		str := r.LastPingAt.UTC().Format(time.RFC3339)
+		lastPingAtStr = &str
+		if time.Since(*r.LastPingAt) <= time.Duration(s.OnlineWindowSeconds())*time.Second {
+			isOnline = true
+		}
+	}
+
 	return ModuleDTO{
 		ID:                         auth.FormatUUID(r.ID),
 		CompanyID:                  auth.FormatUUID(r.CompanyID),
@@ -945,5 +955,7 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		ConfigurationSync:          configSync,
 		PingIntervalSeconds:        s.PingIntervalSeconds(),
 		OnlineWindowSeconds:        s.OnlineWindowSeconds(),
+		IsOnline:                   isOnline,
+		LastPingAt:                 lastPingAtStr,
 	}
 }

@@ -63,7 +63,8 @@ class PvModule {
     this.pingIntervalSeconds,
     this.onlineWindowSeconds,
     this.lastPingAt,
-  });
+    bool isOnline = false,
+  }) : _explicitIsOnline = isOnline;
 
   final String id;
   final String companyId;
@@ -98,6 +99,21 @@ class PvModule {
   final int? pingIntervalSeconds;
   final int? onlineWindowSeconds;
   final String? lastPingAt;
+  final bool _explicitIsOnline;
+
+  bool get isOnline {
+    if (lastPingAt != null &&
+        onlineWindowSeconds != null &&
+        onlineWindowSeconds! > 0) {
+      final pingDate = DateTime.tryParse(lastPingAt!);
+      if (pingDate != null) {
+        final diff =
+            DateTime.now().toUtc().difference(pingDate.toUtc()).inSeconds;
+        return diff <= onlineWindowSeconds!;
+      }
+    }
+    return _explicitIsOnline;
+  }
 
   bool get isPendingConfiguration =>
       monitoringStatus == 'pending_configuration';
@@ -184,6 +200,7 @@ class PvModule {
       pingIntervalSeconds: (json['ping_interval_seconds'] ?? json['pingIntervalSeconds'] as num?)?.toInt(),
       onlineWindowSeconds: (json['online_window_seconds'] ?? json['onlineWindowSeconds'] as num?)?.toInt(),
       lastPingAt: (json['last_ping_at'] ?? json['lastPingAt']) as String?,
+      isOnline: json['is_online'] as bool? ?? false,
     );
   }
 

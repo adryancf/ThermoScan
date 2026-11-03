@@ -55,6 +55,8 @@ type ModuleDTO struct {
 	ConfigurationSync          ConfigurationSyncDTO `json:"configuration_sync"`
 	PingIntervalSeconds        int                  `json:"ping_interval_seconds"`
 	OnlineWindowSeconds        int                  `json:"online_window_seconds"`
+	IsOnline                   bool                 `json:"is_online"`
+	LastPingAt                 *string              `json:"last_ping_at,omitempty"`
 }
 
 type ModuleManagerDTO struct {

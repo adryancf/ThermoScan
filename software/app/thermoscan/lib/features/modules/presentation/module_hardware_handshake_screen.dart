@@ -184,9 +184,21 @@ class _ModuleHardwareHandshakeScreenState
                   final subBPassed = status.isConfigured &&
                       (sync.configAppliedVersion == sync.configVersion) &&
                       !sync.isFailed;
-                  final subBWarning = status.isConfigured && !subBPassed;
+                  final subBWarning = status.isConfigured && sync.isFailed;
+                  final subBLoading = status.isConfigured && !subBPassed && !sync.isFailed;
                   final step1Passed = subAPassed && subBPassed;
-                  final step1Warning = subAPassed && !subBPassed;
+                  final step1Warning = subBWarning;
+                  final step1Loading = !step1Passed && !step1Warning;
+
+                  final step2Passed = status.isOnline;
+                  final step2Loading = step1Passed && !step2Passed;
+
+                  final step3Passed = status.waterAvailable == true;
+                  final step3Warning = status.waterAvailable == false;
+                  final step3Loading = step2Passed && status.waterAvailable == null;
+
+                  final step4Passed = status.limitsCheckPassed;
+                  final step4Loading = step2Passed && !step4Passed;
 
                   return Column(
                     children: [
@@ -194,14 +206,16 @@ class _ModuleHardwareHandshakeScreenState
                       _buildTwoPhaseConfigCard(
                         title: '1. Configuration Sync',
                         description: step1Passed
-                            ? 'Geometria confirmada no servidor e sincronizada na ESP32.'
+                            ? 'Geometry confirmed on server and synced to ESP32.'
                             : (subAPassed
-                                ? 'Configuração salva no servidor. Aguardando confirmação da ESP32.'
-                                : 'Pendente de configuração inicial de geometria.'),
+                                ? 'Configuration saved on server. Awaiting ESP32 confirmation.'
+                                : 'Pending initial geometry configuration.'),
                         isPassed: step1Passed,
                         isWarning: step1Warning,
+                        isLoading: step1Loading,
                         subAPassed: subAPassed,
                         subBPassed: subBPassed,
+                        subBLoading: subBLoading,
                         subBWarning: subBWarning,
                         syncInfo: sync,
                       ),
@@ -214,7 +228,8 @@ class _ModuleHardwareHandshakeScreenState
                             ? 'ESP32 connected. Telemetry sync acknowledged by API Go.'
                             : 'Awaiting device ping. Ensure ESP32 is powered on and connected to local Wi-Fi.',
                         isPassed: status.isOnline,
-                        isWarning: !status.isOnline,
+                        isLoading: step2Loading,
+                        isWarning: false,
                         icon: Icons.wifi_rounded,
                       ),
                       const SizedBox(height: 10),
@@ -228,7 +243,8 @@ class _ModuleHardwareHandshakeScreenState
                                 ? 'Water level: Insufficient. Cleaning cycles locked until tank refill.'
                                 : 'Awaiting first water reserve reading from capacitive probe.',
                         isPassed: status.waterAvailable == true,
-                        isWarning: status.waterAvailable == false,
+                        isWarning: step3Warning,
+                        isLoading: step3Loading,
                         icon: Icons.water_drop_rounded,
                       ),
                       const SizedBox(height: 10),
@@ -241,6 +257,7 @@ class _ModuleHardwareHandshakeScreenState
                             : 'Awaiting sensor self-test and rail homing sequence.',
                         isPassed: status.limitsCheckPassed,
                         isWarning: false,
+                        isLoading: step4Loading,
                         icon: Icons.check_circle_outline_rounded,
                       ),
                     ],
@@ -293,6 +310,7 @@ class _ModuleHardwareHandshakeScreenState
     required String description,
     required bool isPassed,
     required bool isWarning,
+    bool isLoading = false,
     required IconData icon,
   }) {
     Color iconColor = AppColors.textSecondary;
@@ -319,6 +337,17 @@ class _ModuleHardwareHandshakeScreenState
         color: AppColors.warning,
         size: 22,
       );
+    } else if (isLoading) {
+      iconColor = AppColors.primary;
+      borderColor = AppColors.primary.withValues(alpha: 0.5);
+      statusWidget = const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.2,
+          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+        ),
+      );
     }
 
     return Container(
@@ -338,7 +367,9 @@ class _ModuleHardwareHandshakeScreenState
                   ? AppColors.successBackground
                   : (isWarning
                       ? AppColors.warningBackground
-                      : AppColors.background),
+                      : (isLoading
+                          ? AppColors.primarySoft
+                          : AppColors.background)),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: iconColor, size: 20),
@@ -348,12 +379,37 @@ class _ModuleHardwareHandshakeScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: AppTypography.bodySmall.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: AppTypography.bodySmall.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                    if (isLoading)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primarySoft,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'Awaiting...',
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 3),
                 Text(
@@ -378,8 +434,10 @@ class _ModuleHardwareHandshakeScreenState
     required String description,
     required bool isPassed,
     required bool isWarning,
+    bool isLoading = false,
     required bool subAPassed,
     required bool subBPassed,
+    bool subBLoading = false,
     required bool subBWarning,
     required ConfigurationSyncInfo syncInfo,
   }) {
@@ -407,6 +465,17 @@ class _ModuleHardwareHandshakeScreenState
         color: AppColors.warning,
         size: 22,
       );
+    } else if (isLoading) {
+      iconColor = AppColors.primary;
+      borderColor = AppColors.primary.withValues(alpha: 0.5);
+      statusWidget = const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2.2,
+          valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+        ),
+      );
     }
 
     return Container(
@@ -429,7 +498,9 @@ class _ModuleHardwareHandshakeScreenState
                       ? AppColors.successBackground
                       : (isWarning
                           ? AppColors.warningBackground
-                          : AppColors.background),
+                          : (isLoading
+                              ? AppColors.primarySoft
+                              : AppColors.background)),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(Icons.tune_rounded, color: iconColor, size: 20),
@@ -439,12 +510,37 @@ class _ModuleHardwareHandshakeScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      title,
-                      style: AppTypography.bodySmall.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            title,
+                            style: AppTypography.bodySmall.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                        if (isLoading)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primarySoft,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Awaiting...',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 3),
                     Text(
@@ -471,7 +567,7 @@ class _ModuleHardwareHandshakeScreenState
             ),
             child: Column(
               children: [
-                // Sub-item A: Salvo no Servidor
+                // Sub-item A: Saved on Server
                 Row(
                   children: [
                     Icon(
@@ -486,7 +582,7 @@ class _ModuleHardwareHandshakeScreenState
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Sub-item A: Salvo no Servidor',
+                        'Sub-item A: Saved on Server',
                         style: AppTypography.bodySmall.copyWith(
                           fontWeight: FontWeight.w600,
                           color: subAPassed
@@ -496,7 +592,7 @@ class _ModuleHardwareHandshakeScreenState
                       ),
                     ),
                     Text(
-                      subAPassed ? 'Configurado' : 'Pendente',
+                      subAPassed ? 'Configured' : 'Pending',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -511,47 +607,69 @@ class _ModuleHardwareHandshakeScreenState
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: Divider(height: 1),
                 ),
-                // Sub-item B: Confirmado na ESP32
+                // Sub-item B: Confirmed by ESP32
                 Row(
                   children: [
-                    Icon(
-                      subBPassed
-                          ? Icons.check_circle_rounded
-                          : (subBWarning
-                              ? Icons.warning_amber_rounded
-                              : Icons.radio_button_unchecked_rounded),
-                      color: subBPassed
-                          ? AppColors.success
-                          : (subBWarning
-                              ? AppColors.warning
-                              : AppColors.textSecondary),
-                      size: 18,
-                    ),
+                    subBLoading
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                AppColors.primary,
+                              ),
+                            ),
+                          )
+                        : Icon(
+                            subBPassed
+                                ? Icons.check_circle_rounded
+                                : (subBWarning
+                                    ? Icons.warning_amber_rounded
+                                    : Icons.radio_button_unchecked_rounded),
+                            color: subBPassed
+                                ? AppColors.success
+                                : (subBWarning
+                                    ? AppColors.warning
+                                    : AppColors.textSecondary),
+                            size: 18,
+                          ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Sub-item B: Confirmado na ESP32',
+                            'Sub-item B: Confirmed by ESP32',
                             style: AppTypography.bodySmall.copyWith(
                               fontWeight: FontWeight.w600,
                               color: subBPassed
                                   ? AppColors.textPrimary
                                   : (subBWarning
                                       ? AppColors.warning
-                                      : AppColors.textSecondary),
+                                      : (subBLoading
+                                          ? AppColors.primary
+                                          : AppColors.textSecondary)),
                             ),
                           ),
                           if (subBWarning) ...[
                             const SizedBox(height: 2),
                             Text(
                               syncInfo.isFailed
-                                  ? 'Falha: ${syncInfo.configApplyError ?? "Erro ao aplicar"}'
-                                  : 'Aguardando sincronização (v${syncInfo.configAppliedVersion} no device, v${syncInfo.configVersion} no server)',
+                                  ? 'Failed: ${syncInfo.configApplyError ?? "Error applying configuration"}'
+                                  : 'Awaiting sync (v${syncInfo.configAppliedVersion} on device, v${syncInfo.configVersion} on server)',
                               style: AppTypography.caption.copyWith(
                                 fontSize: 10.5,
                                 color: AppColors.warning,
+                              ),
+                            ),
+                          ] else if (subBLoading) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Awaiting sync (v${syncInfo.configAppliedVersion} on device, v${syncInfo.configVersion} on server)',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10.5,
+                                color: AppColors.primary,
                               ),
                             ),
                           ],
@@ -561,7 +679,9 @@ class _ModuleHardwareHandshakeScreenState
                     Text(
                       subBPassed
                           ? 'v${syncInfo.configAppliedVersion} OK'
-                          : (syncInfo.isFailed ? 'Erro' : 'Pendente'),
+                          : (syncInfo.isFailed
+                              ? 'Failed'
+                              : (subBLoading ? 'Syncing...' : 'Pending')),
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -569,7 +689,9 @@ class _ModuleHardwareHandshakeScreenState
                             ? AppColors.success
                             : (subBWarning
                                 ? AppColors.warning
-                                : AppColors.textSecondary),
+                                : (subBLoading
+                                    ? AppColors.primary
+                                    : AppColors.textSecondary)),
                       ),
                     ),
                   ],
@@ -582,3 +704,4 @@ class _ModuleHardwareHandshakeScreenState
     );
   }
 }
+

@@ -6,6 +6,7 @@ import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/app_text_field.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
+import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
@@ -280,7 +281,7 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
   }
 }
 
-class _ModuleListCard extends StatelessWidget {
+class _ModuleListCard extends ConsumerWidget {
   const _ModuleListCard({
     required this.module,
     required this.onTap,
@@ -290,8 +291,11 @@ class _ModuleListCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isPending = module.isPendingConfiguration;
+    final alertsSummary = ref.watch(alertsSummaryProvider).valueOrNull;
+    final hasAlert =
+        alertsSummary?.alerts.any((a) => a.moduleId == module.id) ?? false;
 
     return Material(
       color: AppColors.surface,
@@ -340,6 +344,39 @@ class _ModuleListCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  if (hasAlert) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorBackground,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.errorBorder),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            size: 13,
+                            color: AppColors.error,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Alert',
+                            style: AppTypography.chip.copyWith(
+                              color: AppColors.error,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   ModuleMonitoringStatusBadge(status: module.monitoringStatus),
                 ],
               ),
@@ -351,7 +388,7 @@ class _ModuleListCard extends StatelessWidget {
                 runSpacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  const _OfflineDevicePill(),
+                  _ConnectionStatusPill(module: module),
                   _RelationshipBadge(label: module.relationshipLabel),
                   if (module.panelCount != null &&
                       module.panelLengthCm != null &&
@@ -485,33 +522,76 @@ class ModuleMonitoringStatusBadge extends StatelessWidget {
   }
 }
 
-class _OfflineDevicePill extends StatelessWidget {
-  const _OfflineDevicePill();
+class _ConnectionStatusPill extends StatelessWidget {
+  const _ConnectionStatusPill({required this.module});
+
+  final PvModule module;
+
+  String _formatLastSeen(String? lastPingAt) {
+    if (lastPingAt == null || lastPingAt.isEmpty) return 'Never Connected';
+    final dt = DateTime.tryParse(lastPingAt)?.toLocal();
+    if (dt == null) return 'Never Connected';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'Seen just now';
+    if (diff.inMinutes < 60) return 'Seen ${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return 'Seen ${diff.inHours}h ago';
+    return 'Seen ${diff.inDays}d ago';
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isOnline = module.isOnline;
+    final lastPing = module.lastPingAt;
+    final hasPing = lastPing != null && lastPing.isNotEmpty;
+
+    Color bg;
+    Color border;
+    Color text;
+    IconData icon;
+    String label;
+
+    if (isOnline) {
+      bg = AppColors.successBackground;
+      border = AppColors.successBorder;
+      text = AppColors.success;
+      icon = Icons.wifi_rounded;
+      label = 'Online';
+    } else if (hasPing) {
+      bg = AppColors.warningBackground;
+      border = AppColors.warningBorder;
+      text = AppColors.warning;
+      icon = Icons.wifi_off_rounded;
+      label = _formatLastSeen(lastPing);
+    } else {
+      bg = AppColors.background;
+      border = AppColors.border;
+      text = AppColors.textSecondary;
+      icon = Icons.wifi_off_rounded;
+      label = 'Never Connected';
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: AppColors.background,
+        color: bg,
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(color: border),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.wifi_off_outlined,
+          Icon(
+            icon,
             size: 12,
-            color: AppColors.textSecondary,
+            color: text,
           ),
           const SizedBox(width: 5),
           Text(
-            'ESP32 Offline',
+            label,
             style: AppTypography.caption.copyWith(
               fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
+              fontWeight: FontWeight.w700,
+              color: text,
             ),
           ),
         ],

@@ -235,11 +235,11 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // Only 3 tabs must be present: Visão Geral, Medições, Limpezas
-      expect(find.text('Visão Geral'), findsOneWidget);
-      expect(find.text('Medições'), findsOneWidget);
-      expect(find.text('Limpezas'), findsOneWidget);
-      expect(find.text('Configuração'), findsNothing);
+      // Only 3 tabs must be present: Overview, Measurements, Cleanings
+      expect(find.text('Overview'), findsOneWidget);
+      expect(find.text('Measurements'), findsOneWidget);
+      expect(find.text('Cleanings'), findsOneWidget);
+      expect(find.text('Configuration'), findsNothing);
 
       // Pending configuration banner should be shown
       expect(find.text('Pending Installation Configuration'), findsOneWidget);
@@ -332,19 +332,19 @@ void main() {
       await tester.pumpAndSettle();
 
       // All 4 tabs present
-      expect(find.text('Visão Geral'), findsOneWidget);
-      expect(find.text('Medições'), findsOneWidget);
-      expect(find.text('Limpezas'), findsOneWidget);
-      expect(find.text('Configuração'), findsOneWidget);
+      expect(find.text('Overview'), findsOneWidget);
+      expect(find.text('Measurements'), findsOneWidget);
+      expect(find.text('Cleanings'), findsOneWidget);
+      expect(find.text('Configuration'), findsOneWidget);
 
       // 2x2 Sensor Grid items
       expect(find.text('Limits Check Passed'), findsOneWidget);
-      expect(find.text('Sensor Térmico Ativo'), findsOneWidget);
-      expect(find.text('Reservatório de Água'), findsOneWidget);
-      expect(find.text('Conectividade / Online'), findsOneWidget);
+      expect(find.text('Thermal Sensor Active'), findsOneWidget);
+      expect(find.text('Water Reservoir'), findsOneWidget);
+      expect(find.text('ESP32 Connectivity'), findsOneWidget);
 
       // Configuration Sync Badge
-      expect(find.textContaining('Configuração v2 sincronizada na ESP32'), findsOneWidget);
+      expect(find.textContaining('Configuration v2 synced to ESP32'), findsOneWidget);
     });
 
     testWidgets('Hardware Handshake Screen shows two-phase Step 1 verification', (tester) async {
@@ -416,8 +416,8 @@ void main() {
 
       // Check two-phase Step 1 verification
       expect(find.text('1. Configuration Sync'), findsOneWidget);
-      expect(find.text('Sub-item A: Salvo no Servidor'), findsOneWidget);
-      expect(find.text('Sub-item B: Confirmado na ESP32'), findsOneWidget);
+      expect(find.text('Sub-item A: Saved on Server'), findsOneWidget);
+      expect(find.text('Sub-item B: Confirmed by ESP32'), findsOneWidget);
 
       // Cleanly dispose periodic timer by unmounting widget
       await tester.pumpWidget(const SizedBox());

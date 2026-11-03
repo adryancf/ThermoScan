@@ -33,7 +33,7 @@ class ModuleDetailsScreen extends ConsumerStatefulWidget {
 }
 
 class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
-  bool _infoExpanded = true;
+  bool _infoExpanded = false;
   bool _updatingEmailPref = false;
 
   Future<void> _toggleEmailPreference(bool enabled) async {
@@ -187,7 +187,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   }
 
   String _formatDateTime(DateTime? dt) {
-    if (dt == null) return 'recente';
+    if (dt == null) return 'recent';
     final d = dt.toLocal();
     final day = d.day.toString().padLeft(2, '0');
     final month = d.month.toString().padLeft(2, '0');
@@ -356,11 +356,11 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                           fontSize: 13,
                         ),
                         tabs: [
-                          const Tab(text: 'Visão Geral'),
-                          const Tab(text: 'Medições'),
-                          const Tab(text: 'Limpezas'),
+                          const Tab(text: 'Overview'),
+                          const Tab(text: 'Measurements'),
+                          const Tab(text: 'Cleanings'),
                           if (!isPendingConfig)
-                            const Tab(text: 'Configuração'),
+                            const Tab(text: 'Configuration'),
                         ],
                       ),
                     ),
@@ -501,7 +501,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             const SizedBox(height: 16),
 
             // 4. Module Info Collapsible Card / Accordion
-            _buildModuleInfoCard(mod),
+            _buildModuleInfoCard(mod, details),
             const SizedBox(height: 16),
 
             // 5. Hardware Handshake Shortcut
@@ -533,14 +533,14 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Handshake de Hardware ESP32',
+                          'ESP32 Hardware Handshake',
                           style: AppTypography.bodySmall.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Checklist de intertravamentos de segurança e Wi-Fi',
+                          'Safety interlocks & Wi-Fi checklist',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.textSecondary,
                           ),
@@ -574,104 +574,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               const SizedBox(height: 16),
             ],
 
-            // 7. Responsible Managers Card
-            if (details.responsibleManagers.isNotEmpty) ...[
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Responsible Managers',
-                      style: AppTypography.h3,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Company Managers supervising this module.',
-                      style: AppTypography.bodySmall,
-                    ),
-                    const SizedBox(height: 12),
-                    ...details.responsibleManagers.map(
-                      (mgr) => Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.supervisor_account_outlined,
-                              size: 18,
-                              color: AppColors.primary,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    mgr.name,
-                                    style: AppTypography.body.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  Text(
-                                    mgr.email,
-                                    style: AppTypography.caption,
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (mgr.isDefaultManager)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primarySoft,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  'Default',
-                                  style: AppTypography.chip.copyWith(
-                                    fontSize: 10,
-                                    color: AppColors.primary,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    if (perms.canManageAccess) ...[
-                      const SizedBox(height: 10),
-                      SecondaryButton(
-                        label: 'Manage Access & Responsible Managers',
-                        icon: Icons.admin_panel_settings_outlined,
-                        onPressed: () =>
-                            context.push('/modules/${mod.id}/access'),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            // 8. Client Operational Email Preferences
+            // 7. Client Operational Email Preferences
             if (mod.userRelationship == 'assigned_client') ...[
               Container(
                 width: double.infinity,
@@ -739,20 +642,20 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       iconColor = AppColors.success;
       icon = Icons.check_circle_outline_rounded;
       final dateStr = _formatDateTime(syncInfo.configAppliedAt);
-      message = 'Configuração v$v sincronizada na ESP32 em $dateStr';
+      message = 'Configuration v$v synced to ESP32 on $dateStr';
     } else if (state == 'failed') {
       bg = AppColors.errorBackground;
       border = AppColors.errorBorder;
       iconColor = AppColors.error;
       icon = Icons.error_outline_rounded;
-      final err = syncInfo.configApplyError ?? 'erro desconhecido';
-      message = 'Falha ao aplicar configuração v$v: $err';
+      final err = syncInfo.configApplyError ?? 'unknown error';
+      message = 'Failed to apply configuration v$v: $err';
     } else {
       bg = AppColors.warningBackground;
       border = AppColors.warningBorder;
       iconColor = AppColors.warning;
       icon = Icons.access_time_rounded;
-      message = 'Configuração v$v pendente de sincronização no dispositivo';
+      message = 'Configuration v$v pending sync on device';
     }
 
     return Container(
@@ -815,7 +718,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             Expanded(
               child: _SensorHealthCard(
                 title: 'Limits Check Passed',
-                subtitle: limitsOk ? 'Microswitches homed' : 'Pendente / Falha',
+                subtitle: limitsOk ? 'Microswitches homed' : 'Awaiting homing',
                 icon: Icons.check_circle_outline_rounded,
                 isPositive: limitsOk,
               ),
@@ -823,9 +726,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _SensorHealthCard(
-                title: 'Sensor Térmico Ativo',
+                title: 'Thermal Sensor Active',
                 subtitle:
-                    thermalOk ? 'MLX90640 operando' : 'Sensor inativo',
+                    thermalOk ? 'MLX90640 active' : 'Sensor inactive',
                 icon: Icons.camera_alt_outlined,
                 isPositive: thermalOk,
               ),
@@ -837,12 +740,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
           children: [
             Expanded(
               child: _SensorHealthCard(
-                title: 'Reservatório de Água',
+                title: 'Water Reservoir',
                 subtitle: waterAvailable == true
-                    ? 'Nível suficiente'
+                    ? 'Sufficient level'
                     : (waterAvailable == false
-                        ? 'Nível insuficiente'
-                        : 'Aguardando ping'),
+                        ? 'Insufficient level'
+                        : 'Awaiting ping'),
                 icon: Icons.water_drop_outlined,
                 isPositive: waterAvailable == true,
                 isWarning: waterAvailable == false,
@@ -851,10 +754,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _SensorHealthCard(
-                title: 'Conectividade / Online',
+                title: 'ESP32 Connectivity',
                 subtitle: isOnline
-                    ? 'ESP32 Conectada'
-                    : 'Aguardando ping',
+                    ? 'Connected (Online)'
+                    : 'Awaiting ping',
                 icon: isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
                 isPositive: isOnline,
                 isWarning: !isOnline,
@@ -867,7 +770,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   }
 
   /// Module Info Collapsible Card / Accordion
-  Widget _buildModuleInfoCard(PvModule mod) {
+  Widget _buildModuleInfoCard(PvModule mod, ModuleDetails details) {
+    final perms = mod.permissions;
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -939,7 +844,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 children: [
                   // Identity / Installation Details
                   Text(
-                    'Identidade & Localização',
+                    'Identity & Location',
                     style: AppTypography.bodySmall.copyWith(
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,
@@ -962,37 +867,37 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.location_on_outlined,
-                    label: 'Coordenadas',
+                    label: 'Coordinates',
                     value: mod.latitude != null && mod.longitude != null
                         ? '${mod.latitude!.toStringAsFixed(5)}°, ${mod.longitude!.toStringAsFixed(5)}°'
-                        : 'Não configurado',
+                        : 'Not configured',
                     isMono: mod.latitude != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.terrain_outlined,
-                    label: 'Elevação',
+                    label: 'Elevation',
                     value: mod.elevationM != null
                         ? '${mod.elevationM!.toStringAsFixed(1)} m'
-                        : 'Não configurado',
+                        : 'Not configured',
                     isMono: mod.elevationM != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.engineering_outlined,
-                    label: 'Instalador',
+                    label: 'Installer',
                     value: '${mod.installerName} (${mod.installerEmail})',
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.verified_user_outlined,
-                    label: 'Seu Acesso',
+                    label: 'Your Access',
                     value: mod.relationshipLabel,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.event_available_outlined,
-                    label: 'Configurado',
+                    label: 'Configured',
                     value: _formatDate(mod.configuredAt),
                     isMono: mod.configuredAt != null,
                   ),
@@ -1003,7 +908,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
 
                   // Geometry Summary
                   Text(
-                    'Geometria do Painel Fotovoltaico',
+                    'PV Panel Geometry',
                     style: AppTypography.bodySmall.copyWith(
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,
@@ -1012,73 +917,172 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   const SizedBox(height: 10),
                   _MetadataRow(
                     icon: Icons.straighten_outlined,
-                    label: 'Dimensões',
+                    label: 'Dimensions',
                     value: mod.panelLengthCm != null &&
                             mod.panelWidthCm != null
                         ? '${mod.panelLengthCm!.toStringAsFixed(1)} × ${mod.panelWidthCm!.toStringAsFixed(1)} cm'
-                        : 'Não configurado',
+                        : 'Not configured',
                     isMono: mod.panelLengthCm != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.grid_view_outlined,
-                    label: 'Qtd Painéis',
+                    label: 'Panel Count',
                     value: mod.panelCount != null
-                        ? '${mod.panelCount} painéis'
-                        : 'Não configurado',
+                        ? '${mod.panelCount} panels'
+                        : 'Not configured',
                     isMono: mod.panelCount != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.space_bar_outlined,
-                    label: 'Espaçamento',
+                    label: 'Spacing',
                     value: mod.panelSpacingCm != null
                         ? '${mod.panelSpacingCm!.toStringAsFixed(1)} cm'
-                        : 'Não configurado',
+                        : 'Not configured',
                     isMono: mod.panelSpacingCm != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.architecture_outlined,
-                    label: 'Inclinação (Tilt)',
+                    label: 'Tilt Angle',
                     value: mod.tiltDeg != null
                         ? '${mod.tiltDeg!.toStringAsFixed(1)}° (${(mod.tiltSource ?? "manual").toUpperCase()})'
-                        : 'Não configurado',
+                        : 'Not configured',
                     isMono: mod.tiltDeg != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.explore_outlined,
-                    label: 'Azimute',
+                    label: 'Azimuth',
                     value: mod.azimuthDeg != null
                         ? '${mod.azimuthDeg!.toStringAsFixed(1)}° (${(mod.azimuthSource ?? "manual").toUpperCase()})'
-                        : 'Não configurado',
+                        : 'Not configured',
                     isMono: mod.azimuthDeg != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.wb_sunny_outlined,
-                    label: 'Ângulo Solar Mín',
+                    label: 'Min Solar Angle',
                     value: mod.minimumSolarAngleDeg != null
                         ? '${mod.minimumSolarAngleDeg!.toStringAsFixed(1)}°'
-                        : 'Não configurado',
+                        : 'Not configured',
                     isMono: mod.minimumSolarAngleDeg != null,
                   ),
                   const SizedBox(height: 8),
                   _MetadataRow(
                     icon: Icons.update_outlined,
-                    label: 'Intervalo Scan',
-                    value: 'A cada ${mod.inspectionIntervalDays} dias',
+                    label: 'Scan Interval',
+                    value: 'Every ${mod.inspectionIntervalDays} days',
                     isMono: true,
                   ),
                   if (mod.reservoirNominalCapacityMl != null) ...[
                     const SizedBox(height: 8),
                     _MetadataRow(
                       icon: Icons.water_drop_outlined,
-                      label: 'Reservatório',
+                      label: 'Reservoir',
                       value:
                           '${mod.reservoirNominalCapacityMl!.toStringAsFixed(0)} mL (nominal)',
                       isMono: true,
+                    ),
+                  ],
+
+                  // Responsible Managers & Manage Access Section inside Accordion
+                  if (details.responsibleManagers.isNotEmpty ||
+                      perms.canManageAccess) ...[
+                    const SizedBox(height: 16),
+                    const Divider(height: 1),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Responsible Managers',
+                          style: AppTypography.bodySmall.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        if (perms.canManageAccess)
+                          InkWell(
+                            onTap: () =>
+                                context.push('/modules/${mod.id}/access'),
+                            borderRadius: BorderRadius.circular(6),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              child: Text(
+                                'Manage Access →',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    ...details.responsibleManagers.map(
+                      (mgr) => Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.supervisor_account_outlined,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    mgr.name,
+                                    style: AppTypography.body.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    mgr.email,
+                                    style: AppTypography.caption,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (mgr.isDefaultManager)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primarySoft,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: Text(
+                                  'Default',
+                                  style: AppTypography.chip.copyWith(
+                                    fontSize: 10,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     ),
                   ],
                 ],
@@ -1122,12 +1126,12 @@ class _SensorHealthCard extends StatelessWidget {
       bg = AppColors.warningBackground;
       border = AppColors.warningBorder;
       accent = AppColors.warning;
-      badgeText = 'AVISO';
+      badgeText = 'WARN';
     } else {
       bg = AppColors.errorBackground;
       border = AppColors.errorBorder;
       accent = AppColors.error;
-      badgeText = 'FALHA';
+      badgeText = 'FAIL';
     }
 
     return Container(

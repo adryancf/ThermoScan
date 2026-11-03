@@ -64,7 +64,31 @@ func Authenticate(queries *db.Queries, tokens *TokenManager) func(http.Handler) 
 				return
 			}
 
-			_, userID, sessionID, err := tokens.ParseAccessToken(strings.TrimSpace(tokenStr))
+			rawToken := strings.TrimSpace(tokenStr)
+			if strings.HasPrefix(rawToken, "dev_sec_") {
+				mod, err := queries.GetModuleByDeviceToken(r.Context(), pgtype.Text{String: rawToken, Valid: true})
+				if err != nil || !mod.IsActive {
+					httpjson.WriteError(w, http.StatusUnauthorized, "invalid or inactive device token", "UNAUTHORIZED")
+					return
+				}
+				principal := Principal{
+					ID:                 mod.ID,
+					CompanyID:          mod.CompanyID,
+					Name:               mod.Name,
+					Email:              "device@" + mod.MacAddress.String(),
+					Role:               RoleTechnician,
+					IsActive:           mod.IsActive,
+					IsDefaultManager:   false,
+					MustChangePassword: false,
+					CreatedAt:          mod.CreatedAt,
+					UpdatedAt:          mod.UpdatedAt,
+				}
+				ctx := context.WithValue(r.Context(), principalContextKey, principal)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
+			_, userID, sessionID, err := tokens.ParseAccessToken(rawToken)
 			if err != nil {
 				httpjson.WriteError(w, http.StatusUnauthorized, "invalid or expired access token", "UNAUTHORIZED")
 				return

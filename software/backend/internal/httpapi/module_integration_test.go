@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -741,5 +742,76 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	}
 	if tmResp.ThermalMap.AlgorithmVersion != "overlap-60-blend-v1.0" {
 		t.Fatalf("expected algorithm overlap-60-blend-v1.0, got %q", tmResp.ThermalMap.AlgorithmVersion)
+	}
+
+	// Test Opção B: ESP32 Hardware Claim and direct device_token authentication
+	rec = doJSON(http.MethodPost, "/api/v1/devices/claim", "", map[string]any{
+		"mac_address":           devStatus.DeviceStatus.MACAddress,
+		"firmware_version":      "v1.4.2",
+		"water_available":       true,
+		"limits_check_passed":   true,
+		"thermal_sensor_active": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 claiming device, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var claimResp struct {
+		ModuleID    string `json:"module_id"`
+		DeviceToken string `json:"device_token"`
+		Status      string `json:"status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &claimResp); err != nil {
+		t.Fatalf("failed to decode claim response: %v", err)
+	}
+	if claimResp.DeviceToken == "" || !strings.HasPrefix(claimResp.DeviceToken, "dev_sec_") {
+		t.Fatalf("expected valid device_token starting with dev_sec_, got %q", claimResp.DeviceToken)
+	}
+
+	// Test device-ping with full diagnostic health flags using ONLY device_token
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+claimResp.ModuleID+"/device-ping", claimResp.DeviceToken, map[string]any{
+		"water_available":       true,
+		"limits_check_passed":   true,
+		"thermal_sensor_active": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 recording device-ping with device_token, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var pingResp struct {
+		DeviceStatus struct {
+			IsOnline            bool `json:"is_online"`
+			LimitsCheckPassed   bool `json:"limits_check_passed"`
+			ThermalSensorActive bool `json:"thermal_sensor_active"`
+			WaterAvailable      bool `json:"water_available"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pingResp); err != nil {
+		t.Fatalf("failed to decode ping response: %v", err)
+	}
+	if !pingResp.DeviceStatus.IsOnline || !pingResp.DeviceStatus.LimitsCheckPassed || !pingResp.DeviceStatus.ThermalSensorActive || !pingResp.DeviceStatus.WaterAvailable {
+		t.Fatalf("expected all diagnostic flags to be true, got: %+v", pingResp.DeviceStatus)
+	}
+
+	// Test telemetry ingestion using ONLY device_token
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+claimResp.ModuleID+"/telemetry", claimResp.DeviceToken, map[string]any{
+		"x_position_cm":          8.0,
+		"baseline_temperature_c": 36.0,
+		"max_temperature_c":      38.0,
+		"hotspot_detected":      false,
+		"voltage_v":              18.6,
+		"current_a":              4.3,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 ingesting telemetry with device_token, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Test cleaning ingestion using ONLY device_token
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+claimResp.ModuleID+"/cleanings", claimResp.DeviceToken, map[string]any{
+		"target_x_position_cm": 12.0,
+		"pump_actuated":        false,
+		"status":               "refused",
+		"post_cleaning_result": "unresolved",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 ingesting cleaning with device_token, got %d: %s", rec.Code, rec.Body.String())
 	}
 }

@@ -28,6 +28,8 @@ func NewHandler(service *Service, queries *db.Queries, tokens *auth.TokenManager
 }
 
 func (h *Handler) RegisterRoutes(r chi.Router) {
+	r.Post("/devices/claim", h.handleClaimDevice)
+
 	r.Route("/modules", func(r chi.Router) {
 		r.Use(auth.Authenticate(h.queries, h.tokens))
 		r.Use(auth.RequirePasswordChanged)
@@ -756,6 +758,31 @@ func (h *Handler) handleGetDeviceStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (h *Handler) handleClaimDevice(w http.ResponseWriter, r *http.Request) {
+	var req ClaimDeviceInput
+	if err := httpjson.DecodeJSON(r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		return
+	}
+
+	res, err := h.service.ClaimDevice(r.Context(), req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidInput):
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid mac address format", "INVALID_INPUT")
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "device not registered on backend", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "device is deactivated", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "failed to claim device: "+err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, res)
+}
+
 func (h *Handler) handleRecordDevicePing(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !principal.CompanyID.Valid {
@@ -769,17 +796,10 @@ func (h *Handler) handleRecordDevicePing(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var req struct {
-		WaterAvailable *bool `json:"water_available"`
-	}
+	var req RecordDevicePingInput
 	_ = httpjson.DecodeJSON(r, &req)
 
-	waterAvail := true
-	if req.WaterAvailable != nil {
-		waterAvail = *req.WaterAvailable
-	}
-
-	status, err := h.service.RecordDevicePing(r.Context(), principal, moduleID, waterAvail)
+	status, err := h.service.RecordDevicePing(r.Context(), principal, moduleID, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotFound):

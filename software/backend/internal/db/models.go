@@ -127,6 +127,7 @@ type Module struct {
 	InstallerTechnicianID pgtype.UUID
 	Name                  string
 	MacAddress            net.HardwareAddr
+	DeviceToken           pgtype.Text
 	IsActive              bool
 	MonitoringStatus      string
 	PanelLengthCm         pgtype.Numeric

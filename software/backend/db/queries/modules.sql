@@ -521,3 +521,18 @@ DELETE FROM modules
 WHERE company_id = $1
   AND id = $2;
 
+-- name: GetModuleByMACAddress :one
+SELECT * FROM modules
+WHERE mac_address = $1::macaddr;
+
+-- name: GetModuleByDeviceToken :one
+SELECT * FROM modules
+WHERE device_token = $1;
+
+-- name: SetModuleDeviceToken :one
+UPDATE modules
+SET device_token = $1,
+    updated_at = now()
+WHERE id = $2
+RETURNING id, mac_address, device_token, monitoring_status, inspection_interval_days;
+

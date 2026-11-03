@@ -7,6 +7,7 @@ package db
 
 import (
 	"context"
+	"net"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -429,6 +430,44 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 	return err
 }
 
+const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
+WHERE device_token = $1
+`
+
+func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype.Text) (Module, error) {
+	row := q.db.QueryRow(ctx, getModuleByDeviceToken, deviceToken)
+	var i Module
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.InstallerTechnicianID,
+		&i.Name,
+		&i.MacAddress,
+		&i.DeviceToken,
+		&i.IsActive,
+		&i.MonitoringStatus,
+		&i.PanelLengthCm,
+		&i.PanelWidthCm,
+		&i.PanelCount,
+		&i.PanelSpacingCm,
+		&i.Latitude,
+		&i.Longitude,
+		&i.ElevationM,
+		&i.AzimuthDeg,
+		&i.TiltDeg,
+		&i.AzimuthSource,
+		&i.TiltSource,
+		&i.MinimumSolarAngleDeg,
+		&i.InspectionIntervalDays,
+		&i.ReservoirNominalCapacityMl,
+		&i.ConfiguredAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getModuleByID = `-- name: GetModuleByID :one
 SELECT
     m.id,
@@ -604,6 +643,44 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.InstallerTechnicianID,
 		&i.Name,
 		&i.MacAddress,
+		&i.IsActive,
+		&i.MonitoringStatus,
+		&i.PanelLengthCm,
+		&i.PanelWidthCm,
+		&i.PanelCount,
+		&i.PanelSpacingCm,
+		&i.Latitude,
+		&i.Longitude,
+		&i.ElevationM,
+		&i.AzimuthDeg,
+		&i.TiltDeg,
+		&i.AzimuthSource,
+		&i.TiltSource,
+		&i.MinimumSolarAngleDeg,
+		&i.InspectionIntervalDays,
+		&i.ReservoirNominalCapacityMl,
+		&i.ConfiguredAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, configured_at, created_at, updated_at FROM modules
+WHERE mac_address = $1::macaddr
+`
+
+func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.HardwareAddr) (Module, error) {
+	row := q.db.QueryRow(ctx, getModuleByMACAddress, dollar_1)
+	var i Module
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.InstallerTechnicianID,
+		&i.Name,
+		&i.MacAddress,
+		&i.DeviceToken,
 		&i.IsActive,
 		&i.MonitoringStatus,
 		&i.PanelLengthCm,
@@ -1446,6 +1523,40 @@ type RemoveModuleClientParams struct {
 func (q *Queries) RemoveModuleClient(ctx context.Context, arg RemoveModuleClientParams) error {
 	_, err := q.db.Exec(ctx, removeModuleClient, arg.CompanyID, arg.ModuleID, arg.ClientID)
 	return err
+}
+
+const setModuleDeviceToken = `-- name: SetModuleDeviceToken :one
+UPDATE modules
+SET device_token = $1,
+    updated_at = now()
+WHERE id = $2
+RETURNING id, mac_address, device_token, monitoring_status, inspection_interval_days
+`
+
+type SetModuleDeviceTokenParams struct {
+	DeviceToken pgtype.Text
+	ID          pgtype.UUID
+}
+
+type SetModuleDeviceTokenRow struct {
+	ID                     pgtype.UUID
+	MacAddress             net.HardwareAddr
+	DeviceToken            pgtype.Text
+	MonitoringStatus       string
+	InspectionIntervalDays int32
+}
+
+func (q *Queries) SetModuleDeviceToken(ctx context.Context, arg SetModuleDeviceTokenParams) (SetModuleDeviceTokenRow, error) {
+	row := q.db.QueryRow(ctx, setModuleDeviceToken, arg.DeviceToken, arg.ID)
+	var i SetModuleDeviceTokenRow
+	err := row.Scan(
+		&i.ID,
+		&i.MacAddress,
+		&i.DeviceToken,
+		&i.MonitoringStatus,
+		&i.InspectionIntervalDays,
+	)
+	return i, err
 }
 
 const updateModuleClientEmailPreference = `-- name: UpdateModuleClientEmailPreference :one

@@ -3,6 +3,7 @@ package module
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"math"
@@ -1276,6 +1277,9 @@ func (s *Service) resolveUserModuleRelationship(ctx context.Context, q *db.Queri
 	case auth.RoleManager:
 		return RelManager, nil, nil
 	case auth.RoleTechnician:
+		if principal.ID.Bytes == moduleID.Bytes {
+			return RelInstallerTechnician, nil, nil
+		}
 		access, err := q.GetModuleTechnicianAccess(ctx, db.GetModuleTechnicianAccessParams{
 			CompanyID:    principal.CompanyID,
 			ModuleID:     moduleID,
@@ -1979,7 +1983,13 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 	return dto, nil
 }
 
-func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, waterAvailable bool) (*DeviceStatusDTO, error) {
+type RecordDevicePingInput struct {
+	WaterAvailable      *bool `json:"water_available"`
+	LimitsCheckPassed   *bool `json:"limits_check_passed"`
+	ThermalSensorActive *bool `json:"thermal_sensor_active"`
+}
+
+func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, input RecordDevicePingInput) (*DeviceStatusDTO, error) {
 	if !principal.CompanyID.Valid || !moduleID.Valid {
 		return nil, ErrForbidden
 	}
@@ -2000,17 +2010,105 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		return nil, err
 	}
 
+	waterAvail := true
+	if input.WaterAvailable != nil {
+		waterAvail = *input.WaterAvailable
+	}
+
 	eventID := newRandomUUID()
 	_, err = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
 		ModuleID:       moduleID,
 		SourceEventID:  eventID,
-		WaterAvailable: pgtype.Bool{Bool: waterAvailable, Valid: true},
+		WaterAvailable: pgtype.Bool{Bool: waterAvail, Valid: true},
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return s.GetDeviceStatus(ctx, principal, moduleID)
+	dto, err := s.GetDeviceStatus(ctx, principal, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	if input.LimitsCheckPassed != nil {
+		dto.LimitsCheckPassed = *input.LimitsCheckPassed
+	}
+	if input.ThermalSensorActive != nil {
+		dto.ThermalSensorActive = *input.ThermalSensorActive
+	}
+	return dto, nil
+}
+
+type ClaimDeviceInput struct {
+	MACAddress          string `json:"mac_address"`
+	FirmwareVersion     string `json:"firmware_version"`
+	WaterAvailable      *bool  `json:"water_available"`
+	LimitsCheckPassed   *bool  `json:"limits_check_passed"`
+	ThermalSensorActive *bool  `json:"thermal_sensor_active"`
+}
+
+type ClaimDeviceDTO struct {
+	ModuleID               string `json:"module_id"`
+	DeviceToken            string `json:"device_token"`
+	Status                 string `json:"status"`
+	InspectionIntervalDays int32  `json:"inspection_interval_days"`
+	Message                string `json:"message"`
+}
+
+func (s *Service) ClaimDevice(ctx context.Context, input ClaimDeviceInput) (*ClaimDeviceDTO, error) {
+	trimmed := strings.TrimSpace(input.MACAddress)
+	if trimmed == "" {
+		return nil, ErrInvalidInput
+	}
+	mac, err := net.ParseMAC(trimmed)
+	if err != nil || len(mac) != 6 {
+		return nil, ErrInvalidInput
+	}
+
+	mod, err := s.queries.GetModuleByMACAddress(ctx, mac)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if !mod.IsActive {
+		return nil, ErrForbidden
+	}
+
+	// Generate high-entropy device secret
+	var randBytes [16]byte
+	_, _ = rand.Read(randBytes[:])
+	deviceToken := "dev_sec_" + hex.EncodeToString(randBytes[:])
+
+	updated, err := s.queries.SetModuleDeviceToken(ctx, db.SetModuleDeviceTokenParams{
+		ID:          mod.ID,
+		DeviceToken: pgtype.Text{String: deviceToken, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	waterAvail := true
+	if input.WaterAvailable != nil {
+		waterAvail = *input.WaterAvailable
+	}
+
+	// Record initial handshake ping
+	eventID := newRandomUUID()
+	_, _ = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+		ModuleID:       mod.ID,
+		SourceEventID:  eventID,
+		WaterAvailable: pgtype.Bool{Bool: waterAvail, Valid: true},
+	})
+
+	return &ClaimDeviceDTO{
+		ModuleID:               auth.FormatUUID(updated.ID),
+		DeviceToken:            deviceToken,
+		Status:                 "claimed",
+		InspectionIntervalDays: updated.InspectionIntervalDays,
+		Message:                "Device successfully claimed and paired",
+	}, nil
 }
 
 type IngestTelemetryInput struct {
@@ -2454,13 +2552,23 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	if postRes == "" {
 		postRes = "resolved"
 	}
-	attemptNum := int32(1)
-	if input.AttemptNumber != nil && *input.AttemptNumber >= 1 && *input.AttemptNumber <= 3 {
-		attemptNum = int32(*input.AttemptNumber)
+	var attemptNum pgtype.Int4
+	if input.PumpActuated {
+		num := int32(1)
+		if input.AttemptNumber != nil && *input.AttemptNumber >= 1 && *input.AttemptNumber <= 3 {
+			num = int32(*input.AttemptNumber)
+		}
+		attemptNum = pgtype.Int4{Int32: num, Valid: true}
 	}
 
-	startedAt := now.Add(-time.Duration(input.DurationSeconds) * time.Second)
-	endedAt := now
+	var startedAtPtr *time.Time
+	var endedAtPtr *time.Time
+	if status != "refused" && status != "scheduled" {
+		s := now.Add(-time.Duration(input.DurationSeconds) * time.Second)
+		e := now
+		startedAtPtr = &s
+		endedAtPtr = &e
+	}
 
 	cleanEventID := newRandomUUID()
 	var failReason pgtype.Text
@@ -2476,9 +2584,9 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		SourceEventID:          cleanEventID,
 		TargetXPositionCm:      floatPtrToNumeric(&input.TargetXPositionCm),
 		PumpActuated:           input.PumpActuated,
-		AttemptNumber:          pgtype.Int4{Int32: attemptNum, Valid: input.PumpActuated},
-		StartedAt:              &startedAt,
-		EndedAt:                &endedAt,
+		AttemptNumber:          attemptNum,
+		StartedAt:              startedAtPtr,
+		EndedAt:                endedAtPtr,
 		DurationSeconds:        floatPtrToNumeric(&input.DurationSeconds),
 		EstimatedWaterVolumeMl: floatPtrToNumeric(&input.EstimatedWaterVolumeMl),
 		Status:                 status,

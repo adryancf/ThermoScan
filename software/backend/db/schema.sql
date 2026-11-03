@@ -61,6 +61,7 @@ CREATE TABLE modules (
     installer_technician_id uuid NOT NULL,
     name text NOT NULL CHECK (btrim(name) <> ''),
     mac_address macaddr NOT NULL UNIQUE,
+    device_token text UNIQUE,
     is_active boolean NOT NULL DEFAULT true,
     monitoring_status text NOT NULL DEFAULT 'pending_configuration'
         CHECK (monitoring_status IN ('pending_configuration', 'active', 'maintenance', 'inactive')),

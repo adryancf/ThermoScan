@@ -17,34 +17,47 @@ A coleção oficial está localizada em:
 
 1. Abra o **Postman**.
 2. Clique no botão **Import** (canto superior esquerdo).
-3. Selecione o arquivo `ThermoScan_Hardware_ESP32_Simulation.postman_collection.json`.
+3. Selecione o arquivo `software/backend/postman/ThermoScan_Hardware_ESP32_Simulation.postman_collection.json`.
 4. A collection `ThermoScan - Simulação de Hardware & Firmware ESP32` aparecerá na sua barra lateral.
 
 ---
 
-## 3. Variáveis de Coleção
+## 3. Variáveis de Coleção & Autenticação de Dispositivo
 
-A coleção já vem configurada com variáveis automáticas. Você pode ajustá-las na aba **Variables** da coleção se necessário:
+O hardware ESP32 não utiliza JWT de usuário técnico. Ele utiliza um segredo de hardware de alta entropia (**`device_token`**, prefixo `dev_sec_...`) obtido no primeiro boot via endpoint público de pareamento (`POST /api/v1/devices/claim`).
 
 | Variável | Valor Padrão | Descrição |
 | :--- | :--- | :--- |
-| `baseUrl` | `http://localhost:8080` | Endereço do backend Go (use `http://10.0.2.2:8080` no emulador Android) |
-| `email` | `marco@soltech.io` | E-mail do técnico cadastrado no banco |
-| `password` | `Senha@123` | Senha de acesso |
-| `token` | *(Preenchido automaticamente)* | Token JWT retornado pelo login |
-| `moduleId` | *(Preenchido automaticamente)* | ID do módulo PV em teste |
+| `baseUrl` | `http://10.183.2.254:8080` | Endereço IP local da máquina onde o backend Go roda (ou `http://localhost:8080` se rodar localmente) |
+| `macAddress` | `aa:bb:cc:dd:ee:01` | Endereço MAC físico gravado na memória eFuse da ESP32 |
+| `deviceToken` | *(Preenchido automaticamente)* | Token de hardware secreto (`dev_sec_...`) capturado no Claim |
+| `moduleId` | *(Preenchido automaticamente)* | UUID do módulo retornado no Claim e utilizado em todas as rotas |
+| `email` | `marco@soltech.io` | E-mail do técnico (opcional, para testes de auditoria de usuário) |
+| `password` | `Senha@123` | Senha de acesso do técnico (opcional) |
+| `token` | *(Opcional)* | Token JWT retornado pelo login de técnico |
 
 ---
 
-## 4. Roteiro de Demonstração ao Vivo
+## 4. O que é o Ponto 4 do Handshake? (Hardware Interlocks & Radiometer)
 
-Recomendamos abrir o **Aplicativo Flutter** (no emulador ou dispositivo físico) e o **Postman** lado a lado.
+Na tela de **Hardware Handshake** do aplicativo Flutter, existem 4 itens de verificação:
+
+1. **Configuration Sync**: O módulo foi completamente configurado (dimensões, ângulo solar mínimo, coordenadas e intervalo de inspeção) e salvo no backend.
+2. **Wi-Fi & HTTPS REST Connection**: A ESP32 conectou-se ao Wi-Fi local e conseguiu efetuar handshake com a API Go (`is_online = true`).
+3. **Binary Water Level Sensor**: O sensor capacitivo de nível acusa água presente no reservatório (`water_available = true`), liberando os ciclos da minibomba.
+4. **Hardware Interlocks & Radiometer**: Valida a rotina física de **Homing Mecânico** do carrinho (microswitch Normalmente Fechado - NC - em $X=0$) e o **Autoteste do Barramento I2C** do sensor radiométrico infravermelho (MLX90640 no endereço `0x33`). Quando a ESP32 liga, ela recua o motor de passo até tocar a chave fim de curso e checa a resposta I2C da câmera; se tudo estiver íntegro, envia `limits_check_passed = true` e `thermal_sensor_active = true`.
+
+---
+
+## 5. Roteiro de Demonstração Passo a Passo
+
+Recomendamos abrir o **Aplicativo Flutter** e o **Postman** lado a lado na tela.
 
 ```
 ┌──────────────────────────────────────┐        ┌─────────────────────────────────────┐
 │           POSTMAN (ESP32)            │        │           APP FLUTTER               │
 │                                      │        │                                     │
-│  [POST] /api/v1/modules/:id/ping ────┼───────>│  Checklist Handshake fica VERDE     │
+│  [POST] /api/v1/devices/claim ───────┼───────>│  Checklist Handshake 2, 3 e 4 VERDES│
 │  [POST] /api/v1/modules/:id/telemetry│        │  Card Radiométrico exibe Heatmap    │
 │  [POST] /api/v1/modules/:id/cleanings│        │  Log de Lavagens registra Atuação   │
 └──────────────────────────────────────┘        └─────────────────────────────────────┘
@@ -52,22 +65,26 @@ Recomendamos abrir o **Aplicativo Flutter** (no emulador ou dispositivo físico)
 
 ---
 
-### Passo 1: Autenticação & Identificação do Módulo
-1. Na pasta `00 - Autenticação & Configuração Inicial`, execute:
-   - `01. Login do Técnico (Obter Token JWT)`: Faz login e armazena o token de acesso.
-   - `02. Listar Módulos (Identificar ID do Módulo)`: Obtém o primeiro módulo cadastrado e define o `moduleId`.
+### Passo 1: Pareamento Físico Inicial (ESP32 Claim)
+1. No Postman, abra a pasta `00 - Pareamento do Dispositivo (ESP32 Claim)` e execute:
+   - `01. [ESP32 Boot] Claim do Dispositivo por MAC Address`
+2. **O que acontece:**
+   - A requisição pública envia o `mac_address` cadastrado no módulo (`aa:bb:cc:dd:ee:01`) e os flags de diagnóstico (`water_available: true`, `limits_check_passed: true`, `thermal_sensor_active: true`).
+   - O backend Go registra o primeiro ping de presença, gera o `device_token` (`dev_sec_...`) e retorna o `module_id`.
+   - O script de teste do Postman armazena instantaneamente `deviceToken` e `moduleId` nas variáveis de coleção.
+   - **Nenhum login com usuário técnico é necessário!**
 
 ---
 
-### Passo 2: Simular o Boot & Handshake da ESP32
-1. No App, acerte o cadastro de um módulo no Wizard de Instalação ou entre na tela de **Hardware Handshake** (`/modules/:id/handshake`).
-2. Observe que a tela estará no estado de espera:
-   - Wi-Fi & HTTPS Handshake: *Aguardando conexão...*
-   - Sensor de Água: *Aguardando leitura...*
-3. No Postman, abra a pasta `01 - Handshake & Conectividade Inicial (ESP32 Boot)` e dispare:
-   - `01. Ping Inicial ESP32 (Conexão Wi-Fi OK + Água Presente)`
-4. **Resultado no App:**
-   - Em menos de 4 segundos (tempo do ciclo de polling), os itens de Wi-Fi e Sensor de Água mudam para **Conectado / ONLINE** e **Água OK** com chips verdes.
+### Passo 2: Visualizar Handshake 100% Concluído no App
+1. No App Flutter, acesse a tela do módulo ou a rota `/modules/:id/handshake`.
+2. Observe que todos os pontos do Checklist agora ficam **VERDES**:
+   - [x] **1. Configuration Sync** (Configuração confirmada pelo backend)
+   - [x] **2. Wi-Fi & HTTPS REST Connection** (ESP32 Online)
+   - [x] **3. Binary Water Level Sensor** (Água disponível no reservatório)
+   - [x] **4. Hardware Interlocks & Radiometer** (Fim de curso homed + MLX90640 ativo)
+3. Caso queira retestar o envio de ping a qualquer momento:
+   - Na pasta `01 - Handshake & Conectividade Inicial (ESP32 Boot)`, execute `01. Ping Inicial ESP32 (Diagnóstico Completo)`.
 
 ---
 
@@ -128,14 +145,15 @@ A ESP32 calcula o gradiente térmico **localmente** durante o passo de 2 cm. Ao 
 
 ---
 
-## 5. Endpoints REST da API Go Envolvidos
+## 6. Endpoints REST da API Go Envolvidos
 
-| Método | Endpoint | Papel no Sistema |
-| :--- | :--- | :--- |
-| `POST` | `/api/v1/modules/:id/device-ping` | Ping de presença e leitura do sensor capacitivo de água |
-| `GET` | `/api/v1/modules/:id/device-status` | Polling consumido pelo app para validar o checklist de hardware |
-| `POST` | `/api/v1/modules/:id/telemetry` | Ingestão de telemetria, medições elétricas e matriz 32x24 MLX90640 |
-| `POST` | `/api/v1/modules/:id/cleanings` | Ingestão de relatórios de ciclos do atuador mecânico e lavagem |
-| `GET` | `/api/v1/modules/:id/measurements` | Consulta do histórico de inspeções |
-| `GET` | `/api/v1/modules/:id/cleanings` | Consulta do log de operações de limpeza |
-| `GET` | `/api/v1/modules/:id/thermal-map` | Consulta do mapa térmico composto |
+| Método | Endpoint | Autenticação | Papel no Sistema |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/devices/claim` | Pública (MAC Address) | Pareamento inicial do hardware e emissão do `device_token` |
+| `POST` | `/api/v1/modules/:id/device-ping` | Bearer `dev_sec_...` | Ping periódico, sensor capacitivo de água e diagnóstico dos interlocks |
+| `GET` | `/api/v1/modules/:id/device-status` | Bearer `dev_sec_...` / JWT | Polling consumido pelo app e pelo hardware para validar checklist |
+| `POST` | `/api/v1/modules/:id/telemetry` | Bearer `dev_sec_...` | Ingestão de telemetria, medições elétricas e matriz 32x24 MLX90640 |
+| `POST` | `/api/v1/modules/:id/cleanings` | Bearer `dev_sec_...` | Ingestão de relatórios de ciclos do atuador mecânico e lavagem |
+| `GET` | `/api/v1/modules/:id/measurements` | Bearer `dev_sec_...` / JWT | Consulta do histórico de inspeções |
+| `GET` | `/api/v1/modules/:id/cleanings` | Bearer `dev_sec_...` / JWT | Consulta do log de operações de limpeza |
+| `GET` | `/api/v1/modules/:id/thermal-map` | Bearer `dev_sec_...` / JWT | Consulta do mapa térmico composto com algoritmo de interpolação |

@@ -18,13 +18,32 @@ class ModuleConfigurationScreen extends ConsumerStatefulWidget {
   const ModuleConfigurationScreen({
     super.key,
     required this.moduleId,
+    this.showAppBar = true,
+  });
+
+  final String moduleId;
+  final bool showAppBar;
+
+  @override
+  ConsumerState<ModuleConfigurationScreen> createState() =>
+      _ModuleConfigurationScreenState();
+}
+
+class ModuleConfigurationView extends StatelessWidget {
+  const ModuleConfigurationView({
+    super.key,
+    required this.moduleId,
   });
 
   final String moduleId;
 
   @override
-  ConsumerState<ModuleConfigurationScreen> createState() =>
-      _ModuleConfigurationScreenState();
+  Widget build(BuildContext context) {
+    return ModuleConfigurationScreen(
+      moduleId: moduleId,
+      showAppBar: false,
+    );
+  }
 }
 
 class _ModuleConfigurationScreenState
@@ -256,25 +275,17 @@ class _ModuleConfigurationScreenState
     final detailsAsync = ref.watch(moduleDetailsProvider(widget.moduleId));
     final logsAsync = ref.watch(moduleIntervalLogsProvider(widget.moduleId));
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: ThermoScanAppBar(
-        title: 'Configuration',
-        role: user?.role ?? 'technician',
-        showBack: true,
+    final body = detailsAsync.when(
+      loading: () => const Center(
+        child: CircularProgressIndicator(color: AppColors.primary),
       ),
-      body: SafeArea(
-        child: detailsAsync.when(
-          loading: () => const Center(
-            child: CircularProgressIndicator(color: AppColors.primary),
-          ),
-          error: (err, _) => Padding(
-            padding: const EdgeInsets.all(24),
-            child: Center(
-              child: Text(err.toString(), style: AppTypography.body),
-            ),
-          ),
-          data: (details) {
+      error: (err, _) => Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: Text(err.toString(), style: AppTypography.body),
+        ),
+      ),
+      data: (details) {
             final mod = details.module;
             final perms = mod.permissions;
             _populateFields(mod);
@@ -869,8 +880,20 @@ class _ModuleConfigurationScreenState
               ),
             );
           },
-        ),
+        );
+
+    if (!widget.showAppBar) {
+      return body;
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: ThermoScanAppBar(
+        title: 'Configuration',
+        role: user?.role ?? 'technician',
+        showBack: true,
       ),
+      body: SafeArea(child: body),
     );
   }
 }

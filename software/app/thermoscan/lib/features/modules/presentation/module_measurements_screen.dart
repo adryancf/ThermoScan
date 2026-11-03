@@ -13,13 +13,32 @@ class ModuleMeasurementsScreen extends ConsumerStatefulWidget {
   const ModuleMeasurementsScreen({
     super.key,
     required this.moduleId,
+    this.showAppBar = true,
+  });
+
+  final String moduleId;
+  final bool showAppBar;
+
+  @override
+  ConsumerState<ModuleMeasurementsScreen> createState() =>
+      _ModuleMeasurementsScreenState();
+}
+
+class ModuleMeasurementsView extends StatelessWidget {
+  const ModuleMeasurementsView({
+    super.key,
+    required this.moduleId,
   });
 
   final String moduleId;
 
   @override
-  ConsumerState<ModuleMeasurementsScreen> createState() =>
-      _ModuleMeasurementsScreenState();
+  Widget build(BuildContext context) {
+    return ModuleMeasurementsScreen(
+      moduleId: moduleId,
+      showAppBar: false,
+    );
+  }
 }
 
 class _ModuleMeasurementsScreenState
@@ -34,6 +53,119 @@ class _ModuleMeasurementsScreenState
         ref.watch(moduleMeasurementsProvider(widget.moduleId));
 
     final mod = detailsAsync.valueOrNull?.module;
+
+    final content = RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async {
+        ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+        await ref.read(
+          moduleMeasurementsProvider(widget.moduleId).future,
+        );
+      },
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Telemetry History',
+                        style: AppTypography.h2,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Historical radiometric acquisitions & electrical yield',
+                        style: AppTypography.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Filter Pills
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildFilterChip('all', 'All Measurements'),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('hotspots', 'Hotspots Only'),
+                  const SizedBox(width: 8),
+                  _buildFilterChip('normal', 'Normal'),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // Measurements list
+            measurementsAsync.when(
+              loading: () => const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: CircularProgressIndicator(
+                    color: AppColors.primary,
+                  ),
+                ),
+              ),
+              error: (err, _) => Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: Text(
+                  'Failed to load measurements: $err',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.error,
+                  ),
+                ),
+              ),
+              data: (measurements) {
+                final filtered = measurements.where((m) {
+                  if (_filter == 'hotspots') {
+                    return m.hotspotDetected;
+                  }
+                  if (_filter == 'normal') {
+                    return !m.hotspotDetected;
+                  }
+                  return true;
+                }).toList();
+
+                if (filtered.isEmpty) {
+                  return _buildEmptyState();
+                }
+
+                return ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, _) =>
+                      const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    return _buildMeasurementCard(filtered[index]);
+                  },
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (!widget.showAppBar) {
+      return content;
+    }
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -55,116 +187,7 @@ class _ModuleMeasurementsScreenState
               ),
 
             // Content body
-            Expanded(
-              child: RefreshIndicator(
-                color: AppColors.primary,
-                onRefresh: () async {
-                  ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
-                  await ref.read(
-                    moduleMeasurementsProvider(widget.moduleId).future,
-                  );
-                },
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Telemetry History',
-                                  style: AppTypography.h2,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Historical radiometric acquisitions & electrical yield',
-                                  style: AppTypography.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Filter Pills
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _buildFilterChip('all', 'All Measurements'),
-                            const SizedBox(width: 8),
-                            _buildFilterChip('hotspots', 'Hotspots Only'),
-                            const SizedBox(width: 8),
-                            _buildFilterChip('normal', 'Normal'),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-
-                      // Measurements list
-                      measurementsAsync.when(
-                        loading: () => const Center(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(vertical: 40),
-                            child: CircularProgressIndicator(
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                        error: (err, _) => Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: AppColors.surface,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Text(
-                            'Failed to load measurements: $err',
-                            style: AppTypography.bodySmall.copyWith(
-                              color: AppColors.error,
-                            ),
-                          ),
-                        ),
-                        data: (measurements) {
-                          final filtered = measurements.where((m) {
-                            if (_filter == 'hotspots') {
-                              return m.hotspotDetected;
-                            }
-                            if (_filter == 'normal') {
-                              return !m.hotspotDetected;
-                            }
-                            return true;
-                          }).toList();
-
-                          if (filtered.isEmpty) {
-                            return _buildEmptyState();
-                          }
-
-                          return ListView.separated(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: filtered.length,
-                            separatorBuilder: (_, _) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              return _buildMeasurementCard(filtered[index]);
-                            },
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
+            Expanded(child: content),
           ],
         ),
       ),

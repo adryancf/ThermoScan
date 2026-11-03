@@ -643,21 +643,22 @@ void main() {
     expect(find.text('DC Output Voltage'), findsOneWidget);
     expect(find.text('Active Power'), findsOneWidget);
 
-    // Verify Sub-navigation bar tabs
-    expect(find.text('Overview'), findsOneWidget);
-    expect(find.text('Measurements'), findsWidgets);
-    expect(find.text('Cleanings'), findsWidgets);
+    // Verify TabBar tabs
+    expect(find.text('Visão Geral'), findsOneWidget);
+    expect(find.text('Medições'), findsOneWidget);
+    expect(find.text('Limpezas'), findsOneWidget);
+    expect(find.text('Configuração'), findsOneWidget);
 
-    // Tap Measurements in sub-navigation bar (SCR-11)
-    await tester.tap(find.text('Measurements').first);
+    // Tap Medições in TabBar (SCR-11)
+    await tester.tap(find.text('Medições'));
     await tester.pumpAndSettle();
 
     expect(find.text('Telemetry History'), findsOneWidget);
     expect(find.text('Position X=12.4 cm • Baseline: 36.4°C'), findsOneWidget);
     expect(find.text('NORMAL'), findsOneWidget);
 
-    // Tap Cleanings in sub-navigation bar (SCR-12)
-    await tester.tap(find.text('Cleanings').first);
+    // Tap Limpezas in TabBar (SCR-12)
+    await tester.tap(find.text('Limpezas'));
     await tester.pumpAndSettle();
 
     expect(find.text('Actuator Wash Log'), findsOneWidget);
@@ -735,7 +736,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify return to Module Overview
-    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('Visão Geral'), findsOneWidget);
     expect(find.text('PV-001 Roof Array'), findsOneWidget);
   });
 }

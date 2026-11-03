@@ -59,6 +59,10 @@ class PvModule {
     required this.userRelationship,
     required this.permissions,
     this.operationalEmailEnabled,
+    this.configurationSync,
+    this.pingIntervalSeconds,
+    this.onlineWindowSeconds,
+    this.lastPingAt,
   });
 
   final String id;
@@ -90,6 +94,10 @@ class PvModule {
   final String userRelationship;
   final ModulePermissions permissions;
   final bool? operationalEmailEnabled;
+  final ConfigurationSyncInfo? configurationSync;
+  final int? pingIntervalSeconds;
+  final int? onlineWindowSeconds;
+  final String? lastPingAt;
 
   bool get isPendingConfiguration =>
       monitoringStatus == 'pending_configuration';
@@ -168,7 +176,59 @@ class PvModule {
               canManageAccess: false,
             ),
       operationalEmailEnabled: json['operational_email_enabled'] as bool?,
+      configurationSync: (json['configuration_sync'] ?? json['configurationSync']) is Map<String, dynamic>
+          ? ConfigurationSyncInfo.fromJson(
+              (json['configuration_sync'] ?? json['configurationSync']) as Map<String, dynamic>,
+            )
+          : null,
+      pingIntervalSeconds: (json['ping_interval_seconds'] ?? json['pingIntervalSeconds'] as num?)?.toInt(),
+      onlineWindowSeconds: (json['online_window_seconds'] ?? json['onlineWindowSeconds'] as num?)?.toInt(),
+      lastPingAt: (json['last_ping_at'] ?? json['lastPingAt']) as String?,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'company_id': companyId,
+      'installer_technician_id': installerTechnicianId,
+      'installer_name': installerName,
+      'installer_email': installerEmail,
+      'name': name,
+      'mac_address': macAddress,
+      'is_active': isActive,
+      'monitoring_status': monitoringStatus,
+      if (panelLengthCm != null) 'panel_length_cm': panelLengthCm,
+      if (panelWidthCm != null) 'panel_width_cm': panelWidthCm,
+      if (panelCount != null) 'panel_count': panelCount,
+      if (panelSpacingCm != null) 'panel_spacing_cm': panelSpacingCm,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (elevationM != null) 'elevation_m': elevationM,
+      if (azimuthDeg != null) 'azimuth_deg': azimuthDeg,
+      if (tiltDeg != null) 'tilt_deg': tiltDeg,
+      if (azimuthSource != null) 'azimuth_source': azimuthSource,
+      if (tiltSource != null) 'tilt_source': tiltSource,
+      if (minimumSolarAngleDeg != null) 'minimum_solar_angle_deg': minimumSolarAngleDeg,
+      'inspection_interval_days': inspectionIntervalDays,
+      if (reservoirNominalCapacityMl != null) 'reservoir_nominal_capacity_ml': reservoirNominalCapacityMl,
+      if (configuredAt != null) 'configured_at': configuredAt,
+      'created_at': createdAt,
+      'updated_at': updatedAt,
+      'user_relationship': userRelationship,
+      'permissions': {
+        'can_edit_geometry_and_location': permissions.canEditGeometryAndLocation,
+        'can_edit_solar_angle': permissions.canEditSolarAngle,
+        'can_edit_interval': permissions.canEditInterval,
+        'can_manage_access': permissions.canManageAccess,
+        'can_delete': permissions.canDelete,
+      },
+      if (operationalEmailEnabled != null) 'operational_email_enabled': operationalEmailEnabled,
+      if (configurationSync != null) 'configuration_sync': configurationSync!.toJson(),
+      if (pingIntervalSeconds != null) 'ping_interval_seconds': pingIntervalSeconds,
+      if (onlineWindowSeconds != null) 'online_window_seconds': onlineWindowSeconds,
+      if (lastPingAt != null) 'last_ping_at': lastPingAt,
+    };
   }
 }
 
@@ -290,6 +350,10 @@ class ModuleDetails {
     required this.companyManagers,
     required this.companyTechnicians,
     required this.companyClients,
+    this.deviceStatus,
+    this.configurationSync,
+    this.pingIntervalSeconds,
+    this.onlineWindowSeconds,
   });
 
   final PvModule module;
@@ -297,6 +361,15 @@ class ModuleDetails {
   final List<ModuleManagerItem> companyManagers;
   final List<ModuleTechnicianAccess> companyTechnicians;
   final List<ModuleClientAccess> companyClients;
+  final DeviceStatus? deviceStatus;
+  final ConfigurationSyncInfo? configurationSync;
+  final int? pingIntervalSeconds;
+  final int? onlineWindowSeconds;
+
+  ConfigurationSyncInfo? get effectiveConfigurationSync =>
+      configurationSync ??
+      deviceStatus?.effectiveConfigurationSync ??
+      module.configurationSync;
 
   factory ModuleDetails.fromJson(Map<String, dynamic> json) {
     final modJson = json['module'] as Map<String, dynamic>? ?? const {};
@@ -318,13 +391,87 @@ class ModuleDetails {
         .map(ModuleClientAccess.fromJson)
         .toList();
 
+    final devStatusRaw = json['device_status'] ?? json['deviceStatus'];
+    final devStatus = devStatusRaw is Map<String, dynamic>
+        ? DeviceStatus.fromJson(devStatusRaw)
+        : null;
+
+    final syncRaw = json['configuration_sync'] ??
+        json['configurationSync'] ??
+        modJson['configuration_sync'] ??
+        modJson['configurationSync'] ??
+        (devStatusRaw is Map<String, dynamic>
+            ? (devStatusRaw['configuration_sync'] ?? devStatusRaw['configurationSync'])
+            : null);
+    final configSync = syncRaw is Map<String, dynamic>
+        ? ConfigurationSyncInfo.fromJson(syncRaw)
+        : devStatus?.configurationSync;
+
+    final pingInterval = (json['ping_interval_seconds'] ??
+        json['pingIntervalSeconds'] ??
+        modJson['ping_interval_seconds'] ??
+        modJson['pingIntervalSeconds'] as num?)?.toInt() ??
+        devStatus?.pingIntervalSeconds;
+
+    final onlineWindow = (json['online_window_seconds'] ??
+        json['onlineWindowSeconds'] ??
+        modJson['online_window_seconds'] ??
+        modJson['onlineWindowSeconds'] as num?)?.toInt() ??
+        devStatus?.onlineWindowSeconds;
+
     return ModuleDetails(
       module: PvModule.fromJson(modJson),
       responsibleManagers: respMgrs,
       companyManagers: compMgrs,
       companyTechnicians: compTechs,
       companyClients: compClients,
+      deviceStatus: devStatus,
+      configurationSync: configSync,
+      pingIntervalSeconds: pingInterval,
+      onlineWindowSeconds: onlineWindow,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'module': module.toJson(),
+      'responsible_managers': responsibleManagers.map((m) => {
+        'id': m.id,
+        'name': m.name,
+        'email': m.email,
+        'is_active': m.isActive,
+        'is_default_manager': m.isDefaultManager,
+        if (m.assignedAt != null) 'assigned_at': m.assignedAt,
+      }).toList(),
+      'company_managers': companyManagers.map((m) => {
+        'id': m.id,
+        'name': m.name,
+        'email': m.email,
+        'is_active': m.isActive,
+        'is_default_manager': m.isDefaultManager,
+        if (m.assignedAt != null) 'assigned_at': m.assignedAt,
+      }).toList(),
+      'company_technicians': companyTechnicians.map((t) => {
+        'id': t.id,
+        'name': t.name,
+        'email': t.email,
+        'is_active': t.isActive,
+        'is_installer': t.isInstaller,
+        'can_view': t.canView,
+      }).toList(),
+      'company_clients': companyClients.map((c) => {
+        'id': c.id,
+        'name': c.name,
+        'email': c.email,
+        'is_active': c.isActive,
+        'is_assigned': c.isAssigned,
+        'operational_email_enabled': c.operationalEmailEnabled,
+      }).toList(),
+      if (deviceStatus != null) 'device_status': deviceStatus!.toJson(),
+      if (configurationSync != null) 'configuration_sync': configurationSync!.toJson(),
+      if (pingIntervalSeconds != null) 'ping_interval_seconds': pingIntervalSeconds,
+      if (onlineWindowSeconds != null) 'online_window_seconds': onlineWindowSeconds,
+    };
   }
 }
 
@@ -549,6 +696,81 @@ class ModuleThermalMap {
   }
 }
 
+class ConfigurationSyncInfo {
+  const ConfigurationSyncInfo({
+    required this.state,
+    required this.configVersion,
+    required this.configAppliedVersion,
+    this.configAppliedAt,
+    this.configApplyError,
+  });
+
+  /// Sync state: 'synced', 'pending', or 'failed'
+  final String state;
+  final int configVersion;
+  final int configAppliedVersion;
+  final DateTime? configAppliedAt;
+  final String? configApplyError;
+
+  bool get isSynced =>
+      state == 'synced' ||
+      (configVersion > 0 && configAppliedVersion == configVersion && !isFailed);
+  bool get isPending =>
+      state == 'pending' || (configAppliedVersion < configVersion && !isFailed);
+  bool get isFailed =>
+      state == 'failed' ||
+      (configApplyError != null && configApplyError!.isNotEmpty);
+
+  factory ConfigurationSyncInfo.fromJson(Map<String, dynamic> json) {
+    DateTime? parsedAppliedAt;
+    final rawDate = json['config_applied_at'] ?? json['configAppliedAt'];
+    if (rawDate is String && rawDate.isNotEmpty) {
+      parsedAppliedAt = DateTime.tryParse(rawDate);
+    } else if (rawDate is DateTime) {
+      parsedAppliedAt = rawDate;
+    }
+
+    final rawError =
+        (json['config_apply_error'] ?? json['configApplyError']) as String?;
+    final version =
+        (json['config_version'] ?? json['configVersion'] as num?)?.toInt() ?? 1;
+    final appliedVersion =
+        (json['config_applied_version'] ?? json['configAppliedVersion'] as num?)
+                ?.toInt() ??
+            0;
+
+    String rawState = (json['state'] as String? ?? '').toLowerCase().trim();
+    if (rawState.isEmpty) {
+      if (rawError != null && rawError.isNotEmpty) {
+        rawState = 'failed';
+      } else if (appliedVersion >= version && version > 0) {
+        rawState = 'synced';
+      } else {
+        rawState = 'pending';
+      }
+    }
+
+    return ConfigurationSyncInfo(
+      state: rawState,
+      configVersion: version,
+      configAppliedVersion: appliedVersion,
+      configAppliedAt: parsedAppliedAt,
+      configApplyError: rawError,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'state': state,
+      'config_version': configVersion,
+      'config_applied_version': configAppliedVersion,
+      if (configAppliedAt != null)
+        'config_applied_at': configAppliedAt!.toIso8601String(),
+      if (configApplyError != null) 'config_apply_error': configApplyError,
+    };
+  }
+}
+
 class DeviceStatus {
   const DeviceStatus({
     required this.moduleId,
@@ -556,29 +778,81 @@ class DeviceStatus {
     required this.monitoringStatus,
     required this.isConfigured,
     this.configuredAt,
-    required this.isOnline,
+    bool isOnline = false,
     this.lastSeenAt,
+    this.lastPingAt,
     this.waterAvailable,
     required this.waterStatus,
     required this.limitsCheckPassed,
     required this.thermalSensorActive,
     this.latestMeasurementAt,
-  });
+    this.configurationSync,
+    this.pingIntervalSeconds,
+    this.onlineWindowSeconds,
+  }) : _explicitIsOnline = isOnline;
 
   final String moduleId;
   final String macAddress;
   final String monitoringStatus;
   final bool isConfigured;
   final String? configuredAt;
-  final bool isOnline;
+  final bool _explicitIsOnline;
   final String? lastSeenAt;
+  final String? lastPingAt;
   final bool? waterAvailable;
   final String waterStatus;
   final bool limitsCheckPassed;
   final bool thermalSensorActive;
   final String? latestMeasurementAt;
+  final ConfigurationSyncInfo? configurationSync;
+  final int? pingIntervalSeconds;
+  final int? onlineWindowSeconds;
+
+  bool get isOnline {
+    if (lastPingAt != null &&
+        onlineWindowSeconds != null &&
+        onlineWindowSeconds! > 0) {
+      final pingDate = DateTime.tryParse(lastPingAt!);
+      if (pingDate != null) {
+        final diff =
+            DateTime.now().toUtc().difference(pingDate.toUtc()).inSeconds;
+        return diff <= onlineWindowSeconds!;
+      }
+    }
+    return _explicitIsOnline;
+  }
+
+  ConfigurationSyncInfo get effectiveConfigurationSync {
+    if (configurationSync != null) return configurationSync!;
+    if (isConfigured) {
+      DateTime? appliedAt;
+      if (configuredAt != null && configuredAt!.isNotEmpty) {
+        appliedAt = DateTime.tryParse(configuredAt!);
+      }
+      return ConfigurationSyncInfo(
+        state: 'synced',
+        configVersion: 1,
+        configAppliedVersion: 1,
+        configAppliedAt: appliedAt,
+      );
+    }
+    return const ConfigurationSyncInfo(
+      state: 'pending',
+      configVersion: 1,
+      configAppliedVersion: 0,
+    );
+  }
 
   factory DeviceStatus.fromJson(Map<String, dynamic> json) {
+    final syncRaw = json['configuration_sync'] ?? json['configurationSync'];
+    ConfigurationSyncInfo? syncInfo;
+    if (syncRaw is Map<String, dynamic>) {
+      syncInfo = ConfigurationSyncInfo.fromJson(syncRaw);
+    } else if (json.containsKey('config_version') ||
+        json.containsKey('config_applied_version')) {
+      syncInfo = ConfigurationSyncInfo.fromJson(json);
+    }
+
     return DeviceStatus(
       moduleId: json['module_id'] as String? ?? '',
       macAddress: json['mac_address'] as String? ?? '',
@@ -588,11 +862,44 @@ class DeviceStatus {
       configuredAt: json['configured_at'] as String?,
       isOnline: json['is_online'] as bool? ?? false,
       lastSeenAt: json['last_seen_at'] as String?,
+      lastPingAt: (json['last_ping_at'] ?? json['lastPingAt']) as String?,
       waterAvailable: json['water_available'] as bool?,
       waterStatus: json['water_status'] as String? ?? 'unknown',
       limitsCheckPassed: json['limits_check_passed'] as bool? ?? false,
       thermalSensorActive: json['thermal_sensor_active'] as bool? ?? false,
       latestMeasurementAt: json['latest_measurement_at'] as String?,
+      configurationSync: syncInfo,
+      pingIntervalSeconds: (json['ping_interval_seconds'] ??
+              json['pingIntervalSeconds'] as num?)
+          ?.toInt(),
+      onlineWindowSeconds: (json['online_window_seconds'] ??
+              json['onlineWindowSeconds'] as num?)
+          ?.toInt(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'module_id': moduleId,
+      'mac_address': macAddress,
+      'monitoring_status': monitoringStatus,
+      'is_configured': isConfigured,
+      if (configuredAt != null) 'configured_at': configuredAt,
+      'is_online': isOnline,
+      if (lastSeenAt != null) 'last_seen_at': lastSeenAt,
+      if (lastPingAt != null) 'last_ping_at': lastPingAt,
+      if (waterAvailable != null) 'water_available': waterAvailable,
+      'water_status': waterStatus,
+      'limits_check_passed': limitsCheckPassed,
+      'thermal_sensor_active': thermalSensorActive,
+      if (latestMeasurementAt != null)
+        'latest_measurement_at': latestMeasurementAt,
+      if (configurationSync != null)
+        'configuration_sync': configurationSync!.toJson(),
+      if (pingIntervalSeconds != null)
+        'ping_interval_seconds': pingIntervalSeconds,
+      if (onlineWindowSeconds != null)
+        'online_window_seconds': onlineWindowSeconds,
+    };
   }
 }

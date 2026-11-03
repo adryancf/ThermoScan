@@ -7,6 +7,7 @@ import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
+import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 
 /// Post-installation Hardware Handshake & Checklist Screen (Abordagem A)
@@ -178,17 +179,31 @@ class _ModuleHardwareHandshakeScreenState
                   ),
                 ),
                 data: (status) {
+                  final sync = status.effectiveConfigurationSync;
+                  final subAPassed = status.isConfigured;
+                  final subBPassed = status.isConfigured &&
+                      (sync.configAppliedVersion == sync.configVersion) &&
+                      !sync.isFailed;
+                  final subBWarning = status.isConfigured && !subBPassed;
+                  final step1Passed = subAPassed && subBPassed;
+                  final step1Warning = subAPassed && !subBPassed;
+
                   return Column(
                     children: [
-                      // Item 1: Configuration Sync
-                      _buildChecklistCard(
+                      // Item 1: Configuration Sync (Two-Phase Verification)
+                      _buildTwoPhaseConfigCard(
                         title: '1. Configuration Sync',
-                        description: status.isConfigured
-                            ? 'Geometry, solar angle and scan intervals confirmed by backend.'
-                            : 'Pending complete configuration.',
-                        isPassed: status.isConfigured,
-                        isWarning: false,
-                        icon: Icons.tune_rounded,
+                        description: step1Passed
+                            ? 'Geometria confirmada no servidor e sincronizada na ESP32.'
+                            : (subAPassed
+                                ? 'Configuração salva no servidor. Aguardando confirmação da ESP32.'
+                                : 'Pendente de configuração inicial de geometria.'),
+                        isPassed: step1Passed,
+                        isWarning: step1Warning,
+                        subAPassed: subAPassed,
+                        subBPassed: subBPassed,
+                        subBWarning: subBWarning,
+                        syncInfo: sync,
                       ),
                       const SizedBox(height: 10),
 
@@ -353,6 +368,215 @@ class _ModuleHardwareHandshakeScreenState
           ),
           const SizedBox(width: 8),
           statusWidget,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTwoPhaseConfigCard({
+    required String title,
+    required String description,
+    required bool isPassed,
+    required bool isWarning,
+    required bool subAPassed,
+    required bool subBPassed,
+    required bool subBWarning,
+    required ConfigurationSyncInfo syncInfo,
+  }) {
+    Color iconColor = AppColors.textSecondary;
+    Color borderColor = AppColors.border;
+    Widget statusWidget = const Icon(
+      Icons.radio_button_unchecked_rounded,
+      color: AppColors.textSecondary,
+      size: 22,
+    );
+
+    if (isPassed) {
+      iconColor = AppColors.success;
+      borderColor = AppColors.successBorder;
+      statusWidget = const Icon(
+        Icons.check_circle_rounded,
+        color: AppColors.success,
+        size: 22,
+      );
+    } else if (isWarning) {
+      iconColor = AppColors.warning;
+      borderColor = AppColors.warningBorder;
+      statusWidget = const Icon(
+        Icons.warning_amber_rounded,
+        color: AppColors.warning,
+        size: 22,
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: isPassed
+                      ? AppColors.successBackground
+                      : (isWarning
+                          ? AppColors.warningBackground
+                          : AppColors.background),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.tune_rounded, color: iconColor, size: 20),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: AppTypography.bodySmall.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      description,
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textSecondary,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              statusWidget,
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              children: [
+                // Sub-item A: Salvo no Servidor
+                Row(
+                  children: [
+                    Icon(
+                      subAPassed
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      color: subAPassed
+                          ? AppColors.success
+                          : AppColors.textSecondary,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Sub-item A: Salvo no Servidor',
+                        style: AppTypography.bodySmall.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: subAPassed
+                              ? AppColors.textPrimary
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      subAPassed ? 'Configurado' : 'Pendente',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: subAPassed
+                            ? AppColors.success
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Divider(height: 1),
+                ),
+                // Sub-item B: Confirmado na ESP32
+                Row(
+                  children: [
+                    Icon(
+                      subBPassed
+                          ? Icons.check_circle_rounded
+                          : (subBWarning
+                              ? Icons.warning_amber_rounded
+                              : Icons.radio_button_unchecked_rounded),
+                      color: subBPassed
+                          ? AppColors.success
+                          : (subBWarning
+                              ? AppColors.warning
+                              : AppColors.textSecondary),
+                      size: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Sub-item B: Confirmado na ESP32',
+                            style: AppTypography.bodySmall.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: subBPassed
+                                  ? AppColors.textPrimary
+                                  : (subBWarning
+                                      ? AppColors.warning
+                                      : AppColors.textSecondary),
+                            ),
+                          ),
+                          if (subBWarning) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              syncInfo.isFailed
+                                  ? 'Falha: ${syncInfo.configApplyError ?? "Erro ao aplicar"}'
+                                  : 'Aguardando sincronização (v${syncInfo.configAppliedVersion} no device, v${syncInfo.configVersion} no server)',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10.5,
+                                color: AppColors.warning,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    Text(
+                      subBPassed
+                          ? 'v${syncInfo.configAppliedVersion} OK'
+                          : (syncInfo.isFailed ? 'Erro' : 'Pendente'),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: subBPassed
+                            ? AppColors.success
+                            : (subBWarning
+                                ? AppColors.warning
+                                : AppColors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

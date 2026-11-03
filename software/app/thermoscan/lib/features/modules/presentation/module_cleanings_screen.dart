@@ -13,13 +13,32 @@ class ModuleCleaningsScreen extends ConsumerStatefulWidget {
   const ModuleCleaningsScreen({
     super.key,
     required this.moduleId,
+    this.showAppBar = true,
+  });
+
+  final String moduleId;
+  final bool showAppBar;
+
+  @override
+  ConsumerState<ModuleCleaningsScreen> createState() =>
+      _ModuleCleaningsScreenState();
+}
+
+class ModuleCleaningsView extends StatelessWidget {
+  const ModuleCleaningsView({
+    super.key,
+    required this.moduleId,
   });
 
   final String moduleId;
 
   @override
-  ConsumerState<ModuleCleaningsScreen> createState() =>
-      _ModuleCleaningsScreenState();
+  Widget build(BuildContext context) {
+    return ModuleCleaningsScreen(
+      moduleId: moduleId,
+      showAppBar: false,
+    );
+  }
 }
 
 class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
@@ -31,29 +50,8 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
 
     final mod = detailsAsync.valueOrNull?.module;
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: ThermoScanAppBar(
-        title: mod != null ? '${mod.name} Cleanings' : 'Actuator Wash Log',
-        role: user?.role,
-        showBack: true,
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            // Sub-navigation bar
-            if (mod != null)
-              ModuleSubNavBar(
-                moduleId: widget.moduleId,
-                currentTab: 'cleanings',
-                canManageAccess: mod.permissions.canManageAccess,
-                isPendingConfig: mod.isPendingConfiguration,
-              ),
-
-            // Content body
-            Expanded(
-              child: RefreshIndicator(
-                color: AppColors.primary,
+    final content = RefreshIndicator(
+      color: AppColors.primary,
                 onRefresh: () async {
                   ref.invalidate(moduleCleaningsProvider(widget.moduleId));
                   await ref.read(
@@ -179,7 +177,31 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                     ],
                   ),
                 ),
+              );
+
+    if (!widget.showAppBar) {
+      return content;
+    }
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: ThermoScanAppBar(
+        title: mod != null ? '${mod.name} Cleanings' : 'Actuator Wash Log',
+        role: user?.role,
+        showBack: true,
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (mod != null)
+              ModuleSubNavBar(
+                moduleId: widget.moduleId,
+                currentTab: 'cleanings',
+                canManageAccess: mod.permissions.canManageAccess,
+                isPendingConfig: mod.isPendingConfiguration,
               ),
+            Expanded(
+              child: content,
             ),
           ],
         ),

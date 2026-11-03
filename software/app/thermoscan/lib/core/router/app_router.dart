@@ -13,6 +13,7 @@ import 'package:thermoscan/features/companies/presentation/create_company_screen
 import 'package:thermoscan/features/modules/presentation/module_access_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_cleanings_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_configuration_screen.dart';
+import 'package:thermoscan/features/modules/presentation/module_details_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_hardware_handshake_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_installation_wizard_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
@@ -142,7 +143,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/modules/:moduleId/configuration',
         builder: (context, state) {
           final moduleId = state.pathParameters['moduleId'] ?? '';
-          return ModuleConfigurationScreen(moduleId: moduleId);
+          return ModuleDetailsScreen(moduleId: moduleId, initialTabIndex: 3);
         },
       ),
       GoRoute(
@@ -181,21 +182,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/modules/:moduleId',
             builder: (context, state) {
               final moduleId = state.pathParameters['moduleId'] ?? '';
-              return ModuleOverviewScreen(moduleId: moduleId);
+              return ModuleDetailsScreen(moduleId: moduleId, initialTabIndex: 0);
             },
           ),
           GoRoute(
             path: '/modules/:moduleId/measurements',
             builder: (context, state) {
               final moduleId = state.pathParameters['moduleId'] ?? '';
-              return ModuleMeasurementsScreen(moduleId: moduleId);
+              return ModuleDetailsScreen(moduleId: moduleId, initialTabIndex: 1);
             },
           ),
           GoRoute(
             path: '/modules/:moduleId/cleanings',
             builder: (context, state) {
               final moduleId = state.pathParameters['moduleId'] ?? '';
-              return ModuleCleaningsScreen(moduleId: moduleId);
+              return ModuleDetailsScreen(moduleId: moduleId, initialTabIndex: 2);
             },
           ),
           GoRoute(

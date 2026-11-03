@@ -1,3 +1,5 @@
 *.env
 docs/AGENT_CONTEXT.md
 software/backend/db/SCHEMA_NOTES.md
+dist/
+*.apk

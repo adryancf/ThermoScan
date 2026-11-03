@@ -13,6 +13,7 @@ import 'package:thermoscan/features/companies/presentation/create_company_screen
 import 'package:thermoscan/features/modules/presentation/module_access_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_cleanings_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_configuration_screen.dart';
+import 'package:thermoscan/features/modules/presentation/module_hardware_handshake_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_installation_wizard_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_overview_screen.dart';
@@ -149,6 +150,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final moduleId = state.pathParameters['moduleId'] ?? '';
           return ModuleAccessScreen(moduleId: moduleId);
+        },
+      ),
+      GoRoute(
+        path: '/modules/:moduleId/handshake',
+        builder: (context, state) {
+          final moduleId = state.pathParameters['moduleId'] ?? '';
+          return ModuleHardwareHandshakeScreen(moduleId: moduleId);
         },
       ),
 

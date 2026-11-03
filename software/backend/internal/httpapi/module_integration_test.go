@@ -626,4 +626,49 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 getting thermal map, got %d: %s", rec.Code, rec.Body.String())
 	}
+
+	// Test device status handshake
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/device-status", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting device status, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var devStatus struct {
+		DeviceStatus struct {
+			ModuleID         string `json:"module_id"`
+			MACAddress       string `json:"mac_address"`
+			MonitoringStatus string `json:"monitoring_status"`
+			IsConfigured     bool   `json:"is_configured"`
+			IsOnline         bool   `json:"is_online"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &devStatus); err != nil {
+		t.Fatalf("failed to decode device status: %v", err)
+	}
+	if devStatus.DeviceStatus.MACAddress != "aa:bb:cc:dd:ee:01" {
+		t.Fatalf("expected MAC aa:bb:cc:dd:ee:01, got %q", devStatus.DeviceStatus.MACAddress)
+	}
+
+	// Test device ping handshake simulation
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/device-ping", tech1Auth.AccessToken, map[string]any{
+		"water_available": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 recording device ping, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var devPingResp struct {
+		DeviceStatus struct {
+			IsOnline       bool   `json:"is_online"`
+			WaterStatus    string `json:"water_status"`
+			WaterAvailable *bool  `json:"water_available"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &devPingResp); err != nil {
+		t.Fatalf("failed to decode device ping response: %v", err)
+	}
+	if !devPingResp.DeviceStatus.IsOnline {
+		t.Fatalf("expected device to be online after ping")
+	}
+	if devPingResp.DeviceStatus.WaterStatus != "available" {
+		t.Fatalf("expected waterStatus 'available', got %q", devPingResp.DeviceStatus.WaterStatus)
+	}
 }

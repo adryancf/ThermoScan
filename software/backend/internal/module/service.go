@@ -2,6 +2,7 @@ package module
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"math"
 	"net"
@@ -1776,4 +1777,145 @@ func (s *Service) GetLatestThermalMap(ctx context.Context, principal auth.Princi
 		AlgorithmVersion: tm.AlgorithmVersion,
 		GeneratedAt:      tm.GeneratedAt.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+type DeviceStatusDTO struct {
+	ModuleID            string  `json:"module_id"`
+	MACAddress          string  `json:"mac_address"`
+	MonitoringStatus    string  `json:"monitoring_status"`
+	IsConfigured        bool    `json:"is_configured"`
+	ConfiguredAt        *string `json:"configured_at,omitempty"`
+	IsOnline            bool    `json:"is_online"`
+	LastSeenAt          *string `json:"last_seen_at,omitempty"`
+	WaterAvailable      *bool   `json:"water_available,omitempty"`
+	WaterStatus         string  `json:"water_status"`
+	LimitsCheckPassed   bool    `json:"limits_check_passed"`
+	ThermalSensorActive bool    `json:"thermal_sensor_active"`
+	LatestMeasurementAt *string `json:"latest_measurement_at,omitempty"`
+}
+
+func newRandomUUID() pgtype.UUID {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return pgtype.UUID{Bytes: b, Valid: true}
+}
+
+func pgBoolToBoolPtr(b pgtype.Bool) *bool {
+	if !b.Valid {
+		return nil
+	}
+	val := b.Bool
+	return &val
+}
+
+func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) (*DeviceStatusDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	var configuredAtStr *string
+	if row.ConfiguredAt != nil {
+		c := row.ConfiguredAt.UTC().Format(time.RFC3339)
+		configuredAtStr = &c
+	}
+	isConfigured := row.ConfiguredAt != nil && row.MonitoringStatus != StatusPendingConfiguration
+
+	dto := &DeviceStatusDTO{
+		ModuleID:         auth.FormatUUID(row.ID),
+		MACAddress:       row.MacAddress,
+		MonitoringStatus: row.MonitoringStatus,
+		IsConfigured:     isConfigured,
+		ConfiguredAt:     configuredAtStr,
+		WaterStatus:      "unknown",
+	}
+
+	resReading, err := s.queries.GetLatestReservoirReadingByModule(ctx, moduleID)
+	if err == nil {
+		lastSeen := resReading.MeasuredAt.UTC().Format(time.RFC3339)
+		dto.LastSeenAt = &lastSeen
+		dto.WaterAvailable = pgBoolToBoolPtr(resReading.WaterAvailable)
+		if resReading.WaterAvailable.Valid && resReading.WaterAvailable.Bool {
+			dto.WaterStatus = "available"
+		} else if resReading.WaterAvailable.Valid && !resReading.WaterAvailable.Bool {
+			dto.WaterStatus = "insufficient"
+		}
+		if time.Since(resReading.MeasuredAt) < time.Hour {
+			dto.IsOnline = true
+			dto.LimitsCheckPassed = true
+			dto.ThermalSensorActive = true
+		}
+	}
+
+	measurements, err := s.queries.ListMeasurementsByModule(ctx, db.ListMeasurementsByModuleParams{
+		ModuleID: moduleID,
+		Limit:    1,
+		Offset:   0,
+	})
+	if err == nil && len(measurements) > 0 {
+		m := measurements[0]
+		mTime := m.MeasuredAt.UTC().Format(time.RFC3339)
+		dto.LatestMeasurementAt = &mTime
+		if dto.LastSeenAt == nil || m.MeasuredAt.After(resReading.MeasuredAt) {
+			dto.LastSeenAt = &mTime
+			if time.Since(m.MeasuredAt) < time.Hour {
+				dto.IsOnline = true
+				dto.LimitsCheckPassed = true
+				dto.ThermalSensorActive = true
+			}
+		}
+	}
+
+	return dto, nil
+}
+
+func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, waterAvailable bool) (*DeviceStatusDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	eventID := newRandomUUID()
+	_, err = s.queries.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
+		ModuleID:       moduleID,
+		SourceEventID:  eventID,
+		WaterAvailable: pgtype.Bool{Bool: waterAvailable, Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetDeviceStatus(ctx, principal, moduleID)
 }

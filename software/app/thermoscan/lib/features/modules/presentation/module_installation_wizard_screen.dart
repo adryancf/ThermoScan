@@ -586,13 +586,13 @@ class _ModuleInstallationWizardScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Module configuration saved. The embedded device remains offline until it connects and syncs.',
+            'Module configuration saved. Proceeding to hardware handshake verification.',
           ),
           backgroundColor: AppColors.success,
-          duration: Duration(seconds: 4),
+          duration: Duration(seconds: 3),
         ),
       );
-      context.pushReplacement('/modules/$targetModuleId');
+      context.pushReplacement('/modules/$targetModuleId/handshake');
     } catch (err) {
       if (!mounted) return;
       setState(() => _errorMsg = err.toString());

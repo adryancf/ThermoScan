@@ -43,6 +43,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{moduleID}/measurements", h.handleListMeasurements)
 		r.Get("/{moduleID}/cleanings", h.handleListCleanings)
 		r.Get("/{moduleID}/thermal-map", h.handleGetLatestThermalMap)
+		r.Get("/{moduleID}/device-status", h.handleGetDeviceStatus)
+		r.Post("/{moduleID}/device-ping", h.handleRecordDevicePing)
 		r.Put("/{moduleID}/managers", h.handleSetModuleManagers)
 		r.Put("/{moduleID}/technicians/{technicianID}", h.handleSetTechnicianAccess)
 		r.Put("/{moduleID}/clients", h.handleSetModuleClients)
@@ -718,5 +720,77 @@ func (h *Handler) handleGetLatestThermalMap(w http.ResponseWriter, r *http.Reque
 
 	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
 		"thermal_map": tm,
+	})
+}
+
+func (h *Handler) handleGetDeviceStatus(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	status, err := h.service.GetDeviceStatus(r.Context(), principal, moduleID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"device_status": status,
+	})
+}
+
+func (h *Handler) handleRecordDevicePing(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	var req struct {
+		WaterAvailable *bool `json:"water_available"`
+	}
+	_ = httpjson.DecodeJSON(r, &req)
+
+	waterAvail := true
+	if req.WaterAvailable != nil {
+		waterAvail = *req.WaterAvailable
+	}
+
+	status, err := h.service.RecordDevicePing(r.Context(), principal, moduleID, waterAvail)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"device_status": status,
 	})
 }

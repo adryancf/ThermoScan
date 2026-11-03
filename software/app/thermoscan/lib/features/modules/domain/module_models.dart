@@ -507,3 +507,51 @@ class ModuleThermalMap {
     );
   }
 }
+
+class DeviceStatus {
+  const DeviceStatus({
+    required this.moduleId,
+    required this.macAddress,
+    required this.monitoringStatus,
+    required this.isConfigured,
+    this.configuredAt,
+    required this.isOnline,
+    this.lastSeenAt,
+    this.waterAvailable,
+    required this.waterStatus,
+    required this.limitsCheckPassed,
+    required this.thermalSensorActive,
+    this.latestMeasurementAt,
+  });
+
+  final String moduleId;
+  final String macAddress;
+  final String monitoringStatus;
+  final bool isConfigured;
+  final String? configuredAt;
+  final bool isOnline;
+  final String? lastSeenAt;
+  final bool? waterAvailable;
+  final String waterStatus;
+  final bool limitsCheckPassed;
+  final bool thermalSensorActive;
+  final String? latestMeasurementAt;
+
+  factory DeviceStatus.fromJson(Map<String, dynamic> json) {
+    return DeviceStatus(
+      moduleId: json['module_id'] as String? ?? '',
+      macAddress: json['mac_address'] as String? ?? '',
+      monitoringStatus:
+          json['monitoring_status'] as String? ?? 'pending_configuration',
+      isConfigured: json['is_configured'] as bool? ?? false,
+      configuredAt: json['configured_at'] as String?,
+      isOnline: json['is_online'] as bool? ?? false,
+      lastSeenAt: json['last_seen_at'] as String?,
+      waterAvailable: json['water_available'] as bool?,
+      waterStatus: json['water_status'] as String? ?? 'unknown',
+      limitsCheckPassed: json['limits_check_passed'] as bool? ?? false,
+      thermalSensorActive: json['thermal_sensor_active'] as bool? ?? false,
+      latestMeasurementAt: json['latest_measurement_at'] as String?,
+    );
+  }
+}

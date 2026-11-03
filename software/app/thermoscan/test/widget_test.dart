@@ -186,6 +186,39 @@ class _FakeModuleRepository extends ModuleRepository {
       ),
     ];
   }
+
+  @override
+  Future<DeviceStatus> getDeviceStatus({required String moduleId}) async {
+    return const DeviceStatus(
+      moduleId: 'mod-1',
+      macAddress: 'AA:BB:CC:DD:EE:01',
+      monitoringStatus: 'active',
+      isConfigured: true,
+      isOnline: true,
+      waterAvailable: true,
+      waterStatus: 'available',
+      limitsCheckPassed: true,
+      thermalSensorActive: true,
+    );
+  }
+
+  @override
+  Future<DeviceStatus> recordDevicePing({
+    required String moduleId,
+    bool waterAvailable = true,
+  }) async {
+    return const DeviceStatus(
+      moduleId: 'mod-1',
+      macAddress: 'AA:BB:CC:DD:EE:01',
+      monitoringStatus: 'active',
+      isConfigured: true,
+      isOnline: true,
+      waterAvailable: true,
+      waterStatus: 'available',
+      limitsCheckPassed: true,
+      thermalSensorActive: true,
+    );
+  }
 }
 
 void main() {
@@ -593,5 +626,94 @@ void main() {
     expect(find.text('Actuator Wash Log'), findsOneWidget);
     expect(find.text('Wash Attempt #1 • Localized Traverse'), findsOneWidget);
     expect(find.text('VERIFIED POST-CLEAN'), findsOneWidget);
+  });
+
+  testWidgets(
+      'ESP32 Hardware Handshake checklist (Abordagem A) displays verification steps and handles ping simulation',
+      (WidgetTester tester) async {
+    final tokenStorage = InMemoryTokenStorage();
+    await tokenStorage.saveTokens(
+      accessToken: 'fake-access',
+      refreshToken: 'fake-refresh',
+    );
+
+    const techUser = AuthUser(
+      id: 'tech-1',
+      companyId: 'comp-1',
+      name: 'Marco Silva',
+      email: 'marco@soltech.io',
+      role: 'technician',
+      isActive: true,
+      mustChangePassword: false,
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          tokenStorageProvider.overrideWithValue(tokenStorage),
+          authRepositoryProvider.overrideWithValue(
+            _FakeAuthRepository(initialUser: techUser),
+          ),
+          userRepositoryProvider.overrideWithValue(_FakeUserRepository()),
+          moduleRepositoryProvider.overrideWithValue(_FakeModuleRepository()),
+        ],
+        child: const ThermoScanApp(),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Navigate to module overview
+    await tester.tap(find.text('PV-001 Roof Array'));
+    await tester.pumpAndSettle();
+
+    // Scroll into view and tap "Verify Hardware Handshake →"
+    final handshakeFinder = find.text('Verify Hardware Handshake →');
+    expect(handshakeFinder, findsOneWidget);
+    await tester.ensureVisible(handshakeFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(handshakeFinder);
+    await tester.pumpAndSettle();
+
+    // Verify Hardware Handshake Screen is open
+    expect(find.text('Hardware Handshake'), findsOneWidget);
+    expect(find.text('ESP32 Hardware Handshake'), findsOneWidget);
+    expect(
+      find.text('Verifying live Wi-Fi connectivity, safety interlocks and cloud sync'),
+      findsOneWidget,
+    );
+
+    // Verify all 4 checklist steps are displayed
+    expect(find.text('1. Configuration Sync'), findsOneWidget);
+    expect(find.text('2. Wi-Fi & HTTPS REST Connection'), findsOneWidget);
+    expect(find.text('3. Binary Water Level Sensor'), findsOneWidget);
+    expect(find.text('4. Hardware Interlocks & Radiometer'), findsOneWidget);
+
+    // Verify Device Connection Status section and Simulate ESP32 Handshake button
+    final simulateBtnFinder = find.text('Simulate ESP32 Handshake (Test)');
+    expect(simulateBtnFinder, findsOneWidget);
+    await tester.ensureVisible(simulateBtnFinder);
+    await tester.pumpAndSettle();
+
+    // Tap Simulate ESP32 Ping button
+    await tester.tap(simulateBtnFinder);
+    await tester.pumpAndSettle();
+
+    // Verify feedback message
+    expect(
+      find.text('ESP32 handshake ping received! All systems operational.'),
+      findsOneWidget,
+    );
+
+    // Tap View Module Overview escape button
+    final overviewBtnFinder = find.text('View Module Overview');
+    await tester.ensureVisible(overviewBtnFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(overviewBtnFinder);
+    await tester.pumpAndSettle();
+
+    // Verify return to Module Overview
+    expect(find.text('Overview'), findsOneWidget);
+    expect(find.text('PV-001 Roof Array'), findsOneWidget);
   });
 }

@@ -12,6 +12,49 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getLatestReservoirReadingByModule = `-- name: GetLatestReservoirReadingByModule :one
+SELECT
+    r.id,
+    r.module_id,
+    r.measured_at,
+    r.reading_status,
+    r.water_available,
+    r.context,
+    r.error_reason,
+    r.received_at
+FROM reservoir_readings r
+WHERE r.module_id = $1
+ORDER BY r.measured_at DESC
+LIMIT 1
+`
+
+type GetLatestReservoirReadingByModuleRow struct {
+	ID             pgtype.UUID
+	ModuleID       pgtype.UUID
+	MeasuredAt     time.Time
+	ReadingStatus  string
+	WaterAvailable pgtype.Bool
+	Context        string
+	ErrorReason    pgtype.Text
+	ReceivedAt     time.Time
+}
+
+func (q *Queries) GetLatestReservoirReadingByModule(ctx context.Context, moduleID pgtype.UUID) (GetLatestReservoirReadingByModuleRow, error) {
+	row := q.db.QueryRow(ctx, getLatestReservoirReadingByModule, moduleID)
+	var i GetLatestReservoirReadingByModuleRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.MeasuredAt,
+		&i.ReadingStatus,
+		&i.WaterAvailable,
+		&i.Context,
+		&i.ErrorReason,
+		&i.ReceivedAt,
+	)
+	return i, err
+}
+
 const getLatestThermalMapByModule = `-- name: GetLatestThermalMapByModule :one
 SELECT
     tm.id,
@@ -210,4 +253,54 @@ func (q *Queries) ListMeasurementsByModule(ctx context.Context, arg ListMeasurem
 		return nil, err
 	}
 	return items, nil
+}
+
+const recordDeviceHandshakePing = `-- name: RecordDeviceHandshakePing :one
+INSERT INTO reservoir_readings (
+    module_id,
+    source_event_id,
+    measured_at,
+    reading_status,
+    water_available,
+    context
+) VALUES (
+    $1,
+    $2,
+    now(),
+    'valid',
+    $3,
+    'periodic'
+)
+RETURNING id, module_id, measured_at, reading_status, water_available, context, received_at
+`
+
+type RecordDeviceHandshakePingParams struct {
+	ModuleID       pgtype.UUID
+	SourceEventID  pgtype.UUID
+	WaterAvailable pgtype.Bool
+}
+
+type RecordDeviceHandshakePingRow struct {
+	ID             pgtype.UUID
+	ModuleID       pgtype.UUID
+	MeasuredAt     time.Time
+	ReadingStatus  string
+	WaterAvailable pgtype.Bool
+	Context        string
+	ReceivedAt     time.Time
+}
+
+func (q *Queries) RecordDeviceHandshakePing(ctx context.Context, arg RecordDeviceHandshakePingParams) (RecordDeviceHandshakePingRow, error) {
+	row := q.db.QueryRow(ctx, recordDeviceHandshakePing, arg.ModuleID, arg.SourceEventID, arg.WaterAvailable)
+	var i RecordDeviceHandshakePingRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.MeasuredAt,
+		&i.ReadingStatus,
+		&i.WaterAvailable,
+		&i.Context,
+		&i.ReceivedAt,
+	)
+	return i, err
 }

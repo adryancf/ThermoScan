@@ -57,3 +57,37 @@ JOIN inspections i ON i.id = tm.inspection_id
 WHERE i.module_id = $1
 ORDER BY tm.generated_at DESC
 LIMIT 1;
+
+-- name: GetLatestReservoirReadingByModule :one
+SELECT
+    r.id,
+    r.module_id,
+    r.measured_at,
+    r.reading_status,
+    r.water_available,
+    r.context,
+    r.error_reason,
+    r.received_at
+FROM reservoir_readings r
+WHERE r.module_id = $1
+ORDER BY r.measured_at DESC
+LIMIT 1;
+
+-- name: RecordDeviceHandshakePing :one
+INSERT INTO reservoir_readings (
+    module_id,
+    source_event_id,
+    measured_at,
+    reading_status,
+    water_available,
+    context
+) VALUES (
+    sqlc.arg('module_id'),
+    sqlc.arg('source_event_id'),
+    now(),
+    'valid',
+    sqlc.arg('water_available'),
+    'periodic'
+)
+RETURNING id, module_id, measured_at, reading_status, water_available, context, received_at;
+

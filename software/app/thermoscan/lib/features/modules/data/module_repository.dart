@@ -290,4 +290,32 @@ class ModuleRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<DeviceStatus> getDeviceStatus({required String moduleId}) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/device-status',
+      );
+      final raw = response.data?['device_status'] as Map<String, dynamic>? ?? {};
+      return DeviceStatus.fromJson(raw);
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
+  Future<DeviceStatus> recordDevicePing({
+    required String moduleId,
+    bool waterAvailable = true,
+  }) async {
+    try {
+      final response = await dio.post<Map<String, dynamic>>(
+        '/modules/$moduleId/device-ping',
+        data: {'water_available': waterAvailable},
+      );
+      final raw = response.data?['device_status'] as Map<String, dynamic>? ?? {};
+      return DeviceStatus.fromJson(raw);
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

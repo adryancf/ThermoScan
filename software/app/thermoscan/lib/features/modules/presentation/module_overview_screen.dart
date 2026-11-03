@@ -443,9 +443,27 @@ class _ModuleOverviewScreenState extends ConsumerState<ModuleOverviewScreen> {
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: Text(
-                                    'Embedded Device Offline — This module will only transition to Online once the physical ESP32 unit connects to the cloud and syncs its configuration.',
-                                    style: AppTypography.caption,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Embedded Device Offline — This module will transition to Online once the physical ESP32 connects and syncs.',
+                                        style: AppTypography.caption,
+                                      ),
+                                      const SizedBox(height: 6),
+                                      InkWell(
+                                        onTap: () => context.push(
+                                          '/modules/${mod.id}/handshake',
+                                        ),
+                                        child: Text(
+                                          'Verify Hardware Handshake →',
+                                          style: AppTypography.caption.copyWith(
+                                            color: AppColors.primary,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],

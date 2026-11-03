@@ -1047,11 +1047,47 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 	if err != nil {
 		t.Skipf("PostgreSQL pool not reachable for integration test: %v", err)
 	}
-	defer pool.Close()
 
 	if err := pool.Ping(ctx); err != nil {
+		pool.Close()
 		t.Skipf("PostgreSQL ping failed: %v", err)
 	}
+
+	t.Cleanup(func() {
+		cleanCtx := context.Background()
+		conn, err := pool.Acquire(cleanCtx)
+		if err == nil {
+			_, _ = conn.Exec(cleanCtx, "SET session_replication_role = 'replica'")
+			_, _ = conn.Exec(cleanCtx, `DO $$
+			DECLARE
+				r RECORD;
+			BEGIN
+				FOR r IN (SELECT id FROM companies WHERE name LIKE 'Solar Del Redesign%') LOOP
+					DELETE FROM notifications WHERE company_id = r.id;
+					DELETE FROM reservoir_readings WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
+					DELETE FROM cleaning_operations WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
+					DELETE FROM anomaly_events WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
+					DELETE FROM inspection_thermal_maps WHERE inspection_id IN (SELECT id FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id));
+					DELETE FROM measurements WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
+					DELETE FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
+					DELETE FROM interval_change_logs WHERE company_id = r.id;
+					DELETE FROM module_managers WHERE company_id = r.id;
+					DELETE FROM module_technicians WHERE company_id = r.id;
+					DELETE FROM module_clients WHERE company_id = r.id;
+					DELETE FROM modules WHERE company_id = r.id;
+					DELETE FROM technician_managers WHERE company_id = r.id;
+					DELETE FROM auth_sessions WHERE user_id IN (SELECT id FROM users WHERE company_id = r.id);
+					DELETE FROM users WHERE company_id = r.id;
+					DELETE FROM companies WHERE id = r.id;
+				END LOOP;
+			END $$;`)
+			_, _ = conn.Exec(cleanCtx, "DELETE FROM auth_sessions WHERE user_id IN (SELECT id FROM users WHERE email LIKE 'sysadmin.delredesign%')")
+			_, _ = conn.Exec(cleanCtx, "DELETE FROM users WHERE email LIKE 'sysadmin.delredesign%'")
+			_, _ = conn.Exec(cleanCtx, "SET session_replication_role = 'origin'")
+			conn.Release()
+		}
+		pool.Close()
+	})
 
 	tokens := auth.NewTokenManager("module-deletion-redesign-secret-2026")
 	q := db.New(pool)

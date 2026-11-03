@@ -272,6 +272,12 @@ void ThermoscanApp::handleScanning() {
                 tp.status = "SCANNING";
                 cloud_->ingestTelemetry(tp);
             }
+
+            // Controlled memory guard: if frame buffer reaches safe RAM ceiling,
+            // stop further acquisitions to prevent heap exhaustion and proceed with partial scan
+            if (acquisitions_.size() >= SCAN_MAX_ACQUISITIONS) {
+                break;
+            }
         }
 
         current_x += STEP_SIZE_CM;

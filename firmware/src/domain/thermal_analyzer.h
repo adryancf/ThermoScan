@@ -58,12 +58,24 @@ public:
     static constexpr int MLX_COLS = 32;
     static constexpr int MLX_ROWS = 24;
     static constexpr size_t PIXEL_COUNT = ThermalFrame::PIXEL_COUNT; // 768
-    static constexpr float COL_WIDTH_CM = FOV_OPTICAL_CM / 32.0f;    // 5.0 / 32 = 0.15625 cm
-    static constexpr float DEFAULT_POSITION_TOLERANCE_CM = 0.5f;     // Spatial confirmation tolerance (cm)
     static constexpr float MIN_VALID_TEMP_C = -40.0f;
     static constexpr float MAX_VALID_TEMP_C = 300.0f;
+    static constexpr float DEFAULT_POSITION_TOLERANCE_CM = SPATIAL_TOLERANCE_CM;
+    static constexpr float DEFAULT_CALIBRATED_FOV_WIDTH_CM = FOV_OPTICAL_CM;
 
-    ThermalAnalyzer() = default;
+    /**
+     * @brief Constructor allowing configurable optical FOV calibration width and spatial tolerance.
+     *
+     * SPATIAL CALIBRATION NOTE:
+     * The physical correspondence of 32 columns covering 5.0 cm depends strictly on camera
+     * standoff distance to panel surface (~3.5-4.0 cm) and perpendicular lens alignment.
+     * The default value is strictly 5.0 cm (FOV_OPTICAL_CM).
+     */
+    explicit ThermalAnalyzer(float calibrated_fov_cm = FOV_OPTICAL_CM,
+                             float spatial_tolerance_cm = SPATIAL_TOLERANCE_CM);
+
+    float getCalibratedFovWidthCm() const { return calibrated_fov_cm_; }
+    float getSpatialToleranceCm() const { return spatial_tolerance_cm_; }
 
     /**
      * @brief Checks if a pixel temperature reading is within valid sensor boundaries.
@@ -72,9 +84,9 @@ public:
 
     /**
      * @brief Computes global physical rail coordinate X_global for a given column within a capture at rail X.
-     * Formula: X_global = X + (col / 32.0f) * 5.0f
+     * Formula: X_global = X + (col / 32.0f) * fov_cm
      */
-    static float calculateGlobalX(float scan_x_cm, int col);
+    static float calculateGlobalX(float scan_x_cm, int col, float fov_cm = FOV_OPTICAL_CM);
 
     /**
      * @brief Calculates median temperature of all valid pixels across all valid acquisitions in the scan.
@@ -100,13 +112,17 @@ public:
      * Both consecutive frames must provide valid candidate detections.
      *
      * @param acquisitions Full sequence of scan acquisitions
-     * @param tolerance_cm Maximum spatial difference in X_global for consecutive confirmation (default 0.5 cm)
+     * @param tolerance_cm Maximum spatial difference in X_global for consecutive confirmation (negative = use analyzer's configured tolerance)
      * @param only_confirmed When true (default), returns only confirmed hotspots.
      *                       When false, includes unconfirmed candidates with confirmed=false.
      */
     std::vector<HotspotEvent> analyzeScan(const std::vector<ScanAcquisition>& acquisitions,
-                                         float tolerance_cm = DEFAULT_POSITION_TOLERANCE_CM,
+                                         float tolerance_cm = -1.0f,
                                          bool only_confirmed = true) const;
+
+private:
+    float calibrated_fov_cm_{FOV_OPTICAL_CM};
+    float spatial_tolerance_cm_{SPATIAL_TOLERANCE_CM};
 };
 
 } // namespace domain

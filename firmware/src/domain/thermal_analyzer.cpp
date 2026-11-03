@@ -4,6 +4,11 @@
 
 namespace domain {
 
+ThermalAnalyzer::ThermalAnalyzer(float calibrated_fov_cm, float spatial_tolerance_cm)
+    : calibrated_fov_cm_(calibrated_fov_cm > 0.0f ? calibrated_fov_cm : FOV_OPTICAL_CM),
+      spatial_tolerance_cm_(spatial_tolerance_cm > 0.0f ? spatial_tolerance_cm : SPATIAL_TOLERANCE_CM) {
+}
+
 bool ThermalAnalyzer::isValidPixel(float temp_c) {
     if (std::isnan(temp_c)) {
         return false;
@@ -11,8 +16,8 @@ bool ThermalAnalyzer::isValidPixel(float temp_c) {
     return (temp_c > MIN_VALID_TEMP_C) && (temp_c <= MAX_VALID_TEMP_C);
 }
 
-float ThermalAnalyzer::calculateGlobalX(float scan_x_cm, int col) {
-    return scan_x_cm + (static_cast<float>(col) / static_cast<float>(MLX_COLS)) * FOV_OPTICAL_CM;
+float ThermalAnalyzer::calculateGlobalX(float scan_x_cm, int col, float fov_cm) {
+    return scan_x_cm + (static_cast<float>(col) / static_cast<float>(MLX_COLS)) * fov_cm;
 }
 
 float ThermalAnalyzer::calculateBaseline(const std::vector<ScanAcquisition>& acquisitions) const {
@@ -67,7 +72,7 @@ std::vector<HotspotCandidate> ThermalAnalyzer::findCandidates(const ScanAcquisit
                 cand.col = col;
                 cand.row = row;
                 cand.temp_c = t;
-                cand.global_x_cm = calculateGlobalX(acq.x_position_cm, col);
+                cand.global_x_cm = calculateGlobalX(acq.x_position_cm, col, calibrated_fov_cm_);
                 cand.acquisition_index = acq_index;
                 candidates.push_back(cand);
             }
@@ -80,6 +85,8 @@ std::vector<HotspotCandidate> ThermalAnalyzer::findCandidates(const ScanAcquisit
 std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcquisition>& acquisitions,
                                                      float tolerance_cm,
                                                      bool only_confirmed) const {
+    const float eff_tolerance = (tolerance_cm > 0.0f) ? tolerance_cm : spatial_tolerance_cm_;
+
     // Consecutively confirmed spatial detection significantly mitigates spurious sensor noise
     // and transient reflections; however, it does not guarantee 100% elimination of all false
     // positives under real-world outdoor field conditions.
@@ -131,7 +138,7 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
                 // Must be on the exact same row and spatial match within calibration tolerance
                 if (cand_a.row == cand_b.row) {
                     const float spatial_diff = std::abs(cand_a.global_x_cm - cand_b.global_x_cm);
-                    if (spatial_diff <= tolerance_cm) {
+                    if (spatial_diff <= eff_tolerance) {
                         candidate_confirmed[k][idx_a] = true;
                         candidate_confirmed[k + 1][idx_b] = true;
 

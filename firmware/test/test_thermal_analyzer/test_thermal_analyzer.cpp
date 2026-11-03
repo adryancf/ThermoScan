@@ -219,6 +219,145 @@ void test_discard_invalid_pixels_in_overlap_region(void) {
     TEST_ASSERT_EQUAL_UINT32(0, hotspots.size());
 }
 
+void test_spatial_tolerance_exact_limit(void) {
+    ThermalAnalyzer analyzer;
+
+    ScanAcquisition acq0;
+    acq0.x_position_cm = 0.0f;
+    acq0.valid = true;
+    acq0.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq0.frame.pixels[i] = 25.0f;
+    // Acq 0 (X=0.0): col 20 -> X_global = 0.0 + (20/32)*5.0 = 3.125 cm
+    acq0.frame.pixels[10 * 32 + 20] = 45.0f;
+
+    ScanAcquisition acq1;
+    acq1.x_position_cm = 2.0f;
+    acq1.valid = true;
+    acq1.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq1.frame.pixels[i] = 25.0f;
+    // Acq 1 (X=2.0): col 10 -> X_global = 2.0 + (10/32)*5.0 = 3.5625 cm
+    // Difference = 3.5625 - 3.125 = 0.4375 cm
+    acq1.frame.pixels[10 * 32 + 10] = 46.0f;
+
+    std::vector<ScanAcquisition> scan = {acq0, acq1};
+
+    // When tolerance is set EXACTLY to 0.4375f, difference <= tolerance is satisfied (exact boundary condition)
+    auto confirmed = analyzer.analyzeScan(scan, 0.4375f, true);
+    TEST_ASSERT_EQUAL_UINT32(1, confirmed.size());
+    TEST_ASSERT_TRUE(confirmed[0].confirmed);
+}
+
+void test_spatial_tolerance_above_limit(void) {
+    ThermalAnalyzer analyzer;
+
+    ScanAcquisition acq0;
+    acq0.x_position_cm = 0.0f;
+    acq0.valid = true;
+    acq0.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq0.frame.pixels[i] = 25.0f;
+    // Acq 0 (X=0.0): col 20 -> X_global = 3.125 cm
+    acq0.frame.pixels[10 * 32 + 20] = 45.0f;
+
+    ScanAcquisition acq1;
+    acq1.x_position_cm = 2.0f;
+    acq1.valid = true;
+    acq1.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq1.frame.pixels[i] = 25.0f;
+    // Acq 1 (X=2.0): col 11 -> X_global = 2.0 + (11/32)*5.0 = 3.71875 cm
+    // Difference = |3.71875 - 3.125| = 0.59375 cm (> default 0.5 cm tolerance)
+    acq1.frame.pixels[10 * 32 + 11] = 46.0f;
+
+    std::vector<ScanAcquisition> scan = {acq0, acq1};
+
+    // With default tolerance (0.5 cm), difference of 0.59375 cm exceeds limit -> REJECTED
+    auto confirmed = analyzer.analyzeScan(scan, SPATIAL_TOLERANCE_CM, true);
+    TEST_ASSERT_EQUAL_UINT32(0, confirmed.size());
+}
+
+void test_multiple_hot_pixels_cluster(void) {
+    ThermalAnalyzer analyzer;
+
+    ScanAcquisition acq0;
+    acq0.x_position_cm = 0.0f;
+    acq0.valid = true;
+    acq0.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq0.frame.pixels[i] = 25.0f;
+    // Multi-pixel hotspot cluster on row 8 (cols 18, 19, 20) with peak 52.0°C
+    acq0.frame.pixels[8 * 32 + 18] = 40.0f;
+    acq0.frame.pixels[8 * 32 + 19] = 52.0f; // Peak
+    acq0.frame.pixels[8 * 32 + 20] = 44.0f;
+
+    ScanAcquisition acq1;
+    acq1.x_position_cm = 2.0f;
+    acq1.valid = true;
+    acq1.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq1.frame.pixels[i] = 25.0f;
+    // Matching cluster in overlapping area on row 8 (cols 6, 7)
+    acq1.frame.pixels[8 * 32 + 6] = 50.0f;
+    acq1.frame.pixels[8 * 32 + 7] = 43.0f;
+
+    std::vector<ScanAcquisition> scan = {acq0, acq1};
+    auto confirmed = analyzer.analyzeScan(scan, SPATIAL_TOLERANCE_CM, true);
+
+    TEST_ASSERT_TRUE(confirmed.size() >= 1);
+    TEST_ASSERT_EQUAL_INT(8, confirmed[0].row);
+    // Peak temperature captured
+    TEST_ASSERT_TRUE(confirmed[0].max_temp_c >= 50.0f);
+}
+
+void test_two_distinct_nearby_anomalies(void) {
+    ThermalAnalyzer analyzer;
+
+    ScanAcquisition acq0;
+    acq0.x_position_cm = 0.0f;
+    acq0.valid = true;
+    acq0.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq0.frame.pixels[i] = 25.0f;
+    // Anomaly 1: row 5, col 19 (X_global = 2.96875 cm)
+    acq0.frame.pixels[5 * 32 + 19] = 45.0f;
+    // Anomaly 2: row 18, col 21 (X_global = 3.28125 cm)
+    acq0.frame.pixels[18 * 32 + 21] = 49.0f;
+
+    ScanAcquisition acq1;
+    acq1.x_position_cm = 2.0f;
+    acq1.valid = true;
+    acq1.frame.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) acq1.frame.pixels[i] = 25.0f;
+    // Anomaly 1 match: row 5, col 6 (X_global = 2.0 + 6/32*5.0 = 2.9375 cm)
+    acq1.frame.pixels[5 * 32 + 6] = 46.0f;
+    // Anomaly 2 match: row 18, col 8 (X_global = 2.0 + 8/32*5.0 = 3.25 cm)
+    acq1.frame.pixels[18 * 32 + 8] = 51.0f;
+
+    std::vector<ScanAcquisition> scan = {acq0, acq1};
+    auto confirmed = analyzer.analyzeScan(scan, SPATIAL_TOLERANCE_CM, true);
+
+    // Exactly 2 distinct anomalies confirmed (one on row 5, one on row 18)
+    TEST_ASSERT_EQUAL_UINT32(2, confirmed.size());
+    bool found_row5 = false;
+    bool found_row18 = false;
+    for (const auto& ev : confirmed) {
+        if (ev.row == 5) found_row5 = true;
+        if (ev.row == 18) found_row18 = true;
+    }
+    TEST_ASSERT_TRUE(found_row5);
+    TEST_ASSERT_TRUE(found_row18);
+}
+
+void test_custom_fov_calibration_parameter(void) {
+    // Default analyzer uses strictly 5.0 cm
+    ThermalAnalyzer default_analyzer;
+    TEST_ASSERT_EQUAL_FLOAT(5.0f, default_analyzer.getCalibratedFovWidthCm());
+    TEST_ASSERT_EQUAL_FLOAT(0.5f, default_analyzer.getSpatialToleranceCm());
+    TEST_ASSERT_EQUAL_FLOAT(2.5f, default_analyzer.calculateGlobalX(0.0f, 16));
+
+    // Custom analyzer calibrated on bench with a 6.0 cm optical footprint and 0.4 cm tolerance
+    ThermalAnalyzer bench_analyzer(6.0f, 0.4f);
+    TEST_ASSERT_EQUAL_FLOAT(6.0f, bench_analyzer.getCalibratedFovWidthCm());
+    TEST_ASSERT_EQUAL_FLOAT(0.4f, bench_analyzer.getSpatialToleranceCm());
+    // Formula: 0.0 + (16 / 32) * 6.0 = 3.0 cm
+    TEST_ASSERT_EQUAL_FLOAT(3.0f, bench_analyzer.calculateGlobalX(0.0f, 16, 6.0f));
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_coordinate_transformation);
@@ -228,5 +367,10 @@ int main(int argc, char **argv) {
     RUN_TEST(test_consecutive_spatial_confirmation);
     RUN_TEST(test_rejection_of_isolated_single_frame_false_positive);
     RUN_TEST(test_discard_invalid_pixels_in_overlap_region);
+    RUN_TEST(test_spatial_tolerance_exact_limit);
+    RUN_TEST(test_spatial_tolerance_above_limit);
+    RUN_TEST(test_multiple_hot_pixels_cluster);
+    RUN_TEST(test_two_distinct_nearby_anomalies);
+    RUN_TEST(test_custom_fov_calibration_parameter);
     return UNITY_END();
 }

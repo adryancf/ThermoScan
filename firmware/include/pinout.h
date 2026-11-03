@@ -100,14 +100,38 @@ constexpr uint8_t SERVO_PWM_PIN   = PIN_SERVO_PWM;
 constexpr uint8_t STATUS_LED_PIN  = PIN_STATUS_LED;
 
 // ============================================================================
-// Kinematic & Geometric System Constants
+// Kinematic, Geometric & Calibration System Constants
 // ============================================================================
 constexpr float STEP_SIZE_CM                  = 2.0f;     // Linear displacement per inspection interval (cm)
-constexpr float FOV_OPTICAL_CM                = 5.0f;     // Camera optical field of view coverage width (cm)
+
+// Spatial Calibration Parameter:
+// The physical correspondence of 32 columns covering 5.0 cm depends strictly on camera
+// standoff distance to panel surface (~3.5-4.0 cm) and perpendicular lens alignment.
+// Configurable via build flag; default value is strictly 5.0 cm.
+#ifndef CALIBRATED_FOV_WIDTH_CM
+#define CALIBRATED_FOV_WIDTH_CM 5.0f
+#endif
+constexpr float FOV_OPTICAL_CM                = CALIBRATED_FOV_WIDTH_CM;
+
 constexpr float OVERLAP_PERCENT               = 60.0f;    // Overlap percentage between consecutive captures (%)
 constexpr float MAX_BASE_TEMP_C               = 60.0f;    // Maximum acceptable baseline operating temperature (°C)
 constexpr float HOTSPOT_THRESHOLD_DELTA_C     = 10.0f;    // Thermal delta over baseline indicating hotspot (°C)
 constexpr uint32_t MAX_CLEANING_ATTEMPTS      = 3;        // Maximum consecutive spray cleaning attempts per anomaly
 constexpr uint32_t POST_CLEANING_WAIT_SECONDS = 1800;     // Cooldown / dry wait time before post-cleaning verification (30 min)
+
+// Spatial tolerance for consecutive acquisition hotspot matching (cm):
+#ifndef SPATIAL_TOLERANCE_DEFAULT_CM
+#define SPATIAL_TOLERANCE_DEFAULT_CM 0.5f
+#endif
+constexpr float SPATIAL_TOLERANCE_CM          = SPATIAL_TOLERANCE_DEFAULT_CM;
+
+// Maximum scan acquisitions buffered in RAM during a single inspection pass.
+// Each ScanAcquisition occupies ~3,080 bytes (768-float matrix + metadata).
+// 40 acquisitions consume ~123.2 KB RAM, safe for ESP32 free heap (~150-180 KB)
+// and covering up to 80 cm travel at 2.0 cm step.
+#ifndef MAX_SCAN_ACQUISITIONS
+#define MAX_SCAN_ACQUISITIONS 40
+#endif
+constexpr size_t SCAN_MAX_ACQUISITIONS        = MAX_SCAN_ACQUISITIONS;
 
 #endif // THERMOSCAN_PINOUT_H

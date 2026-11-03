@@ -217,12 +217,12 @@ The project uses **PlatformIO**.
 cd firmware
 pio test -e native
 ```
-All 26 test cases execute in ~2.5 seconds using Desktop GCC/Clang with Unity:
+All 31 test cases execute in ~3.3 seconds using Desktop GCC/Clang with Unity:
 - `test_hal_sanity`: Validates HAL interfaces and physical constants.
-- `test_thermal_analyzer`: Validates coordinate transforms, median calculation, candidate threshold, spatial confirmation, and invalid pixel handling.
-- `test_cleaning_state_machine`: Validates refusal, interruption, 30-minute timer, solar window locks, resolution states, and the 3-attempt limit.
-- `test_solar_geometry`: Validates NOAA solar elevation and cosine incidence calculations.
-- `test_thermoscan_app`: Validates safe boot pump cut, conservative NVS recovery, and emergency limit stop.
+- `test_thermal_analyzer` (12 tests): Validates coordinate transforms, median calculation, candidate threshold, spatial confirmation, invalid pixel handling, exact boundary tolerance, tolerance rejection above limit, multi-pixel cluster handling, distinct nearby anomalies, and custom optical FOV width calibration.
+- `test_cleaning_state_machine` (10 tests): Validates refusal, interruption, 30-minute timer, solar window locks, resolution states, and the 3-attempt limit.
+- `test_solar_geometry` (3 tests): Validates NOAA solar elevation and cosine incidence calculations.
+- `test_thermoscan_app` (4 tests): Validates safe boot pump cut, conservative NVS recovery, and emergency limit stop.
 
 ### Compiling ESP32 Firmware Binary
 ```bash

@@ -246,6 +246,53 @@ class _FakeModuleRepository extends ModuleRepository {
   }
 
   @override
+  Future<PagedMeasurements> listInspectionMeasurements({
+    required String moduleId,
+    required String inspectionId,
+    int page = 1,
+    int limit = 10,
+  }) async {
+    final allMeasurements = [
+      const ModuleMeasurement(
+        id: 'meas-1',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-1',
+        measuredAt: '2026-11-02T14:15:00Z',
+        xPositionCm: 12.4,
+        maxTemperatureC: 42.5,
+        hotspotDetected: false,
+        voltageV: 18.2,
+        currentA: 4.1,
+        powerW: 74.6,
+        receivedAt: '2026-11-02T14:15:05Z',
+      ),
+      const ModuleMeasurement(
+        id: 'meas-2',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-2',
+        measuredAt: '2026-11-02T14:15:10Z',
+        xPositionCm: 14.4,
+        maxTemperatureC: 44.0,
+        hotspotDetected: true,
+        voltageV: 18.2,
+        currentA: 4.1,
+        powerW: 74.6,
+        receivedAt: '2026-11-02T14:15:15Z',
+      ),
+    ];
+    return PagedMeasurements(
+      page: page,
+      limit: limit,
+      totalCount: allMeasurements.length,
+      totalPages: 1,
+      hasNextPage: false,
+      measurements: allMeasurements,
+    );
+  }
+
+  @override
   Future<LatestInspection?> getLatestInspection({
     required String moduleId,
   }) async {

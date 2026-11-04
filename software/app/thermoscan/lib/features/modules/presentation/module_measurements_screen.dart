@@ -44,6 +44,7 @@ class ModuleMeasurementsView extends StatelessWidget {
 class _ModuleMeasurementsScreenState
     extends ConsumerState<ModuleMeasurementsScreen> {
   String _filter = 'all'; // 'all', 'hotspots', 'normal'
+  int _currentPage = 1;
   final Set<String> _expandedSessions = {};
 
   List<_InspectionSession> _groupIntoSessions(List<ModuleMeasurement> list) {
@@ -124,6 +125,18 @@ class _ModuleMeasurementsScreenState
               ],
             ),
             const SizedBox(height: 16),
+
+            if (latestInspection != null && latestInspection.inspection.id.isNotEmpty) ...[
+              _buildPaginatedInspectionSection(latestInspection),
+              const SizedBox(height: 24),
+              const Divider(color: AppColors.border),
+              const SizedBox(height: 16),
+              Text(
+                'Aggregated Sessions Log',
+                style: AppTypography.h3,
+              ),
+              const SizedBox(height: 12),
+            ],
 
             // Filter Pills
             SingleChildScrollView(
@@ -252,6 +265,258 @@ class _ModuleMeasurementsScreenState
             color: isSelected ? AppColors.surface : AppColors.textSecondary,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildPaginatedInspectionSection(LatestInspection latestInspection) {
+    final insp = latestInspection.inspection;
+    final pagedAsync = ref.watch(inspectionMeasurementsPagedProvider((
+      moduleId: widget.moduleId,
+      inspectionId: insp.id,
+      page: _currentPage,
+      limit: 10,
+    )));
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.layers_outlined,
+                      color: AppColors.primary,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Active Inspection (Paginated)',
+                        style: AppTypography.caption.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        'Baseline: ${insp.baselineTemperatureC != null ? "${insp.baselineTemperatureC!.toStringAsFixed(1)}°C" : "Awaiting scan"}',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  insp.status.toUpperCase(),
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          pagedAsync.when(
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: CircularProgressIndicator(color: AppColors.primary),
+              ),
+            ),
+            error: (err, _) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'Failed to load inspection measurements: $err',
+                style: AppTypography.caption.copyWith(color: AppColors.error),
+              ),
+            ),
+            data: (paged) {
+              final measurements = paged.measurements;
+              if (measurements.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Center(
+                    child: Text(
+                      'No measurements in this inspection.',
+                      style: AppTypography.bodySmall.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ),
+                );
+              }
+
+              return Column(
+                children: [
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: measurements.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (ctx, idx) {
+                      final m = measurements[idx];
+                      final isConfirmed = latestInspection.confirmedAnomalies.any(
+                        (a) => (a.xPositionCm - m.xPositionCm).abs() <= 1.0,
+                      );
+                      return _buildPaginatedStepTile(m, isConfirmed);
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Page ${paged.page} of ${paged.totalPages} (${paged.totalCount} items)',
+                        style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+                      ),
+                      Row(
+                        children: [
+                          OutlinedButton(
+                            key: const Key('btn_prev_page'),
+                            onPressed: paged.page > 1
+                                ? () => setState(() => _currentPage--)
+                                : null,
+                            style: OutlinedButton.styleFrom(
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            ),
+                            child: const Text('Previous'),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton(
+                            key: const Key('btn_next_page'),
+                            onPressed: paged.hasNextPage
+                                ? () => setState(() => _currentPage++)
+                                : null,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                            ),
+                            child: const Text('Next'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPaginatedStepTile(ModuleMeasurement m, bool isConfirmed) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isConfirmed
+              ? AppColors.errorBorder
+              : (m.hotspotDetected ? AppColors.warningBorder : AppColors.border),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Text(
+                'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
+                style: AppTypography.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (isConfirmed)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.errorBackground,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.errorBorder),
+                  ),
+                  child: Text(
+                    'HOTSPOT',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 9,
+                    ),
+                  ),
+                )
+              else if (m.hotspotDetected)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.warningBackground,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.warningBorder),
+                  ),
+                  child: Text(
+                    'CANDIDATE',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.warning,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 9,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          Wrap(
+            spacing: 6,
+            children: [
+              _buildMetricChip(
+                'Peak',
+                '${m.maxTemperatureC.toStringAsFixed(1)}°C',
+                isConfirmed ? AppColors.error : AppColors.textPrimary,
+              ),
+              _buildMetricChip(
+                'Volt',
+                '${m.voltageV.toStringAsFixed(1)}V',
+                AppColors.textSecondary,
+              ),
+              _buildMetricChip(
+                'Power',
+                '${m.powerW.toStringAsFixed(1)}W',
+                AppColors.primary,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

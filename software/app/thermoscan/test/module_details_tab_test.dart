@@ -13,6 +13,8 @@ import 'package:thermoscan/core/widgets/app_text_field.dart';
 import 'package:thermoscan/features/modules/presentation/module_details_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_hardware_handshake_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_installation_wizard_screen.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/radiometric_scan_card.dart';
+import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
 
 class _FakeAuthController extends StateNotifier<AuthState>
     implements AuthController {
@@ -82,6 +84,32 @@ class _MockModuleRepo extends ModuleRepository {
   final ModuleDetails details;
   final DeviceStatus status;
   final Object? createModuleError;
+  LatestInspection? mockLatestInspection;
+  PagedMeasurements Function(int page)? pagedMeasurementsProvider;
+
+  @override
+  Future<LatestInspection?> getLatestInspection({required String moduleId}) async =>
+      mockLatestInspection;
+
+  @override
+  Future<PagedMeasurements> listInspectionMeasurements({
+    required String moduleId,
+    required String inspectionId,
+    int page = 1,
+    int limit = 10,
+  }) async {
+    if (pagedMeasurementsProvider != null) {
+      return pagedMeasurementsProvider!(page);
+    }
+    return const PagedMeasurements(
+      page: 1,
+      limit: 10,
+      totalCount: 0,
+      totalPages: 1,
+      hasNextPage: false,
+      measurements: [],
+    );
+  }
 
   @override
   Future<ModuleDetails> createModule({
@@ -297,6 +325,198 @@ void main() {
       );
 
       expect(inspection.baselineTemperatureC, 34.8);
+    });
+
+    testWidgets('RadiometricScanCard renders candidate step without triggering confirmed hotspot alarm', (tester) async {
+      const mod = PvModule(
+        id: 'mod-1',
+        companyId: 'c1',
+        installerTechnicianId: 'u1',
+        installerName: 'Marco Silva',
+        installerEmail: 'marco@soltech.io',
+        name: 'PV Array 1',
+        macAddress: 'AA:BB:CC:11:22:33',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        createdAt: '2026-11-01T10:00:00Z',
+        updatedAt: '2026-11-01T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      );
+
+      const candidateMeas = ModuleMeasurement(
+        id: 'meas-cand',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-cand',
+        measuredAt: '2026-11-03T12:00:00Z',
+        xPositionCm: 15.0,
+        maxTemperatureC: 55.0,
+        hotspotDetected: true, // Candidate!
+        voltageV: 18.2,
+        currentA: 4.1,
+        powerW: 74.6,
+        receivedAt: '2026-11-03T12:00:05Z',
+      );
+
+      const inspWithoutConfirmed = LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-1',
+          moduleId: 'mod-1',
+          sourceEventId: 'evt-insp-1',
+          type: 'scheduled',
+          scheduledFor: '2026-11-03T12:00:00Z',
+          status: 'completed',
+          baselineTemperatureC: 35.0,
+          createdAt: '2026-11-03T12:00:00Z',
+          updatedAt: '2026-11-03T12:00:00Z',
+        ),
+        totalMeasurements: 1,
+        confirmedAnomalies: [], // Empty! No confirmed hotspot
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RadiometricScanCard(
+                module: mod,
+                latestMeasurement: candidateMeas,
+                latestInspection: inspWithoutConfirmed,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Confirms: "Delta: +20.0°C (Candidate)" is shown, NOT "(Hotspot)"
+      expect(find.text('Delta: +20.0°C (Candidate)'), findsWidgets);
+      expect(find.text('HOTSPOT DETECTED'), findsNothing);
+    });
+
+    testWidgets('ModuleMeasurementsScreen consumes paginated measurements ordered by x_position_cm ASC and handles page changes', (tester) async {
+      int requestedPage = 1;
+      final mockRepo = _MockModuleRepo();
+      mockRepo.mockLatestInspection = const LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-paginated-1',
+          moduleId: 'mod-1',
+          sourceEventId: 'evt-insp-p1',
+          type: 'scheduled',
+          scheduledFor: '2026-11-03T14:00:00Z',
+          status: 'completed',
+          baselineTemperatureC: 35.0,
+          createdAt: '2026-11-03T14:00:00Z',
+          updatedAt: '2026-11-03T14:00:00Z',
+        ),
+        totalMeasurements: 20,
+        confirmedAnomalies: [],
+      );
+
+      mockRepo.pagedMeasurementsProvider = (page) {
+        requestedPage = page;
+        if (page == 1) {
+          return const PagedMeasurements(
+            page: 1,
+            limit: 10,
+            totalCount: 20,
+            totalPages: 2,
+            hasNextPage: true,
+            measurements: [
+              ModuleMeasurement(
+                id: 'm-page1-1',
+                moduleId: 'mod-1',
+                inspectionId: 'insp-paginated-1',
+                sourceEventId: 'evt-p1-1',
+                measuredAt: '2026-11-03T14:05:00Z',
+                xPositionCm: 10.0, // First in ascending order
+                maxTemperatureC: 40.0,
+                hotspotDetected: false,
+                voltageV: 18.5,
+                currentA: 4.2,
+                powerW: 77.7,
+                receivedAt: '2026-11-03T14:05:05Z',
+              ),
+              ModuleMeasurement(
+                id: 'm-page1-2',
+                moduleId: 'mod-1',
+                inspectionId: 'insp-paginated-1',
+                sourceEventId: 'evt-p1-2',
+                measuredAt: '2026-11-03T14:05:10Z',
+                xPositionCm: 12.0, // Second in ascending order
+                maxTemperatureC: 41.0,
+                hotspotDetected: false,
+                voltageV: 18.5,
+                currentA: 4.2,
+                powerW: 77.7,
+                receivedAt: '2026-11-03T14:05:15Z',
+              ),
+            ],
+          );
+        } else {
+          return const PagedMeasurements(
+            page: 2,
+            limit: 10,
+            totalCount: 20,
+            totalPages: 2,
+            hasNextPage: false,
+            measurements: [
+              ModuleMeasurement(
+                id: 'm-page2-1',
+                moduleId: 'mod-1',
+                inspectionId: 'insp-paginated-1',
+                sourceEventId: 'evt-p2-1',
+                measuredAt: '2026-11-03T14:05:20Z',
+                xPositionCm: 30.0,
+                maxTemperatureC: 45.0,
+                hotspotDetected: false,
+                voltageV: 18.5,
+                currentA: 4.2,
+                powerW: 77.7,
+                receivedAt: '2026-11-03T14:05:25Z',
+              ),
+            ],
+          );
+        }
+      };
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider.overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: const MaterialApp(
+            home: ModuleMeasurementsScreen(moduleId: 'mod-1'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify page 1 rendered items ordered by xPositionCm ASC
+      expect(find.text('Active Inspection (Paginated)'), findsOneWidget);
+      expect(find.text('X = 10.0 cm'), findsOneWidget);
+      expect(find.text('X = 12.0 cm'), findsOneWidget);
+      expect(find.text('Page 1 of 2 (20 items)'), findsOneWidget);
+      expect(requestedPage, 1);
+
+      // Tap Next button to paginate
+      await tester.tap(find.byKey(const Key('btn_next_page')));
+      await tester.pumpAndSettle();
+
+      // Verify page 2 is requested and item at X = 30.0 cm is shown
+      expect(requestedPage, 2);
+      expect(find.text('X = 30.0 cm'), findsOneWidget);
+      expect(find.text('Page 2 of 2 (20 items)'), findsOneWidget);
     });
   });
 

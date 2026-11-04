@@ -70,3 +70,16 @@ final moduleDeviceStatusProvider = FutureProvider.autoDispose
   final repo = ref.watch(moduleRepositoryProvider);
   return repo.getDeviceStatus(moduleId: moduleId);
 });
+
+final inspectionMeasurementsPagedProvider = FutureProvider.autoDispose
+    .family<PagedMeasurements, ({String moduleId, String inspectionId, int page, int limit})>(
+        (ref, params) async {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.listInspectionMeasurements(
+    moduleId: params.moduleId,
+    inspectionId: params.inspectionId,
+    page: params.page,
+    limit: params.limit,
+  );
+});
+

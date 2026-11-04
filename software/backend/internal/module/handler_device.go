@@ -131,6 +131,10 @@ func (h *Handler) handleGetDeviceConfiguration(w http.ResponseWriter, r *http.Re
 			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrBatchTooLarge):
+			httpjson.WriteError(w, http.StatusBadRequest, "telemetry batch exceeds maximum limit of 10 items", "BATCH_TOO_LARGE")
+		case errors.Is(err, ErrInvalidInput):
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input", "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}
@@ -216,6 +220,10 @@ func (h *Handler) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) 
 			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrBatchTooLarge):
+			httpjson.WriteError(w, http.StatusBadRequest, "telemetry batch exceeds maximum limit of 10 items", "BATCH_TOO_LARGE")
+		case errors.Is(err, ErrInvalidInput):
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input", "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}
@@ -258,6 +266,10 @@ func (h *Handler) handleIngestCleaning(w http.ResponseWriter, r *http.Request) {
 			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrBatchTooLarge):
+			httpjson.WriteError(w, http.StatusBadRequest, "telemetry batch exceeds maximum limit of 10 items", "BATCH_TOO_LARGE")
+		case errors.Is(err, ErrInvalidInput):
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input", "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}

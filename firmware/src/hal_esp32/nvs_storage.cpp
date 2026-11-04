@@ -248,6 +248,24 @@ bool NvsStorage::getPingIntervalSeconds(int32_t& out) {
     return true;
 }
 
+bool NvsStorage::saveTestKey(const std::string& key, const std::string& val) {
+    if (!initialized_ && !init()) return false;
+    return preferences_.putString(key.c_str(), val.c_str()) > 0;
+}
+
+bool NvsStorage::getTestKey(const std::string& key, std::string& out) {
+    if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(key.c_str())) return false;
+    String v = preferences_.getString(key.c_str(), "");
+    out = v.c_str();
+    return true;
+}
+
+bool NvsStorage::removeTestKey(const std::string& key) {
+    if (!initialized_ && !init()) return false;
+    return preferences_.remove(key.c_str());
+}
+
 } // namespace hal_esp32
 
 #endif // ARDUINO || ESP32

@@ -97,6 +97,7 @@ public:
                                     const FinalizeInspectionInput& input) = 0;
     virtual bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) = 0;
     virtual std::string getLastConfirmedAnomalyId() const { return ""; }
+    virtual bool hadAuthError() const { return false; }
     virtual bool isConnected() const = 0;
 
     // Legacy backward-compat methods

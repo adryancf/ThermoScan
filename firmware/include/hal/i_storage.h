@@ -67,6 +67,11 @@ public:
     virtual bool getIntervalDays(int32_t& /*out*/) { return true; }
     virtual bool savePingIntervalSeconds(int32_t /*seconds*/) { return true; }
     virtual bool getPingIntervalSeconds(int32_t& /*out*/) { return true; }
+
+    // Bench diagnostics helper
+    virtual bool saveTestKey(const std::string& /*key*/, const std::string& /*val*/) { return true; }
+    virtual bool getTestKey(const std::string& /*key*/, std::string& out) { out = "test_ok"; return true; }
+    virtual bool removeTestKey(const std::string& /*key*/) { return true; }
 };
 
 #endif // THERMOSCAN_HAL_I_STORAGE_H

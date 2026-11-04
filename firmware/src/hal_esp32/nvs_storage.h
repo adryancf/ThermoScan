@@ -67,6 +67,10 @@ public:
     bool savePingIntervalSeconds(int32_t seconds) override;
     bool getPingIntervalSeconds(int32_t& out) override;
 
+    bool saveTestKey(const std::string& key, const std::string& val) override;
+    bool getTestKey(const std::string& key, std::string& out) override;
+    bool removeTestKey(const std::string& key) override;
+
 private:
     Preferences preferences_;
     bool initialized_{false};

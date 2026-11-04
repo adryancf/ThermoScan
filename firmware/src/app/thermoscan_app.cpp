@@ -71,6 +71,16 @@ void ThermoscanApp::executeEmergencyStop() {
     state_ = AppState::ERROR_HALT;
 }
 
+void ThermoscanApp::returnToSafeIdle() {
+    if (spray_ != nullptr) {
+        spray_->stopPump();
+    }
+    if (motion_ != nullptr) {
+        motion_->disableMotor();
+    }
+    state_ = AppState::IDLE;
+}
+
 bool ThermoscanApp::init() {
     state_ = AppState::BOOT_INIT;
     handleBootInit();

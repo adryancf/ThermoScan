@@ -13,6 +13,7 @@
 #include "hal_esp32/esp32_time_provider.h"
 #include "hal_esp32/http_cloud_client.h"
 #include "app/thermoscan_app.h"
+#include "diagnostics/bench_diagnostics.h"
 
 // WiFi Configuration (overridable via compiler build flags)
 #ifndef WIFI_SSID
@@ -46,6 +47,19 @@ static app::ThermoscanApp g_app(&g_camera,
                                 &g_storage,
                                 &g_cloud,
                                 &g_time_provider);
+
+// Bench Diagnostics Console & Engine Instantiation
+static diagnostics::SerialConsole g_console(Serial);
+static diagnostics::BenchDiagnostics g_diagnostics(&g_storage,
+                                                   &g_time_provider,
+                                                   &g_cloud,
+                                                   &g_camera,
+                                                   &g_stepper,
+                                                   &g_ina219,
+                                                   &g_water,
+                                                   &g_spray,
+                                                   &g_app,
+                                                   &g_console);
 
 void setup() {
     Serial.begin(115200);
@@ -115,9 +129,23 @@ void setup() {
 
     digitalWrite(STATUS_LED_PIN, LOW);
     Serial.println(F("[SYSTEM] ThermoScan operational. Entering main executive loop."));
+    Serial.println(F("[DIAG] Modo de diagnostico de bancada ativo na serial. Digite 'diag list' para comandos."));
 }
 
 void loop() {
+    // Process incoming serial commands for bench diagnostics
+    if (Serial.available()) {
+        String line = Serial.readStringUntil('\n');
+        line.trim();
+        if (line.length() > 0) {
+            if (line.startsWith("diag")) {
+                g_diagnostics.handleCommand(line.c_str());
+            } else {
+                Serial.printf("[CMD] Comando desconhecido: '%s'. Digite 'diag list' para a lista de testes.\n", line.c_str());
+            }
+        }
+    }
+
     g_app.tick();
     delay(20); // FreeRTOS yield
 }

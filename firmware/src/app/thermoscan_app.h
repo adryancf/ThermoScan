@@ -84,6 +84,10 @@ public:
     void triggerManualInspection();
     void triggerManualCleaning(float target_x_cm);
 
+    // Safety and state restoration
+    void executeEmergencyStop();
+    void returnToSafeIdle();
+
 private:
     IThermalCamera* camera_{nullptr};
     IPowerMeter* power_meter_{nullptr};
@@ -132,7 +136,6 @@ private:
     // Helpers
     uint32_t getCurrentTime() const;
     bool checkSolarWindow() const;
-    void executeEmergencyStop();
     void saveCurrentStateToNvs();
     void restoreStateFromNvs();
 };

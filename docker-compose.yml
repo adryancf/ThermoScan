@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: thermoscan-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-thermoscan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-thermoscan}
+      POSTGRES_DB: ${POSTGRES_DB:-thermoscan}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./software/backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    networks:
+      - internal-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-thermoscan} -d ${POSTGRES_DB:-thermoscan}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./software/backend
+      dockerfile: Dockerfile
+    container_name: ${APP_NAME:-thermoscan-api}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-thermoscan}:${POSTGRES_PASSWORD:-thermoscan}@db:5432/${POSTGRES_DB:-thermoscan}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-dev-thermoscan-jwt-secret-9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c}
+      API_PORT: "8080"
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-System Admin}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@thermoscan.local}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal-net
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.${APP_NAME:-thermoscan-api}.rule=Host(`${HOST:-api.thermoscan.realan.space}`)"
+      - "traefik.http.routers.${APP_NAME:-thermoscan-api}.entrypoints=web"
+      - "traefik.http.services.${APP_NAME:-thermoscan-api}.loadbalancer.server.port=8080"
+
+networks:
+  internal-net:
+    driver: bridge
+  traefik:
+    name: traefik
+    external: true
+
+volumes:
+  pgdata:

@@ -1,0 +1,27 @@
+name: Deploy ThermoScan API
+
+on:
+  push:
+    branches: [main, dev]
+
+# One deploy at a time; a new push waits for the running one to finish.
+concurrency:
+  group: deploy-thermoscan
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    env:
+      APP_NAME: thermoscan-api
+      HOST: api.thermoscan.realan.space
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and Start Containers
+        run: |
+          docker compose up -d --build --remove-orphans
+
+      - name: Remove old images
+        run: |
+          docker image prune -f --filter dangling=true

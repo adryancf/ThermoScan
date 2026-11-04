@@ -540,10 +540,9 @@ class ModuleMeasurement {
     required this.measuredAt,
     required this.xPositionCm,
     required this.maxTemperatureC,
-    required this.hotspotDetected,
-    required this.voltageV,
-    required this.currentA,
-    required this.powerW,
+    this.voltageV,
+    this.currentA,
+    this.powerW,
     this.thermalFrame,
     required this.receivedAt,
   });
@@ -555,10 +554,9 @@ class ModuleMeasurement {
   final String measuredAt;
   final double xPositionCm;
   final double maxTemperatureC;
-  final bool hotspotDetected;
-  final double voltageV;
-  final double currentA;
-  final double powerW;
+  final double? voltageV;
+  final double? currentA;
+  final double? powerW;
   final List<double?>? thermalFrame;
   final String receivedAt;
 
@@ -570,6 +568,10 @@ class ModuleMeasurement {
           .toList();
     }
 
+    final rawV = json['voltage_v'];
+    final rawI = json['current_a'];
+    final rawP = json['power_w'];
+
     return ModuleMeasurement(
       id: json['id'] as String? ?? '',
       moduleId: json['module_id'] as String? ?? '',
@@ -578,13 +580,29 @@ class ModuleMeasurement {
       measuredAt: json['measured_at'] as String? ?? '',
       xPositionCm: double.tryParse(json['x_position_cm']?.toString() ?? '') ?? 0.0,
       maxTemperatureC: double.tryParse(json['max_temperature_c']?.toString() ?? '') ?? 0.0,
-      hotspotDetected: json['hotspot_detected'] as bool? ?? false,
-      voltageV: double.tryParse(json['voltage_v']?.toString() ?? '') ?? 0.0,
-      currentA: double.tryParse(json['current_a']?.toString() ?? '') ?? 0.0,
-      powerW: double.tryParse(json['power_w']?.toString() ?? '') ?? 0.0,
+      voltageV: rawV != null ? double.tryParse(rawV.toString()) : null,
+      currentA: rawI != null ? double.tryParse(rawI.toString()) : null,
+      powerW: rawP != null ? double.tryParse(rawP.toString()) : null,
       thermalFrame: frame,
       receivedAt: json['received_at'] as String? ?? '',
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'module_id': moduleId,
+      'inspection_id': inspectionId,
+      'source_event_id': sourceEventId,
+      'measured_at': measuredAt,
+      'x_position_cm': xPositionCm,
+      'max_temperature_c': maxTemperatureC,
+      if (voltageV != null) 'voltage_v': voltageV,
+      if (currentA != null) 'current_a': currentA,
+      if (powerW != null) 'power_w': powerW,
+      if (thermalFrame != null) 'thermal_frame': thermalFrame,
+      'received_at': receivedAt,
+    };
   }
 }
 

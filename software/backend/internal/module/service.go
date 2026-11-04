@@ -33,6 +33,7 @@ var (
 	ErrInvalidInput                  = errors.New("invalid module input")
 	ErrNotFound                      = errors.New("module not found")
 	ErrForbidden                     = errors.New("insufficient permissions for this module operation")
+	ErrConflict                      = errors.New("conflict with existing measurement")
 	ErrMACConflict                   = errors.New("a module with this MAC address is already registered")
 	ErrManagerRequired               = errors.New("at least one active responsible manager from the same company is required")
 	ErrTechnicianHasNoActiveManagers = errors.New("technician has no active responsible managers")

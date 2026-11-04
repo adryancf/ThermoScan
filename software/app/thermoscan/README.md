@@ -31,9 +31,20 @@ Flutter mobile client for the ThermoScan photovoltaic module monitoring and loca
 - **`lib/features/modules/`** (`manager`, `technician`, `client`):
   - PV Modules home list (`SCR-09`) with search, status filter, and Technician installation entry point
   - 5-step Technician Module Installation Wizard (`SCR-16` to `SCR-20`) with draft save/resume support (`pending_configuration` -> `active`)
-  - Module Overview (`SCR-10`) and Client operational email notification toggle (`SCR-28`)
+  - Module Overview & Radiometric Scan Card (`SCR-10`):
+    - Displays inspection session details and baseline temperature (`baseline_temperature_c`).
+    - Renders individual thermal frames (32×24) positioned at physical $X$ coordinates (`x_position_cm`) without frame fusion, blending, or stitched matrices.
+    - Highlights **only** firmware-confirmed hotspots (`anomaly_events` verified across $\ge 2$ consecutive frames with 60% overlap); does not highlight unconfirmed candidates.
+    - Treats missing/null INA219 electrical readings gracefully by rendering `N/A`.
+  - Module Measurements & Inspection Explorer (`SCR-11`):
+    - Paginated inspection measurements (`GET /api/v1/modules/{id}/inspections/{inspectionId}/measurements?page=1&limit=10` ordered by `x_position_cm ASC`).
+    - Interactive page navigation (Previous/Next, page count, total items).
+    - Detailed per-step telemetry tiles displaying $X$ coordinate, peak temperature, electrical metrics (`N/A` on sensor null), and confirmed anomaly indicators.
+    - Chronological inspection session aggregator with filter pills (`All`, `Hotspots`, `Normal`).
+  - Module Cleanings History (`SCR-12`): washing operations log with post-cleaning thermal verification status (`resolved`, `unresolved`, `pending`).
   - Role-aware Module Configuration and Inspection Interval Change History (`SCR-13`)
   - Manager Module Access & Responsible Managers screen (`SCR-14`)
+  - Client operational email notification toggle (`SCR-28`)
 
 ## Development Commands
 

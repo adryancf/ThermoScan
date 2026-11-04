@@ -101,7 +101,6 @@ type Measurement struct {
 	MeasuredAt      time.Time
 	XPositionCm     pgtype.Numeric
 	MaxTemperatureC pgtype.Numeric
-	HotspotDetected bool
 	VoltageV        pgtype.Numeric
 	CurrentA        pgtype.Numeric
 	PowerW          pgtype.Numeric

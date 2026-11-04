@@ -13,6 +13,13 @@ func isFinite(v float64) bool {
 	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
+func isFinitePtr(v *float64) bool {
+	if v == nil {
+		return true
+	}
+	return !math.IsNaN(*v) && !math.IsInf(*v, 0)
+}
+
 func floatPtr(v float64) *float64 {
 	return &v
 }
@@ -22,8 +29,26 @@ func floatPtrToNumeric(v *float64) pgtype.Numeric {
 		return pgtype.Numeric{Valid: false}
 	}
 	var n pgtype.Numeric
-	_ = n.Scan(strconv.FormatFloat(*v, 'f', 3, 64))
+	_ = n.Scan(strconv.FormatFloat(*v, 'f', 4, 64))
 	return n
+}
+
+func numericToStringPtr(n pgtype.Numeric) *string {
+	if !n.Valid {
+		return nil
+	}
+	val, err := n.Value()
+	if err == nil && val != nil {
+		if s, ok := val.(string); ok {
+			return &s
+		}
+	}
+	f, err := n.Float64Value()
+	if err == nil && f.Valid {
+		s := strconv.FormatFloat(f.Float64, 'f', 4, 64)
+		return &s
+	}
+	return nil
 }
 
 func numericToFloatPtr(n pgtype.Numeric) *float64 {

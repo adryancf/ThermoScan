@@ -209,89 +209,210 @@ func TestTelemetryContractValidations(t *testing.T) {
 	// 1. Frame térmico com null aceito
 	t.Run("FrameWithNullAccepted", func(t *testing.T) {
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
-			"source_event_id":  "10000000-0000-0000-0000-000000000001",
-			"x_position_cm":    10.0,
-			"max_temperature_c": 38.0,
-			"hotspot_detected": false,
-			"voltage_v":        18.5,
-			"current_a":        4.2,
-			"thermal_frame":    makeTestFrame768(35.0, nil, true), // contains nulls!
+			"inspection_source_event_id": "10000000-0000-0000-0000-000000000001",
+			"source_event_id":           "10000000-0000-0000-0000-000000000002",
+			"x_position_cm":             10.0,
+			"max_temperature_c":         38.0,
+			"voltage_v":                 18.5,
+			"current_a":                 4.2,
+			"thermal_frame":             makeTestFrame768(35.0, nil, true), // contains nulls!
 		})
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("expected 201 for frame with null, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 
-	// 2. Lote com mais de 10 medições rejeitado
-	t.Run("BatchExceeding10Rejected", func(t *testing.T) {
-		batch := make([]map[string]any, 11)
-		for i := 0; i < 11; i++ {
-			batch[i] = map[string]any{
-				"source_event_id":  fmt.Sprintf("20000000-0000-0000-0000-%012d", i+1),
-				"x_position_cm":    float64(i * 2),
-				"max_temperature_c": 35.0,
-				"hotspot_detected": false,
-				"voltage_v":        18.5,
-				"current_a":        4.2,
-				"thermal_frame":    makeTestFrame768(35.0, nil, false),
-			}
-		}
+	// 2. Frame com menos ou mais de 768 posições é rejeitado
+	t.Run("FrameInvalidSizeRejected", func(t *testing.T) {
+		shortFrame := make([]float64, 767)
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
-			"batch": batch,
+			"inspection_source_event_id": "11000000-0000-0000-0000-000000000001",
+			"source_event_id":           "11000000-0000-0000-0000-000000000002",
+			"x_position_cm":             10.0,
+			"max_temperature_c":         38.0,
+			"thermal_frame":             shortFrame,
 		})
 		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400 for batch > 10, got %d: %s", rec.Code, rec.Body.String())
+			t.Fatalf("expected 400 for frame size 767, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		longFrame := make([]float64, 769)
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": "11000000-0000-0000-0000-000000000001",
+			"source_event_id":           "11000000-0000-0000-0000-000000000003",
+			"x_position_cm":             10.0,
+			"max_temperature_c":         38.0,
+			"thermal_frame":             longFrame,
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for frame size 769, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 
-	// 3. source_event_id duplicado no mesmo lote rejeitado
+	// 3. Lote com mais de 5 medições rejeitado (testar com 6 medições)
+	t.Run("BatchExceeding5Rejected", func(t *testing.T) {
+		batch := make([]map[string]any, 6)
+		for i := 0; i < 6; i++ {
+			batch[i] = map[string]any{
+				"source_event_id":   fmt.Sprintf("20000000-0000-0000-0000-%012d", i+1),
+				"x_position_cm":     float64(i * 2),
+				"max_temperature_c": 35.0,
+				"voltage_v":         18.5,
+				"current_a":         4.2,
+				"thermal_frame":     makeTestFrame768(35.0, nil, false),
+			}
+		}
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": "20000000-0000-0000-0000-000000000099",
+			"batch":                      batch,
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for batch > 5, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var errResp struct {
+			Error string `json:"error"`
+			Code  string `json:"code"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &errResp)
+		if errResp.Error != "telemetry batch exceeds maximum limit of 5 items" {
+			t.Fatalf("expected error message 'telemetry batch exceeds maximum limit of 5 items', got %q", errResp.Error)
+		}
+	})
+
+	// 4. source_event_id duplicado no mesmo lote rejeitado
 	t.Run("DuplicateSourceEventIDInBatchRejected", func(t *testing.T) {
 		dupID := "30000000-0000-0000-0000-000000000099"
 		batch := []map[string]any{
 			{
-				"source_event_id":  dupID,
-				"x_position_cm":    2.0,
+				"source_event_id":   dupID,
+				"x_position_cm":     2.0,
 				"max_temperature_c": 35.0,
-				"hotspot_detected": false,
-				"voltage_v":        18.5,
-				"current_a":        4.2,
-				"thermal_frame":    makeTestFrame768(35.0, nil, false),
+				"voltage_v":         18.5,
+				"current_a":         4.2,
+				"thermal_frame":     makeTestFrame768(35.0, nil, false),
 			},
 			{
-				"source_event_id":  dupID, // Duplicate!
-				"x_position_cm":    4.0,
+				"source_event_id":   dupID, // Duplicate!
+				"x_position_cm":     4.0,
 				"max_temperature_c": 36.0,
-				"hotspot_detected": false,
-				"voltage_v":        18.5,
-				"current_a":        4.2,
-				"thermal_frame":    makeTestFrame768(35.0, nil, false),
+				"voltage_v":         18.5,
+				"current_a":         4.2,
+				"thermal_frame":     makeTestFrame768(35.0, nil, false),
 			},
 		}
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
-			"batch": batch,
+			"inspection_source_event_id": "30000000-0000-0000-0000-000000000001",
+			"batch":                      batch,
 		})
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for duplicate source_event_id in batch, got %d: %s", rec.Code, rec.Body.String())
 		}
 	})
 
-	// 4. x_position_cm fora do painel rejeitado (panel length is 100.0)
+	// 5. x_position_cm fora do painel rejeitado (panel length is 100.0)
 	t.Run("XPositionBeyondPanelLengthRejected", func(t *testing.T) {
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
-			"source_event_id":  "40000000-0000-0000-0000-000000000001",
-			"x_position_cm":    150.0, // > 100.0!
-			"max_temperature_c": 35.0,
-			"hotspot_detected": false,
-			"voltage_v":        18.5,
-			"current_a":        4.2,
-			"thermal_frame":    makeTestFrame768(35.0, nil, false),
+			"inspection_source_event_id": "40000000-0000-0000-0000-000000000001",
+			"source_event_id":           "40000000-0000-0000-0000-000000000002",
+			"x_position_cm":             150.0, // > 100.0!
+			"max_temperature_c":         35.0,
+			"voltage_v":                 18.5,
+			"current_a":                 4.2,
+			"thermal_frame":             makeTestFrame768(35.0, nil, false),
 		})
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for x_position_cm > panel_length_cm, got %d: %s", rec.Code, rec.Body.String())
 		}
+
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": "40000000-0000-0000-0000-000000000001",
+			"source_event_id":           "40000000-0000-0000-0000-000000000003",
+			"x_position_cm":             -1.0, // < 0
+			"max_temperature_c":         35.0,
+			"thermal_frame":             makeTestFrame768(35.0, nil, false),
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for negative x_position_cm, got %d: %s", rec.Code, rec.Body.String())
+		}
 	})
 
-	// 5. Finalização de inspeção: validações de confirming_event_ids
+	// 6. NaN ou Inf rejeitado
+	t.Run("NaNOrInfRejected", func(t *testing.T) {
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": "45000000-0000-0000-0000-000000000001",
+			"source_event_id":           "45000000-0000-0000-0000-000000000002",
+			"x_position_cm":             10.0,
+			"max_temperature_c":         "NaN",
+			"thermal_frame":             makeTestFrame768(35.0, nil, false),
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for NaN, got %d", rec.Code)
+		}
+	})
+
+	// 7. voltage_v / current_a / power_w null são aceitos
+	t.Run("VoltageCurrentPowerNullAccepted", func(t *testing.T) {
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": "46000000-0000-0000-0000-000000000001",
+			"source_event_id":           "46000000-0000-0000-0000-000000000002",
+			"x_position_cm":             10.0,
+			"max_temperature_c":         35.0,
+			"voltage_v":                 nil,
+			"current_a":                 nil,
+			"power_w":                   nil,
+			"thermal_frame":             makeTestFrame768(35.0, nil, false),
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 for null electrical values, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var mResp struct {
+			Measurement module.MeasurementDTO `json:"measurement"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &mResp)
+		if mResp.Measurement.VoltageV != nil || mResp.Measurement.CurrentA != nil || mResp.Measurement.PowerW != nil {
+			t.Fatalf("expected nil electrical fields in response, got v=%v, c=%v, p=%v", mResp.Measurement.VoltageV, mResp.Measurement.CurrentA, mResp.Measurement.PowerW)
+		}
+	})
+
+	// 8 & 9. Uma varredura gera uma única inspeção e múltiplas medições são persistidas na mesma inspeção
+	t.Run("SingleInspectionMultipleMeasurements", func(t *testing.T) {
+		inspSourceID := "47000000-0000-0000-0000-000000000001"
+		m1 := "47000000-0000-0000-0000-000000000011"
+		m2 := "47000000-0000-0000-0000-000000000012"
+		m3 := "47000000-0000-0000-0000-000000000013"
+
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": inspSourceID,
+			"batch": []map[string]any{
+				{"source_event_id": m1, "x_position_cm": 10.0, "max_temperature_c": 36.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "x_position_cm": 12.0, "max_temperature_c": 37.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m3, "x_position_cm": 14.0, "max_temperature_c": 38.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			},
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("expected 201 for batch, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		rec = doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/latest-inspection", techAuth.AccessToken, nil)
+		var latestResp struct {
+			LatestInspection struct {
+				Inspection struct {
+					ID            string `json:"id"`
+					SourceEventID string `json:"source_event_id"`
+				} `json:"inspection"`
+				TotalMeasurements int64 `json:"total_measurements"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &latestResp)
+		if latestResp.LatestInspection.Inspection.SourceEventID != inspSourceID {
+			t.Fatalf("expected inspection source_event_id %s, got %s", inspSourceID, latestResp.LatestInspection.Inspection.SourceEventID)
+		}
+		if latestResp.LatestInspection.TotalMeasurements != 3 {
+			t.Fatalf("expected 3 measurements in single inspection, got %d", latestResp.LatestInspection.TotalMeasurements)
+		}
+	})
+
+	// 10. Finalização de inspeção: validações de confirming_event_ids, origin, row_index e baseline
 	t.Run("FinalizeInspectionValidations", func(t *testing.T) {
 		inspSourceID := "50000000-0000-0000-0000-000000000001"
 		m1 := "50000000-0000-0000-0000-000000000011"
@@ -299,8 +420,8 @@ func TestTelemetryContractValidations(t *testing.T) {
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
 			"inspection_source_event_id": inspSourceID,
 			"batch": []map[string]any{
-				{"source_event_id": m1, "x_position_cm": 20.0, "max_temperature_c": 55.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-				{"source_event_id": m2, "x_position_cm": 22.0, "max_temperature_c": 56.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m1, "x_position_cm": 20.0, "max_temperature_c": 55.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "x_position_cm": 22.0, "max_temperature_c": 56.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 			},
 		})
 		if rec.Code != http.StatusCreated {
@@ -340,19 +461,214 @@ func TestTelemetryContractValidations(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for origin not in confirming_event_ids, got %d: %s", rec.Code, rec.Body.String())
 		}
+
+		// c) row_index < 0 rejeitado
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, map[string]any{
+			"baseline_temperature_c": 35.0,
+			"confirmed_hotspots": []map[string]any{
+				{
+					"source_event_id":            "50000000-0000-0000-0000-000000000099",
+					"global_x_position_cm":        21.0,
+					"row_index":                  -1, // Out of range!
+					"max_temperature_c":           56.0,
+					"origin_measurement_event_id": m1,
+					"confirming_event_ids":        []string{m1, m2},
+				},
+			},
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for row_index < 0, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// d) row_index > 23 rejeitado
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, map[string]any{
+			"baseline_temperature_c": 35.0,
+			"confirmed_hotspots": []map[string]any{
+				{
+					"source_event_id":            "50000000-0000-0000-0000-000000000099",
+					"global_x_position_cm":        21.0,
+					"row_index":                  24, // Out of range!
+					"max_temperature_c":           56.0,
+					"origin_measurement_event_id": m1,
+					"confirming_event_ids":        []string{m1, m2},
+				},
+			},
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for row_index > 23, got %d: %s", rec.Code, rec.Body.String())
+		}
 	})
 
-	// 6. Limpeza não fecha anomalia, e fluxo de inspeção de verificação
+	// 11. Finalização com baseline e nenhum hotspot conclui inspeção sem anomalia
+	t.Run("FinalizeWithNoHotspotsConcludesWithoutAnomaly", func(t *testing.T) {
+		inspSourceID := "51000000-0000-0000-0000-000000000001"
+		m1 := "51000000-0000-0000-0000-000000000011"
+		m2 := "51000000-0000-0000-0000-000000000012"
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": inspSourceID,
+			"batch": []map[string]any{
+				{"source_event_id": m1, "x_position_cm": 10.0, "max_temperature_c": 35.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "x_position_cm": 12.0, "max_temperature_c": 35.5, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			},
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("telemetry: %d", rec.Code)
+		}
+
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, map[string]any{
+			"baseline_temperature_c": 35.0,
+			"confirmed_hotspots":     []map[string]any{},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("finalize without hotspots: %d: %s", rec.Code, rec.Body.String())
+		}
+		var finResp struct {
+			LatestInspection struct {
+				Inspection struct {
+					Status               string   `json:"status"`
+					BaselineTemperatureC *float64 `json:"baseline_temperature_c"`
+				} `json:"inspection"`
+				ConfirmedAnomalies []any `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &finResp)
+		if finResp.LatestInspection.Inspection.Status != "completed" {
+			t.Fatalf("expected completed status, got %s", finResp.LatestInspection.Inspection.Status)
+		}
+		if finResp.LatestInspection.Inspection.BaselineTemperatureC == nil || *finResp.LatestInspection.Inspection.BaselineTemperatureC != 35.0 {
+			t.Fatalf("expected baseline 35.0, got %v", finResp.LatestInspection.Inspection.BaselineTemperatureC)
+		}
+		if len(finResp.LatestInspection.ConfirmedAnomalies) != 0 {
+			t.Fatalf("expected 0 anomalies, got %d", len(finResp.LatestInspection.ConfirmedAnomalies))
+		}
+	})
+
+	// 12. Finalização com múltiplos hotspots cria múltiplas anomalias
+	t.Run("FinalizeWithMultipleHotspotsCreatesMultipleAnomalies", func(t *testing.T) {
+		inspSourceID := "52000000-0000-0000-0000-000000000001"
+		m1 := "52000000-0000-0000-0000-000000000011"
+		m2 := "52000000-0000-0000-0000-000000000012"
+		m3 := "52000000-0000-0000-0000-000000000013"
+		m4 := "52000000-0000-0000-0000-000000000014"
+
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": inspSourceID,
+			"batch": []map[string]any{
+				{"source_event_id": m1, "x_position_cm": 10.0, "max_temperature_c": 50.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "x_position_cm": 12.0, "max_temperature_c": 51.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m3, "x_position_cm": 30.0, "max_temperature_c": 55.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m4, "x_position_cm": 32.0, "max_temperature_c": 56.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			},
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("telemetry: %d", rec.Code)
+		}
+
+		h1 := "52000000-0000-0000-0000-000000000091"
+		h2 := "52000000-0000-0000-0000-000000000092"
+		row1 := 5
+		row2 := 12
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, map[string]any{
+			"baseline_temperature_c": 35.0,
+			"confirmed_hotspots": []map[string]any{
+				{
+					"source_event_id":            h1,
+					"global_x_position_cm":        11.0,
+					"row_index":                  row1,
+					"max_temperature_c":           51.0,
+					"origin_measurement_event_id": m1,
+					"confirming_event_ids":        []string{m1, m2},
+				},
+				{
+					"source_event_id":            h2,
+					"global_x_position_cm":        31.0,
+					"row_index":                  row2,
+					"max_temperature_c":           56.0,
+					"origin_measurement_event_id": m3,
+					"confirming_event_ids":        []string{m3, m4},
+				},
+			},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("finalize with 2 hotspots: %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var finResp struct {
+			LatestInspection struct {
+				ConfirmedAnomalies []any `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &finResp)
+		if len(finResp.LatestInspection.ConfirmedAnomalies) != 2 {
+			t.Fatalf("expected 2 anomalies created, got %d", len(finResp.LatestInspection.ConfirmedAnomalies))
+		}
+	})
+
+	// 13. detected_at derivado da maior medição confirmadora se não enviado
+	t.Run("DetectedAtDerivedFromMaxConfirmingMeasuredAt", func(t *testing.T) {
+		inspSourceID := "53000000-0000-0000-0000-000000000001"
+		m1 := "53000000-0000-0000-0000-000000000011"
+		m2 := "53000000-0000-0000-0000-000000000012"
+		now := time.Now().UTC().Truncate(time.Second)
+		tEarly := now.Add(-10 * time.Minute)
+		tLate := now.Add(-5 * time.Minute)
+
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": inspSourceID,
+			"batch": []map[string]any{
+				{"source_event_id": m1, "measured_at": tEarly, "x_position_cm": 20.0, "max_temperature_c": 52.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "measured_at": tLate, "x_position_cm": 22.0, "max_temperature_c": 53.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			},
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("telemetry: %d", rec.Code)
+		}
+
+		anomSourceID := "53000000-0000-0000-0000-000000000099"
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, map[string]any{
+			"baseline_temperature_c": 35.0,
+			"confirmed_hotspots": []map[string]any{
+				{
+					"source_event_id":            anomSourceID,
+					"global_x_position_cm":        21.0,
+					"max_temperature_c":           53.0,
+					"origin_measurement_event_id": m1,
+					"confirming_event_ids":        []string{m1, m2},
+					// detected_at omitted!
+				},
+			},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("finalize: %d: %s", rec.Code, rec.Body.String())
+		}
+
+		var finResp struct {
+			LatestInspection struct {
+				ConfirmedAnomalies []struct {
+					DetectedAt string `json:"detected_at"`
+				} `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &finResp)
+		if len(finResp.LatestInspection.ConfirmedAnomalies) != 1 {
+			t.Fatalf("expected 1 anomaly, got %d", len(finResp.LatestInspection.ConfirmedAnomalies))
+		}
+		expectedTimeStr := tLate.Format(time.RFC3339)
+		if finResp.LatestInspection.ConfirmedAnomalies[0].DetectedAt != expectedTimeStr {
+			t.Fatalf("expected detected_at %q (from max confirming measurement), got %q", expectedTimeStr, finResp.LatestInspection.ConfirmedAnomalies[0].DetectedAt)
+		}
+	})
+
+	// 14. Limpeza não fecha anomalia, e fluxo de inspeção de verificação
 	t.Run("CleaningLifecycleAndVerification", func(t *testing.T) {
-		// Create inspection with confirmed hotspot
 		inspSourceID := "60000000-0000-0000-0000-000000000001"
 		m1 := "60000000-0000-0000-0000-000000000011"
 		m2 := "60000000-0000-0000-0000-000000000012"
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
 			"inspection_source_event_id": inspSourceID,
 			"batch": []map[string]any{
-				{"source_event_id": m1, "x_position_cm": 30.0, "max_temperature_c": 58.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-				{"source_event_id": m2, "x_position_cm": 32.0, "max_temperature_c": 59.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m1, "x_position_cm": 30.0, "max_temperature_c": 58.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "x_position_cm": 32.0, "max_temperature_c": 59.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 			},
 		})
 		if rec.Code != http.StatusCreated {
@@ -375,9 +691,22 @@ func TestTelemetryContractValidations(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("finalize: %d: %s", rec.Code, rec.Body.String())
 		}
+		var finResp struct {
+			LatestInspection struct {
+				ConfirmedAnomalies []struct {
+					ID string `json:"id"`
+				} `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &finResp)
+		if len(finResp.LatestInspection.ConfirmedAnomalies) == 0 {
+			t.Fatalf("expected anomaly created")
+		}
+		anomID := finResp.LatestInspection.ConfirmedAnomalies[0].ID
 
 		// a) IngestCleaning: pump actuated -> post_cleaning_result is pending and anomaly remains open!
 		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, map[string]any{
+			"anomaly_event_id":          anomID,
 			"target_x_position_cm":      31.0,
 			"pump_actuated":             true,
 			"attempt_number":            1,
@@ -421,8 +750,8 @@ func TestTelemetryContractValidations(t *testing.T) {
 			"inspection_type":           "verification",
 			"cleaning_operation_id":     cleanResp.Cleaning.ID,
 			"batch": []map[string]any{
-				{"source_event_id": "60000000-0000-0000-0000-000000000031", "x_position_cm": 30.0, "max_temperature_c": 36.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-				{"source_event_id": "60000000-0000-0000-0000-000000000032", "x_position_cm": 32.0, "max_temperature_c": 36.5, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": "60000000-0000-0000-0000-000000000031", "x_position_cm": 30.0, "max_temperature_c": 36.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": "60000000-0000-0000-0000-000000000032", "x_position_cm": 32.0, "max_temperature_c": 36.5, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 			},
 		})
 		if rec.Code != http.StatusCreated {
@@ -451,18 +780,27 @@ func TestTelemetryContractValidations(t *testing.T) {
 		if verifLatest.LatestInspection.Inspection.VerificationResult == nil || *verifLatest.LatestInspection.Inspection.VerificationResult != "resolved" {
 			t.Fatalf("expected verification_result 'resolved', got %v", verifLatest.LatestInspection.Inspection.VerificationResult)
 		}
+
+		// Check anomaly status updated to resolved
+		anomRow, _ = q.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+			ID:       anomUUID,
+			ModuleID: modUUID,
+		})
+		if anomRow.Status != "resolved" || anomRow.ClosedAt == nil {
+			t.Fatalf("expected anomaly status 'resolved', got %q", anomRow.Status)
+		}
 	})
 
-	// 7. Verificação não resolvida após limpeza completa fecha como unresolved
-	t.Run("VerificationUnresolvedAfter3Attempts", func(t *testing.T) {
+	// 15. Verificação não resolvida após limpeza completa fecha como unresolved
+	t.Run("VerificationUnresolvedAfterCompletedCleaning", func(t *testing.T) {
 		inspSourceID := "70000000-0000-0000-0000-000000000001"
 		m1 := "70000000-0000-0000-0000-000000000011"
 		m2 := "70000000-0000-0000-0000-000000000012"
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
 			"inspection_source_event_id": inspSourceID,
 			"batch": []map[string]any{
-				{"source_event_id": m1, "x_position_cm": 50.0, "max_temperature_c": 60.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-				{"source_event_id": m2, "x_position_cm": 52.0, "max_temperature_c": 61.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m1, "x_position_cm": 50.0, "max_temperature_c": 60.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "x_position_cm": 52.0, "max_temperature_c": 61.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 			},
 		})
 		if rec.Code != http.StatusCreated {
@@ -485,25 +823,38 @@ func TestTelemetryContractValidations(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("finalize: %d", rec.Code)
 		}
+		var finResp struct {
+			LatestInspection struct {
+				ConfirmedAnomalies []struct {
+					ID string `json:"id"`
+				} `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &finResp)
+		if len(finResp.LatestInspection.ConfirmedAnomalies) == 0 {
+			t.Fatalf("expected anomaly created")
+		}
+		anomID := finResp.LatestInspection.ConfirmedAnomalies[0].ID
 
-		// Simulate attempt 3
+		// Completed cleaning attempt 1
 		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, map[string]any{
+			"anomaly_event_id":          anomID,
 			"target_x_position_cm":      51.0,
 			"pump_actuated":             true,
-			"attempt_number":            3, // Attempt 3
+			"attempt_number":            1,
 			"duration_seconds":          40.0,
 			"estimated_water_volume_ml": 80.0,
 			"status":                    "completed",
 		})
 		if rec.Code != http.StatusCreated {
-			t.Fatalf("cleaning attempt 3: %d", rec.Code)
+			t.Fatalf("cleaning completed: %d", rec.Code)
 		}
-		var clean3Resp struct {
+		var cleanResp struct {
 			Cleaning struct {
 				ID string `json:"id"`
 			} `json:"cleaning"`
 		}
-		_ = json.Unmarshal(rec.Body.Bytes(), &clean3Resp)
+		_ = json.Unmarshal(rec.Body.Bytes(), &cleanResp)
 
 		// Verification telemetry
 		verifInspSourceID := "70000000-0000-0000-0000-000000000002"
@@ -512,10 +863,10 @@ func TestTelemetryContractValidations(t *testing.T) {
 		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
 			"inspection_source_event_id": verifInspSourceID,
 			"inspection_type":           "verification",
-			"cleaning_operation_id":     clean3Resp.Cleaning.ID,
+			"cleaning_operation_id":     cleanResp.Cleaning.ID,
 			"batch": []map[string]any{
-				{"source_event_id": vm1, "x_position_cm": 50.0, "max_temperature_c": 60.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-				{"source_event_id": vm2, "x_position_cm": 52.0, "max_temperature_c": 60.5, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": vm1, "x_position_cm": 50.0, "max_temperature_c": 60.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": vm2, "x_position_cm": 52.0, "max_temperature_c": 60.5, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 			},
 		})
 		if rec.Code != http.StatusCreated {
@@ -539,7 +890,7 @@ func TestTelemetryContractValidations(t *testing.T) {
 			t.Fatalf("finalize verification: %d: %s", rec.Code, rec.Body.String())
 		}
 
-		// Verification result must be 'unresolved'
+		// Verification result must be 'unresolved' and anomaly closed as 'unresolved'
 		rec = doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/latest-inspection", techAuth.AccessToken, nil)
 		var verifUnresLatest struct {
 			LatestInspection struct {
@@ -552,9 +903,19 @@ func TestTelemetryContractValidations(t *testing.T) {
 		if verifUnresLatest.LatestInspection.Inspection.VerificationResult == nil || *verifUnresLatest.LatestInspection.Inspection.VerificationResult != "unresolved" {
 			t.Fatalf("expected verification_result 'unresolved', got %v", verifUnresLatest.LatestInspection.Inspection.VerificationResult)
 		}
+
+		anomUUID, _ := auth.ParseUUID(anomID)
+		modUUID, _ := auth.ParseUUID(modID)
+		anomRow, _ := q.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+			ID:       anomUUID,
+			ModuleID: modUUID,
+		})
+		if anomRow.Status != "unresolved" || anomRow.ClosedAt == nil {
+			t.Fatalf("expected anomaly closed as unresolved, got status=%q closed_at=%v", anomRow.Status, anomRow.ClosedAt)
+		}
 	})
 
-	// 8. Verificação após limpeza interrompida mantém anomalia open com retry_pending
+	// 16. Verificação após limpeza interrompida mantém anomalia open com retry_pending
 	t.Run("VerificationAfterInterruptedCleaningKeepsOpenRetryPending", func(t *testing.T) {
 		inspSourceID := "80000000-0000-0000-0000-000000000001"
 		m1 := "80000000-0000-0000-0000-000000000011"
@@ -562,8 +923,8 @@ func TestTelemetryContractValidations(t *testing.T) {
 		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
 			"inspection_source_event_id": inspSourceID,
 			"batch": []map[string]any{
-				{"source_event_id": m1, "x_position_cm": 70.0, "max_temperature_c": 54.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-				{"source_event_id": m2, "x_position_cm": 72.0, "max_temperature_c": 55.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m1, "x_position_cm": 70.0, "max_temperature_c": 54.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": m2, "x_position_cm": 72.0, "max_temperature_c": 55.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 			},
 		})
 		if rec.Code != http.StatusCreated {
@@ -586,9 +947,22 @@ func TestTelemetryContractValidations(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("finalize: %d", rec.Code)
 		}
+		var finResp struct {
+			LatestInspection struct {
+				ConfirmedAnomalies []struct {
+					ID string `json:"id"`
+				} `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &finResp)
+		if len(finResp.LatestInspection.ConfirmedAnomalies) == 0 {
+			t.Fatalf("expected anomaly created")
+		}
+		anomID := finResp.LatestInspection.ConfirmedAnomalies[0].ID
 
 		// Interrupted cleaning (status = failed, pump_actuated = true, attempt = 1)
 		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, map[string]any{
+			"anomaly_event_id":          anomID,
 			"target_x_position_cm":      71.0,
 			"pump_actuated":             true,
 			"attempt_number":            1,
@@ -617,8 +991,8 @@ func TestTelemetryContractValidations(t *testing.T) {
 			"inspection_type":           "verification",
 			"cleaning_operation_id":     cleanFailResp.Cleaning.ID,
 			"batch": []map[string]any{
-				{"source_event_id": vm1, "x_position_cm": 70.0, "max_temperature_c": 54.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-				{"source_event_id": vm2, "x_position_cm": 72.0, "max_temperature_c": 55.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": vm1, "x_position_cm": 70.0, "max_temperature_c": 54.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+				{"source_event_id": vm2, "x_position_cm": 72.0, "max_temperature_c": 55.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 			},
 		})
 		if rec.Code != http.StatusCreated {
@@ -656,6 +1030,22 @@ func TestTelemetryContractValidations(t *testing.T) {
 			t.Fatalf("expected anomaly status 'open' with retry_pending=true, got status=%q, retry_pending=%v", anomRow.Status, anomRow.RetryPending)
 		}
 	})
+
+	// 17. Verificação inválida mantém avaliação pendente
+	t.Run("VerificationInvalidKeepsEvaluationPending", func(t *testing.T) {
+		// Non-existent cleaning_operation_id
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": "85000000-0000-0000-0000-000000000001",
+			"inspection_type":           "verification",
+			"cleaning_operation_id":     "85000000-0000-0000-0000-999999999999", // non-existent
+			"batch": []map[string]any{
+				{"source_event_id": "85000000-0000-0000-0000-000000000011", "x_position_cm": 10.0, "max_temperature_c": 35.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			},
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for non-existent cleaning operation, got %d", rec.Code)
+		}
+	})
 }
 
 func TestTelemetryIdempotency(t *testing.T) {
@@ -682,31 +1072,31 @@ func TestTelemetryIdempotency(t *testing.T) {
 	measSourceID := "90000000-0000-0000-0000-000000000011"
 	meas2SourceID := "90000000-0000-0000-0000-000000000012"
 
-	// 1. Enviar medição inicial
+	// 1. Enviar lote inicial
 	rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
 		"inspection_source_event_id": inspSourceID,
 		"batch": []map[string]any{
-			{"source_event_id": measSourceID, "x_position_cm": 15.0, "max_temperature_c": 42.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
-			{"source_event_id": meas2SourceID, "x_position_cm": 17.0, "max_temperature_c": 43.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			{"source_event_id": measSourceID, "x_position_cm": 15.0, "max_temperature_c": 42.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			{"source_event_id": meas2SourceID, "x_position_cm": 17.0, "max_temperature_c": 43.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("first telemetry failed: %d", rec.Code)
+		t.Fatalf("first telemetry failed: %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 2. Reenviar mesma medição com conteúdo divergente:
-	// Idempotência estrita: reenvio NÃO altera a medição original e NÃO duplica!
+	// 2. Reenviar mesmo lote IDÊNTICO: sucesso idempotente (201), não duplica e não altera medição original
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
 		"inspection_source_event_id": inspSourceID,
 		"batch": []map[string]any{
-			{"source_event_id": measSourceID, "x_position_cm": 99.0, "max_temperature_c": 99.0, "hotspot_detected": true, "voltage_v": 99.0, "current_a": 99.0, "thermal_frame": makeTestFrame768(99.0, nil, false)},
+			{"source_event_id": measSourceID, "x_position_cm": 15.0, "max_temperature_c": 42.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			{"source_event_id": meas2SourceID, "x_position_cm": 17.0, "max_temperature_c": 43.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
-		t.Fatalf("resend telemetry failed: %d", rec.Code)
+		t.Fatalf("identical resend failed: %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Verificar contagem total e se valores originais foram preservados
+	// Verificar se continua com exatamente 2 medições e valores originais preservados
 	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/measurements", techAuth.AccessToken, nil)
 	var measListResp struct {
 		Measurements []module.MeasurementDTO `json:"measurements"`
@@ -723,7 +1113,52 @@ func TestTelemetryIdempotency(t *testing.T) {
 		}
 	}
 
-	// 3. Finalizar inspeção
+	// 3. Reenviar com conteúdo DIVERGENTE -> retorna 409 Conflict
+	// a) Divergente no x_position_cm
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": inspSourceID,
+		"batch": []map[string]any{
+			{"source_event_id": measSourceID, "x_position_cm": 99.0, "max_temperature_c": 42.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on divergent x_position_cm resend, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// b) Divergente no max_temperature_c
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": inspSourceID,
+		"batch": []map[string]any{
+			{"source_event_id": measSourceID, "x_position_cm": 15.0, "max_temperature_c": 99.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on divergent max_temperature_c resend, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// c) Divergente no voltage_v
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": inspSourceID,
+		"batch": []map[string]any{
+			{"source_event_id": measSourceID, "x_position_cm": 15.0, "max_temperature_c": 42.0, "voltage_v": 99.0, "current_a": 4.2, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on divergent voltage_v resend, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// d) Divergente no thermal_frame
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": inspSourceID,
+		"batch": []map[string]any{
+			{"source_event_id": measSourceID, "x_position_cm": 15.0, "max_temperature_c": 42.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": makeTestFrame768(99.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 Conflict on divergent thermal_frame resend, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Finalizar inspeção
 	anomSourceID := "90000000-0000-0000-0000-000000000099"
 	finalizePayload := map[string]any{
 		"baseline_temperature_c": 35.0,
@@ -739,13 +1174,13 @@ func TestTelemetryIdempotency(t *testing.T) {
 	}
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, finalizePayload)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("first finalize: %d", rec.Code)
+		t.Fatalf("first finalize: %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// 4. Reenviar mesma finalização: não duplica anomalia
+	// 5. Reenviar mesma finalização: não duplica anomalia
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, finalizePayload)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("resend finalize: %d", rec.Code)
+		t.Fatalf("resend finalize: %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// Verificar se continua com exatamente 1 anomalia

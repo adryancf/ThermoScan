@@ -236,7 +236,6 @@ class _FakeModuleRepository extends ModuleRepository {
         measuredAt: '2026-11-02T14:15:00Z',
         xPositionCm: 12.4,
         maxTemperatureC: 42.5,
-        hotspotDetected: false,
         voltageV: 18.2,
         currentA: 4.1,
         powerW: 74.6,
@@ -261,7 +260,6 @@ class _FakeModuleRepository extends ModuleRepository {
         measuredAt: '2026-11-02T14:15:00Z',
         xPositionCm: 12.4,
         maxTemperatureC: 42.5,
-        hotspotDetected: false,
         voltageV: 18.2,
         currentA: 4.1,
         powerW: 74.6,
@@ -275,7 +273,6 @@ class _FakeModuleRepository extends ModuleRepository {
         measuredAt: '2026-11-02T14:15:10Z',
         xPositionCm: 14.4,
         maxTemperatureC: 44.0,
-        hotspotDetected: true,
         voltageV: 18.2,
         currentA: 4.1,
         powerW: 74.6,
@@ -806,8 +803,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Telemetry History'), findsOneWidget);
-    expect(find.textContaining('Inspection Session'), findsOneWidget);
-    expect(find.text('NORMAL'), findsOneWidget);
+    expect(find.text('Active Inspection (Paginated)'), findsOneWidget);
+    expect(find.text('COMPLETED'), findsOneWidget);
 
     // Tap Cleanings in TabBar (SCR-12)
     await tester.tap(find.text('Cleanings'));

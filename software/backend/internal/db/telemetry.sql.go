@@ -53,7 +53,7 @@ INSERT INTO anomaly_events (
     $9
 )
 ON CONFLICT (module_id, source_event_id) DO UPDATE
-SET updated_at = now()
+SET updated_at = anomaly_events.updated_at
 RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 `
 
@@ -310,7 +310,6 @@ INSERT INTO measurements (
     measured_at,
     x_position_cm,
     max_temperature_c,
-    hotspot_detected,
     voltage_v,
     current_a,
     power_w,
@@ -325,11 +324,10 @@ INSERT INTO measurements (
     $7,
     $8,
     $9,
-    $10,
-    $11
+    $10
 )
 ON CONFLICT (module_id, source_event_id) DO NOTHING
-RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, hotspot_detected, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at
+RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, voltage_v, current_a, power_w, thermal_frame, received_at
 `
 
 type CreateMeasurementParams struct {
@@ -339,7 +337,6 @@ type CreateMeasurementParams struct {
 	MeasuredAt      time.Time
 	XPositionCm     pgtype.Numeric
 	MaxTemperatureC pgtype.Numeric
-	HotspotDetected bool
 	VoltageV        pgtype.Numeric
 	CurrentA        pgtype.Numeric
 	PowerW          pgtype.Numeric
@@ -354,10 +351,9 @@ type CreateMeasurementRow struct {
 	MeasuredAt      time.Time
 	XPositionCm     string
 	MaxTemperatureC string
-	HotspotDetected bool
-	VoltageV        string
-	CurrentA        string
-	PowerW          string
+	VoltageV        pgtype.Numeric
+	CurrentA        pgtype.Numeric
+	PowerW          pgtype.Numeric
 	ThermalFrame    []byte
 	ReceivedAt      time.Time
 }
@@ -370,7 +366,6 @@ func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementPa
 		arg.MeasuredAt,
 		arg.XPositionCm,
 		arg.MaxTemperatureC,
-		arg.HotspotDetected,
 		arg.VoltageV,
 		arg.CurrentA,
 		arg.PowerW,
@@ -385,7 +380,6 @@ func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementPa
 		&i.MeasuredAt,
 		&i.XPositionCm,
 		&i.MaxTemperatureC,
-		&i.HotspotDetected,
 		&i.VoltageV,
 		&i.CurrentA,
 		&i.PowerW,
@@ -847,7 +841,7 @@ func (q *Queries) GetLatestReservoirReadingByModule(ctx context.Context, moduleI
 }
 
 const getMeasurementBySourceEventID = `-- name: GetMeasurementBySourceEventID :one
-SELECT id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, hotspot_detected, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at
+SELECT id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, voltage_v, current_a, power_w, thermal_frame, received_at
 FROM measurements
 WHERE module_id = $1 AND source_event_id = $2
 `
@@ -865,10 +859,9 @@ type GetMeasurementBySourceEventIDRow struct {
 	MeasuredAt      time.Time
 	XPositionCm     string
 	MaxTemperatureC string
-	HotspotDetected bool
-	VoltageV        string
-	CurrentA        string
-	PowerW          string
+	VoltageV        pgtype.Numeric
+	CurrentA        pgtype.Numeric
+	PowerW          pgtype.Numeric
 	ThermalFrame    []byte
 	ReceivedAt      time.Time
 }
@@ -884,7 +877,6 @@ func (q *Queries) GetMeasurementBySourceEventID(ctx context.Context, arg GetMeas
 		&i.MeasuredAt,
 		&i.XPositionCm,
 		&i.MaxTemperatureC,
-		&i.HotspotDetected,
 		&i.VoltageV,
 		&i.CurrentA,
 		&i.PowerW,
@@ -1157,10 +1149,9 @@ SELECT
     m.measured_at,
     m.x_position_cm::text AS x_position_cm,
     m.max_temperature_c::text AS max_temperature_c,
-    m.hotspot_detected,
-    m.voltage_v::text AS voltage_v,
-    m.current_a::text AS current_a,
-    m.power_w::text AS power_w,
+    m.voltage_v,
+    m.current_a,
+    m.power_w,
     m.thermal_frame,
     m.received_at
 FROM measurements m
@@ -1184,10 +1175,9 @@ type ListMeasurementsByInspectionPagedRow struct {
 	MeasuredAt      time.Time
 	XPositionCm     string
 	MaxTemperatureC string
-	HotspotDetected bool
-	VoltageV        string
-	CurrentA        string
-	PowerW          string
+	VoltageV        pgtype.Numeric
+	CurrentA        pgtype.Numeric
+	PowerW          pgtype.Numeric
 	ThermalFrame    []byte
 	ReceivedAt      time.Time
 }
@@ -1214,7 +1204,6 @@ func (q *Queries) ListMeasurementsByInspectionPaged(ctx context.Context, arg Lis
 			&i.MeasuredAt,
 			&i.XPositionCm,
 			&i.MaxTemperatureC,
-			&i.HotspotDetected,
 			&i.VoltageV,
 			&i.CurrentA,
 			&i.PowerW,
@@ -1240,10 +1229,9 @@ SELECT
     m.measured_at,
     m.x_position_cm::text AS x_position_cm,
     m.max_temperature_c::text AS max_temperature_c,
-    m.hotspot_detected,
-    m.voltage_v::text AS voltage_v,
-    m.current_a::text AS current_a,
-    m.power_w::text AS power_w,
+    m.voltage_v,
+    m.current_a,
+    m.power_w,
     m.thermal_frame,
     m.received_at
 FROM measurements m
@@ -1266,10 +1254,9 @@ type ListMeasurementsByModuleRow struct {
 	MeasuredAt      time.Time
 	XPositionCm     string
 	MaxTemperatureC string
-	HotspotDetected bool
-	VoltageV        string
-	CurrentA        string
-	PowerW          string
+	VoltageV        pgtype.Numeric
+	CurrentA        pgtype.Numeric
+	PowerW          pgtype.Numeric
 	ThermalFrame    []byte
 	ReceivedAt      time.Time
 }
@@ -1291,7 +1278,6 @@ func (q *Queries) ListMeasurementsByModule(ctx context.Context, arg ListMeasurem
 			&i.MeasuredAt,
 			&i.XPositionCm,
 			&i.MaxTemperatureC,
-			&i.HotspotDetected,
 			&i.VoltageV,
 			&i.CurrentA,
 			&i.PowerW,

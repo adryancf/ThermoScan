@@ -281,7 +281,7 @@ void main() {
   });
 
   group('ModuleMeasurement Domain & Radiometric Strict Compliance Tests', () {
-    test('ModuleMeasurement safely parses thermal_frame with null elements', () {
+    test('ModuleMeasurement safely parses thermal_frame with null elements without crash', () {
       final json = {
         'id': 'm-1',
         'module_id': 'mod-1',
@@ -290,23 +290,43 @@ void main() {
         'measured_at': '2026-11-03T12:00:00Z',
         'x_position_cm': 4.0,
         'max_temperature_c': 52.3,
-        'hotspot_detected': true,
         'voltage_v': 18.2,
         'current_a': 4.1,
         'power_w': 74.62,
-        'thermal_frame': [28.1, null, 29.5],
+        'thermal_frame': [28.1, null, 29.5, null],
         'received_at': '2026-11-03T12:00:05Z',
       };
 
       final measurement = ModuleMeasurement.fromJson(json);
       expect(measurement.xPositionCm, 4.0);
       expect(measurement.maxTemperatureC, 52.3);
-      expect(measurement.hotspotDetected, isTrue);
       expect(measurement.thermalFrame, isNotNull);
-      expect(measurement.thermalFrame!.length, 3);
+      expect(measurement.thermalFrame!.length, 4);
       expect(measurement.thermalFrame![0], 28.1);
       expect(measurement.thermalFrame![1], isNull);
       expect(measurement.thermalFrame![2], 29.5);
+      expect(measurement.thermalFrame![3], isNull);
+    });
+
+    test('ModuleMeasurement safely parses null electrical readings (INA219 unavailable)', () {
+      final json = {
+        'id': 'm-null-elec',
+        'module_id': 'mod-1',
+        'inspection_id': 'insp-1',
+        'source_event_id': 'evt-null',
+        'measured_at': '2026-11-03T12:00:00Z',
+        'x_position_cm': 8.0,
+        'max_temperature_c': 48.0,
+        'voltage_v': null,
+        'current_a': null,
+        'power_w': null,
+        'received_at': '2026-11-03T12:00:05Z',
+      };
+
+      final measurement = ModuleMeasurement.fromJson(json);
+      expect(measurement.voltageV, isNull);
+      expect(measurement.currentA, isNull);
+      expect(measurement.powerW, isNull);
     });
 
     test('ModuleInspection stores baselineTemperatureC while measurement does not', () {
@@ -327,7 +347,7 @@ void main() {
       expect(inspection.baselineTemperatureC, 34.8);
     });
 
-    testWidgets('RadiometricScanCard renders candidate step without triggering confirmed hotspot alarm', (tester) async {
+    testWidgets('RadiometricScanCard renders by X position, avoids thermal matrix fusion and does not display candidate as HOTSPOT', (tester) async {
       const mod = PvModule(
         id: 'mod-1',
         companyId: 'c1',
@@ -350,19 +370,32 @@ void main() {
         ),
       );
 
-      const candidateMeas = ModuleMeasurement(
-        id: 'meas-cand',
+      const meas1 = ModuleMeasurement(
+        id: 'meas-1',
         moduleId: 'mod-1',
         inspectionId: 'insp-1',
-        sourceEventId: 'evt-cand',
+        sourceEventId: 'evt-1',
         measuredAt: '2026-11-03T12:00:00Z',
-        xPositionCm: 15.0,
-        maxTemperatureC: 55.0,
-        hotspotDetected: true, // Candidate!
+        xPositionCm: 2.0,
+        maxTemperatureC: 45.0,
         voltageV: 18.2,
         currentA: 4.1,
         powerW: 74.6,
         receivedAt: '2026-11-03T12:00:05Z',
+      );
+
+      const meas2 = ModuleMeasurement(
+        id: 'meas-2',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-2',
+        measuredAt: '2026-11-03T12:00:10Z',
+        xPositionCm: 4.0,
+        maxTemperatureC: 58.0, // High temp candidate step without confirmed anomaly
+        voltageV: 18.2,
+        currentA: 4.1,
+        powerW: 74.6,
+        receivedAt: '2026-11-03T12:00:15Z',
       );
 
       const inspWithoutConfirmed = LatestInspection(
@@ -377,7 +410,7 @@ void main() {
           createdAt: '2026-11-03T12:00:00Z',
           updatedAt: '2026-11-03T12:00:00Z',
         ),
-        totalMeasurements: 1,
+        totalMeasurements: 2,
         confirmedAnomalies: [], // Empty! No confirmed hotspot
       );
 
@@ -387,7 +420,7 @@ void main() {
             body: SingleChildScrollView(
               child: RadiometricScanCard(
                 module: mod,
-                latestMeasurement: candidateMeas,
+                measurements: [meas1, meas2],
                 latestInspection: inspWithoutConfirmed,
               ),
             ),
@@ -396,9 +429,198 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Confirms: "Delta: +20.0°C (Candidate)" is shown, NOT "(Hotspot)"
-      expect(find.text('Delta: +20.0°C (Candidate)'), findsWidgets);
+      // Rendered individually by X position without matrix fusion
+      expect(find.text('F1 (2cm)'), findsOneWidget);
+      expect(find.text('F2 (4cm)'), findsOneWidget);
+      expect(find.text('F1 (X=2.0 cm)'), findsOneWidget);
+      expect(find.text('F2 (X=4.0 cm)'), findsOneWidget);
+
+      // Candidate is NEVER displayed as HOTSPOT
+      expect(find.text('HOTSPOT'), findsNothing);
       expect(find.text('HOTSPOT DETECTED'), findsNothing);
+      expect(find.text('Delta: +23.0°C (Normal)'), findsOneWidget);
+    });
+
+    testWidgets('RadiometricScanCard highlights exclusively confirmedAnomalies from completed inspection', (tester) async {
+      const mod = PvModule(
+        id: 'mod-1',
+        companyId: 'c1',
+        installerTechnicianId: 'u1',
+        installerName: 'Marco Silva',
+        installerEmail: 'marco@soltech.io',
+        name: 'PV Array 1',
+        macAddress: 'AA:BB:CC:11:22:33',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        createdAt: '2026-11-01T10:00:00Z',
+        updatedAt: '2026-11-01T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      );
+
+      const meas1 = ModuleMeasurement(
+        id: 'meas-1',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-1',
+        measuredAt: '2026-11-03T12:00:00Z',
+        xPositionCm: 2.0,
+        maxTemperatureC: 40.0,
+        voltageV: 18.2,
+        currentA: 4.1,
+        powerW: 74.6,
+        receivedAt: '2026-11-03T12:00:05Z',
+      );
+
+      const meas2 = ModuleMeasurement(
+        id: 'meas-2',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-2',
+        measuredAt: '2026-11-03T12:00:10Z',
+        xPositionCm: 10.0,
+        maxTemperatureC: 62.0,
+        voltageV: 18.2,
+        currentA: 4.1,
+        powerW: 74.6,
+        receivedAt: '2026-11-03T12:00:15Z',
+      );
+
+      const inspWithConfirmed = LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-1',
+          moduleId: 'mod-1',
+          sourceEventId: 'evt-insp-1',
+          type: 'scheduled',
+          scheduledFor: '2026-11-03T12:00:00Z',
+          status: 'completed',
+          baselineTemperatureC: 35.0,
+          createdAt: '2026-11-03T12:00:00Z',
+          updatedAt: '2026-11-03T12:00:00Z',
+        ),
+        totalMeasurements: 2,
+        confirmedAnomalies: [
+          ConfirmedAnomaly(
+            id: 'anom-1',
+            moduleId: 'mod-1',
+            originMeasurementId: 'meas-2',
+            confirmingMeasurementIds: ['meas-2'],
+            sourceEventId: 'evt-anom-1',
+            xPositionCm: 10.0,
+            detectedAt: '2026-11-03T12:00:15Z',
+            status: 'open',
+            actuatedAttemptsCount: 0,
+            retryPending: false,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RadiometricScanCard(
+                module: mod,
+                measurements: [meas1, meas2],
+                latestInspection: inspWithConfirmed,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Exclusively highlights confirmed anomaly
+      expect(find.text('Delta: +27.0°C (Hotspot)'), findsWidgets);
+      expect(find.text('HOTSPOT 10.0cm'), findsOneWidget);
+      expect(find.text('HOTSPOT'), findsOneWidget);
+    });
+
+    testWidgets('RadiometricScanCard renders N/A for null electrical readings and never 0.0 V, 0.00 A, 0.0 W', (tester) async {
+      const mod = PvModule(
+        id: 'mod-1',
+        companyId: 'c1',
+        installerTechnicianId: 'u1',
+        installerName: 'Marco Silva',
+        installerEmail: 'marco@soltech.io',
+        name: 'PV Array 1',
+        macAddress: 'AA:BB:CC:11:22:33',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        createdAt: '2026-11-01T10:00:00Z',
+        updatedAt: '2026-11-01T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      );
+
+      const measNullElec = ModuleMeasurement(
+        id: 'meas-null',
+        moduleId: 'mod-1',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-null',
+        measuredAt: '2026-11-03T12:00:00Z',
+        xPositionCm: 5.0,
+        maxTemperatureC: 44.0,
+        voltageV: null,
+        currentA: null,
+        powerW: null,
+        receivedAt: '2026-11-03T12:00:05Z',
+      );
+
+      const insp = LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-1',
+          moduleId: 'mod-1',
+          sourceEventId: 'evt-insp-1',
+          type: 'scheduled',
+          scheduledFor: '2026-11-03T12:00:00Z',
+          status: 'completed',
+          baselineTemperatureC: 34.0,
+          createdAt: '2026-11-03T12:00:00Z',
+          updatedAt: '2026-11-03T12:00:00Z',
+        ),
+        totalMeasurements: 1,
+        confirmedAnomalies: [],
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: RadiometricScanCard(
+                module: mod,
+                latestMeasurement: measNullElec,
+                latestInspection: insp,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Displays N/A in frame and metric tiles
+      expect(find.text('N/A • N/A • N/A'), findsOneWidget);
+      expect(find.text('N/A'), findsWidgets);
+
+      // NEVER displays 0.0 V, 0.00 A, 0.0 W
+      expect(find.textContaining('0.0 V'), findsNothing);
+      expect(find.textContaining('0.00 A'), findsNothing);
+      expect(find.textContaining('0.0 W'), findsNothing);
+      expect(find.textContaining('0.0V'), findsNothing);
+      expect(find.textContaining('0.00A'), findsNothing);
+      expect(find.textContaining('0.0W'), findsNothing);
     });
 
     testWidgets('ModuleMeasurementsScreen consumes paginated measurements ordered by x_position_cm ASC and handles page changes', (tester) async {
@@ -430,33 +652,32 @@ void main() {
             totalPages: 2,
             hasNextPage: true,
             measurements: [
-              ModuleMeasurement(
-                id: 'm-page1-1',
-                moduleId: 'mod-1',
-                inspectionId: 'insp-paginated-1',
-                sourceEventId: 'evt-p1-1',
-                measuredAt: '2026-11-03T14:05:00Z',
-                xPositionCm: 10.0, // First in ascending order
-                maxTemperatureC: 40.0,
-                hotspotDetected: false,
-                voltageV: 18.5,
-                currentA: 4.2,
-                powerW: 77.7,
-                receivedAt: '2026-11-03T14:05:05Z',
-              ),
+              // Intentionally returned unordered from API to test client ASC sorting
               ModuleMeasurement(
                 id: 'm-page1-2',
                 moduleId: 'mod-1',
                 inspectionId: 'insp-paginated-1',
                 sourceEventId: 'evt-p1-2',
                 measuredAt: '2026-11-03T14:05:10Z',
-                xPositionCm: 12.0, // Second in ascending order
+                xPositionCm: 12.0,
                 maxTemperatureC: 41.0,
-                hotspotDetected: false,
                 voltageV: 18.5,
                 currentA: 4.2,
                 powerW: 77.7,
                 receivedAt: '2026-11-03T14:05:15Z',
+              ),
+              ModuleMeasurement(
+                id: 'm-page1-1',
+                moduleId: 'mod-1',
+                inspectionId: 'insp-paginated-1',
+                sourceEventId: 'evt-p1-1',
+                measuredAt: '2026-11-03T14:05:00Z',
+                xPositionCm: 10.0,
+                maxTemperatureC: 40.0,
+                voltageV: null, // Null electrical test in list
+                currentA: null,
+                powerW: null,
+                receivedAt: '2026-11-03T14:05:05Z',
               ),
             ],
           );
@@ -476,7 +697,6 @@ void main() {
                 measuredAt: '2026-11-03T14:05:20Z',
                 xPositionCm: 30.0,
                 maxTemperatureC: 45.0,
-                hotspotDetected: false,
                 voltageV: 18.5,
                 currentA: 4.2,
                 powerW: 77.7,
@@ -502,12 +722,19 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Verify page 1 rendered items ordered by xPositionCm ASC
+      // Verify page 1 rendered items strictly ordered by xPositionCm ASC
       expect(find.text('Active Inspection (Paginated)'), findsOneWidget);
       expect(find.text('X = 10.0 cm'), findsOneWidget);
       expect(find.text('X = 12.0 cm'), findsOneWidget);
       expect(find.text('Page 1 of 2 (20 items)'), findsOneWidget);
       expect(requestedPage, 1);
+
+      // Verify null electrical reading shows N/A and not 0.0V or 0.0W
+      expect(find.text('N/A'), findsWidgets);
+      expect(find.text('0.0V'), findsNothing);
+      expect(find.text('0.0W'), findsNothing);
+      // Candidate never shown in item list
+      expect(find.text('CANDIDATE'), findsNothing);
 
       // Tap Next button to paginate
       await tester.tap(find.byKey(const Key('btn_next_page')));

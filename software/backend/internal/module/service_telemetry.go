@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 
 	"backend/internal/auth"
@@ -17,7 +18,7 @@ import (
 
 var (
 	ErrInspectionCompleted = errors.New("inspection already finalized")
-	ErrBatchTooLarge       = errors.New("telemetry batch exceeds maximum limit of 10 items")
+	ErrBatchTooLarge       = errors.New("telemetry batch exceeds maximum limit of 5 items")
 )
 
 func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, limit, offset int32) ([]MeasurementDTO, error) {
@@ -58,19 +59,18 @@ func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal
 		}
 
 		out = append(out, MeasurementDTO{
-			ID:              auth.FormatUUID(m.ID),
-			ModuleID:        auth.FormatUUID(m.ModuleID),
-			InspectionID:    auth.FormatUUID(m.InspectionID),
-			SourceEventID:   auth.FormatUUID(m.SourceEventID),
-			MeasuredAt:      m.MeasuredAt.UTC().Format(time.RFC3339),
-			XPositionCM:     m.XPositionCm,
-			MaxTempC:        m.MaxTemperatureC,
-			HotspotDetected: m.HotspotDetected,
-			VoltageV:        m.VoltageV,
-			CurrentA:        m.CurrentA,
-			PowerW:          m.PowerW,
-			ThermalFrame:    thermalFrameData,
-			ReceivedAt:      m.ReceivedAt.UTC().Format(time.RFC3339),
+			ID:            auth.FormatUUID(m.ID),
+			ModuleID:      auth.FormatUUID(m.ModuleID),
+			InspectionID:  auth.FormatUUID(m.InspectionID),
+			SourceEventID: auth.FormatUUID(m.SourceEventID),
+			MeasuredAt:    m.MeasuredAt.UTC().Format(time.RFC3339),
+			XPositionCM:   m.XPositionCm,
+			MaxTempC:      m.MaxTemperatureC,
+			VoltageV:      numericToStringPtr(m.VoltageV),
+			CurrentA:      numericToStringPtr(m.CurrentA),
+			PowerW:        numericToStringPtr(m.PowerW),
+			ThermalFrame:  thermalFrameData,
+			ReceivedAt:    m.ReceivedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return out, nil
@@ -140,19 +140,18 @@ func (s *Service) ListInspectionMeasurementsPaged(
 		}
 
 		items = append(items, MeasurementDTO{
-			ID:              auth.FormatUUID(m.ID),
-			ModuleID:        auth.FormatUUID(m.ModuleID),
-			InspectionID:    auth.FormatUUID(m.InspectionID),
-			SourceEventID:   auth.FormatUUID(m.SourceEventID),
-			MeasuredAt:      m.MeasuredAt.UTC().Format(time.RFC3339),
-			XPositionCM:     m.XPositionCm,
-			MaxTempC:        m.MaxTemperatureC,
-			HotspotDetected: m.HotspotDetected,
-			VoltageV:        m.VoltageV,
-			CurrentA:        m.CurrentA,
-			PowerW:          m.PowerW,
-			ThermalFrame:    thermalFrameData,
-			ReceivedAt:      m.ReceivedAt.UTC().Format(time.RFC3339),
+			ID:            auth.FormatUUID(m.ID),
+			ModuleID:      auth.FormatUUID(m.ModuleID),
+			InspectionID:  auth.FormatUUID(m.InspectionID),
+			SourceEventID: auth.FormatUUID(m.SourceEventID),
+			MeasuredAt:    m.MeasuredAt.UTC().Format(time.RFC3339),
+			XPositionCM:   m.XPositionCm,
+			MaxTempC:      m.MaxTemperatureC,
+			VoltageV:      numericToStringPtr(m.VoltageV),
+			CurrentA:      numericToStringPtr(m.CurrentA),
+			PowerW:        numericToStringPtr(m.PowerW),
+			ThermalFrame:  thermalFrameData,
+			ReceivedAt:    m.ReceivedAt.UTC().Format(time.RFC3339),
 		})
 	}
 
@@ -340,7 +339,6 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 				MeasuredAt:      input.MeasuredAt,
 				XPositionCm:     input.XPositionCm,
 				MaxTemperatureC: input.MaxTemperatureC,
-				HotspotDetected: input.HotspotDetected,
 				VoltageV:        input.VoltageV,
 				CurrentA:        input.CurrentA,
 				PowerW:          input.PowerW,
@@ -352,8 +350,17 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 	if len(items) == 0 {
 		return nil, ErrInvalidInput
 	}
-	if len(items) > 10 {
+	if len(items) > 5 {
 		return nil, ErrBatchTooLarge
+	}
+
+	// Validate mandatory inspection_source_event_id
+	if input.InspectionSourceEventID == nil || strings.TrimSpace(*input.InspectionSourceEventID) == "" {
+		return nil, ErrInvalidInput
+	}
+	inspSourceUUID, err := auth.ParseUUID(strings.TrimSpace(*input.InspectionSourceEventID))
+	if err != nil {
+		return nil, ErrInvalidInput
 	}
 
 	// Validate intra-batch uniqueness of source_event_id
@@ -379,10 +386,10 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		if panelLength != nil && f.XPositionCm > *panelLength {
 			return nil, ErrInvalidInput
 		}
-		if !isFinite(f.XPositionCm) || !isFinite(f.VoltageV) || !isFinite(f.CurrentA) || !isFinite(f.MaxTemperatureC) {
+		if !isFinite(f.XPositionCm) || !isFinite(f.MaxTemperatureC) {
 			return nil, ErrInvalidInput
 		}
-		if f.PowerW != nil && !isFinite(*f.PowerW) {
+		if !isFinitePtr(f.VoltageV) || !isFinitePtr(f.CurrentA) || !isFinitePtr(f.PowerW) {
 			return nil, ErrInvalidInput
 		}
 		if len(f.ThermalFrame) != 32*24 {
@@ -428,56 +435,25 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		}
 	}
 
-	var inspSourceUUID pgtype.UUID
-	if input.InspectionSourceEventID != nil && *input.InspectionSourceEventID != "" {
-		inspSourceUUID, err = auth.ParseUUID(*input.InspectionSourceEventID)
-		if err != nil {
-			return nil, ErrInvalidInput
-		}
-
-		existingInsp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
-			ModuleID:      moduleID,
-			SourceEventID: inspSourceUUID,
-		})
-		if err == nil {
-			inspID = existingInsp.ID
-		} else if errors.Is(err, pgx.ErrNoRows) {
-			schedFor := now
-			if input.InspectionScheduledFor != nil {
-				schedFor = input.InspectionScheduledFor.UTC()
-			}
-			startedAt := now
-			if input.InspectionStartedAt != nil {
-				startedAt = input.InspectionStartedAt.UTC()
-			}
-
-			newInsp, err := qtx.CreateInspection(ctx, db.CreateInspectionParams{
-				ModuleID:            moduleID,
-				SourceEventID:       inspSourceUUID,
-				Type:                inspType,
-				CleaningOperationID: cleanOpUUID,
-				ScheduledFor:        schedFor,
-				StartedAt:           &startedAt,
-				FinishedAt:          nil,
-				Status:              "in_progress",
-			})
-			if err != nil {
-				return nil, err
-			}
-			inspID = newInsp.ID
-		} else {
-			return nil, err
-		}
-	} else {
-		// Standalone telemetry without inspection_source_event_id
-		inspSourceUUID = newRandomUUID()
-		schedFor := now
-		if input.InspectionScheduledFor != nil {
-			schedFor = input.InspectionScheduledFor.UTC()
-		}
+	existingInsp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
+		ModuleID:      moduleID,
+		SourceEventID: inspSourceUUID,
+	})
+	if err == nil {
+		inspID = existingInsp.ID
+	} else if errors.Is(err, pgx.ErrNoRows) {
 		startedAt := now
-		if input.InspectionStartedAt != nil {
+		if input.StartedAt != nil && !input.StartedAt.IsZero() {
+			startedAt = input.StartedAt.UTC()
+		} else if input.InspectionStartedAt != nil && !input.InspectionStartedAt.IsZero() {
 			startedAt = input.InspectionStartedAt.UTC()
+		}
+
+		schedFor := startedAt
+		if input.ScheduledFor != nil && !input.ScheduledFor.IsZero() {
+			schedFor = input.ScheduledFor.UTC()
+		} else if input.InspectionScheduledFor != nil && !input.InspectionScheduledFor.IsZero() {
+			schedFor = input.InspectionScheduledFor.UTC()
 		}
 
 		newInsp, err := qtx.CreateInspection(ctx, db.CreateInspectionParams{
@@ -487,13 +463,15 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			CleaningOperationID: cleanOpUUID,
 			ScheduledFor:        schedFor,
 			StartedAt:           &startedAt,
-			FinishedAt:          &now,
-			Status:              "completed",
+			FinishedAt:          nil,
+			Status:              "in_progress",
 		})
 		if err != nil {
 			return nil, err
 		}
 		inspID = newInsp.ID
+	} else {
+		return nil, err
 	}
 
 	// 3. Ingest each measurement frame (chunked upload, idempotent via ON CONFLICT)
@@ -505,9 +483,12 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			fMeasuredAt = f.MeasuredAt.UTC()
 		}
 
-		powerW := f.VoltageV * f.CurrentA
-		if f.PowerW != nil && *f.PowerW > 0 {
-			powerW = *f.PowerW
+		var powerW *float64
+		if f.PowerW != nil {
+			powerW = f.PowerW
+		} else if f.VoltageV != nil && f.CurrentA != nil {
+			calcP := *f.VoltageV * *f.CurrentA
+			powerW = &calcP
 		}
 
 		frameBytes, err := json.Marshal(f.ThermalFrame)
@@ -532,10 +513,9 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			MeasuredAt:      fMeasuredAt,
 			XPositionCm:     floatPtrToNumeric(&f.XPositionCm),
 			MaxTemperatureC: floatPtrToNumeric(&f.MaxTemperatureC),
-			HotspotDetected: f.HotspotDetected,
-			VoltageV:        floatPtrToNumeric(&f.VoltageV),
-			CurrentA:        floatPtrToNumeric(&f.CurrentA),
-			PowerW:          floatPtrToNumeric(&powerW),
+			VoltageV:        floatPtrToNumeric(f.VoltageV),
+			CurrentA:        floatPtrToNumeric(f.CurrentA),
+			PowerW:          floatPtrToNumeric(powerW),
 			ThermalFrame:    frameBytes,
 		})
 		if err != nil {
@@ -547,13 +527,86 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 				if getErr != nil {
 					return nil, getErr
 				}
-				meas = db.CreateMeasurementRow(existingMeas)
+
+				// Strict deterministic idempotency comparison
+				// 1. x_position_cm: diff < 1e-3
+				existX, pErr := strconv.ParseFloat(existingMeas.XPositionCm, 64)
+				if pErr != nil || math.Abs(existX-f.XPositionCm) >= 1e-3 {
+					return nil, ErrConflict
+				}
+
+				// 2. max_temperature_c: diff < 1e-3
+				existMaxTemp, pErr := strconv.ParseFloat(existingMeas.MaxTemperatureC, 64)
+				if pErr != nil || math.Abs(existMaxTemp-f.MaxTemperatureC) >= 1e-3 {
+					return nil, ErrConflict
+				}
+
+				// 3. voltage_v: both null or diff < 1e-3
+				existVoltage := numericToFloatPtr(existingMeas.VoltageV)
+				if (existVoltage == nil && f.VoltageV != nil) || (existVoltage != nil && f.VoltageV == nil) {
+					return nil, ErrConflict
+				}
+				if existVoltage != nil && f.VoltageV != nil && math.Abs(*existVoltage-*f.VoltageV) >= 1e-3 {
+					return nil, ErrConflict
+				}
+
+				// 4. current_a: both null or diff < 1e-3
+				existCurrent := numericToFloatPtr(existingMeas.CurrentA)
+				if (existCurrent == nil && f.CurrentA != nil) || (existCurrent != nil && f.CurrentA == nil) {
+					return nil, ErrConflict
+				}
+				if existCurrent != nil && f.CurrentA != nil && math.Abs(*existCurrent-*f.CurrentA) >= 1e-3 {
+					return nil, ErrConflict
+				}
+
+				// 5. power_w: both null or diff < 1e-3
+				existPower := numericToFloatPtr(existingMeas.PowerW)
+				if (existPower == nil && powerW != nil) || (existPower != nil && powerW == nil) {
+					return nil, ErrConflict
+				}
+				if existPower != nil && powerW != nil && math.Abs(*existPower-*powerW) >= 1e-3 {
+					return nil, ErrConflict
+				}
+
+				// 6. thermal_frame: exactly 768 positions, nulls at same indices, values diff < 1e-3
+				var existFrame []*float64
+				if unmarshalErr := json.Unmarshal(existingMeas.ThermalFrame, &existFrame); unmarshalErr != nil {
+					return nil, unmarshalErr
+				}
+				if len(existFrame) != 768 || len(f.ThermalFrame) != 768 {
+					return nil, ErrConflict
+				}
+				for i := 0; i < 768; i++ {
+					v1 := existFrame[i]
+					v2 := f.ThermalFrame[i]
+					if (v1 == nil && v2 != nil) || (v1 != nil && v2 == nil) {
+						return nil, ErrConflict
+					}
+					if v1 != nil && v2 != nil && math.Abs(*v1-*v2) >= 1e-3 {
+						return nil, ErrConflict
+					}
+				}
+
+				meas = db.CreateMeasurementRow{
+					ID:              existingMeas.ID,
+					ModuleID:        existingMeas.ModuleID,
+					InspectionID:    existingMeas.InspectionID,
+					SourceEventID:   existingMeas.SourceEventID,
+					MeasuredAt:      existingMeas.MeasuredAt,
+					XPositionCm:     existingMeas.XPositionCm,
+					MaxTemperatureC: existingMeas.MaxTemperatureC,
+					VoltageV:        existingMeas.VoltageV,
+					CurrentA:        existingMeas.CurrentA,
+					PowerW:          existingMeas.PowerW,
+					ThermalFrame:    existingMeas.ThermalFrame,
+					ReceivedAt:      existingMeas.ReceivedAt,
+				}
 			} else {
 				return nil, err
 			}
 		}
 
-		if primaryMeasRow == nil || f.HotspotDetected {
+		if primaryMeasRow == nil {
 			primaryMeasRow = &meas
 		}
 	}
@@ -574,19 +627,18 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 	}
 
 	return &MeasurementDTO{
-		ID:              auth.FormatUUID(meas.ID),
-		ModuleID:        auth.FormatUUID(meas.ModuleID),
-		InspectionID:    auth.FormatUUID(meas.InspectionID),
-		SourceEventID:   auth.FormatUUID(meas.SourceEventID),
-		MeasuredAt:      meas.MeasuredAt.UTC().Format(time.RFC3339),
-		XPositionCM:     meas.XPositionCm,
-		MaxTempC:        meas.MaxTemperatureC,
-		HotspotDetected: meas.HotspotDetected,
-		VoltageV:        meas.VoltageV,
-		CurrentA:        meas.CurrentA,
-		PowerW:          meas.PowerW,
-		ThermalFrame:    thermalFrameData,
-		ReceivedAt:      meas.ReceivedAt.UTC().Format(time.RFC3339),
+		ID:            auth.FormatUUID(meas.ID),
+		ModuleID:      auth.FormatUUID(meas.ModuleID),
+		InspectionID:  auth.FormatUUID(meas.InspectionID),
+		SourceEventID: auth.FormatUUID(meas.SourceEventID),
+		MeasuredAt:    meas.MeasuredAt.UTC().Format(time.RFC3339),
+		XPositionCM:   meas.XPositionCm,
+		MaxTempC:      meas.MaxTemperatureC,
+		VoltageV:      numericToStringPtr(meas.VoltageV),
+		CurrentA:      numericToStringPtr(meas.CurrentA),
+		PowerW:        numericToStringPtr(meas.PowerW),
+		ThermalFrame:  thermalFrameData,
+		ReceivedAt:    meas.ReceivedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -649,12 +701,21 @@ func (s *Service) FinalizeInspection(
 		if ch.OriginMeasurementEventID == "" {
 			return nil, ErrInvalidInput
 		}
+		if _, err := auth.ParseUUID(ch.OriginMeasurementEventID); err != nil {
+			return nil, ErrInvalidInput
+		}
 		if len(ch.ConfirmingEventIDs) < 2 {
 			return nil, ErrInvalidInput
 		}
 		seenConfirming := make(map[string]struct{}, len(ch.ConfirmingEventIDs))
 		foundOrigin := false
 		for _, cidStr := range ch.ConfirmingEventIDs {
+			if cidStr == "" {
+				return nil, ErrInvalidInput
+			}
+			if _, err := auth.ParseUUID(cidStr); err != nil {
+				return nil, ErrInvalidInput
+			}
 			seenConfirming[cidStr] = struct{}{}
 			if cidStr == ch.OriginMeasurementEventID {
 				foundOrigin = true
@@ -673,6 +734,11 @@ func (s *Service) FinalizeInspection(
 		}
 		if panelLength != nil && ch.GlobalXPositionCm > *panelLength {
 			return nil, ErrInvalidInput
+		}
+		if ch.SourceEventID != "" {
+			if _, err := auth.ParseUUID(ch.SourceEventID); err != nil {
+				return nil, ErrInvalidInput
+			}
 		}
 	}
 
@@ -716,6 +782,11 @@ func (s *Service) FinalizeInspection(
 			}
 		}
 
+		closedAt := now
+		if closedAt.Before(origAnomaly.DetectedAt) {
+			closedAt = origAnomaly.DetectedAt
+		}
+
 		if !hotspotPersists {
 			verifResultPg = pgtype.Text{String: "resolved", Valid: true}
 			_, err = qtx.UpdateCleaningOperationPostResult(ctx, db.UpdateCleaningOperationPostResultParams{
@@ -730,7 +801,7 @@ func (s *Service) FinalizeInspection(
 				Status:       "resolved",
 				RetryPending: false,
 				RetryReason:  pgtype.Text{Valid: false},
-				ClosedAt:     &now,
+				ClosedAt:     &closedAt,
 				ID:           origAnomaly.ID,
 				ModuleID:     moduleID,
 			})
@@ -749,25 +820,14 @@ func (s *Service) FinalizeInspection(
 			}
 
 			if cleanOp.Status == "completed" {
-				if origAnomaly.ActuatedAttemptsCount >= 3 {
-					_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
-						Status:       "unresolved",
-						RetryPending: false,
-						RetryReason:  pgtype.Text{Valid: false},
-						ClosedAt:     &now,
-						ID:           origAnomaly.ID,
-						ModuleID:     moduleID,
-					})
-				} else {
-					_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
-						Status:       "open",
-						RetryPending: false,
-						RetryReason:  pgtype.Text{Valid: false},
-						ClosedAt:     nil,
-						ID:           origAnomaly.ID,
-						ModuleID:     moduleID,
-					})
-				}
+				_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+					Status:       "unresolved",
+					RetryPending: false,
+					RetryReason:  pgtype.Text{Valid: false},
+					ClosedAt:     &closedAt,
+					ID:           origAnomaly.ID,
+					ModuleID:     moduleID,
+				})
 				if err != nil {
 					return nil, err
 				}
@@ -783,12 +843,12 @@ func (s *Service) FinalizeInspection(
 				if err != nil {
 					return nil, err
 				}
-			} else if origAnomaly.ActuatedAttemptsCount >= 3 {
+			} else {
 				_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
 					Status:       "unresolved",
 					RetryPending: false,
 					RetryReason:  pgtype.Text{Valid: false},
-					ClosedAt:     &now,
+					ClosedAt:     &closedAt,
 					ID:           origAnomaly.ID,
 					ModuleID:     moduleID,
 				})
@@ -835,6 +895,7 @@ func (s *Service) FinalizeInspection(
 		originMeasID := origMeasRow.ID
 
 		confirmingUUIDs := make([]pgtype.UUID, 0, len(ch.ConfirmingEventIDs))
+		distinctMeasIDs := make(map[[16]byte]struct{}, len(ch.ConfirmingEventIDs))
 		var maxMeasuredAt time.Time
 
 		for _, cidStr := range ch.ConfirmingEventIDs {
@@ -850,9 +911,14 @@ func (s *Service) FinalizeInspection(
 				return nil, ErrInvalidInput
 			}
 			confirmingUUIDs = append(confirmingUUIDs, mRow.ID)
-			if mRow.MeasuredAt.After(maxMeasuredAt) {
+			distinctMeasIDs[mRow.ID.Bytes] = struct{}{}
+			if maxMeasuredAt.IsZero() || mRow.MeasuredAt.After(maxMeasuredAt) {
 				maxMeasuredAt = mRow.MeasuredAt
 			}
+		}
+
+		if len(distinctMeasIDs) < 2 {
+			return nil, ErrInvalidInput
 		}
 
 		detectedAt := maxMeasuredAt

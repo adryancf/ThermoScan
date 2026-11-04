@@ -183,11 +183,11 @@ func TestSchemaTablesAndQueries(t *testing.T) {
 		INSERT INTO measurements (
 			module_id, inspection_id, source_event_id, measured_at,
 			x_position_cm, max_temperature_c,
-			hotspot_detected, voltage_v, current_a, power_w, thermal_frame
+			voltage_v, current_a, power_w, thermal_frame
 		) VALUES (
 			$1, $2, gen_random_uuid(), now(),
 			10.0, 50.0,
-			true, 20.0, 4.0, 80.0, '[[35.0]]'::jsonb
+			20.0, 4.0, 80.0, '[[35.0]]'::jsonb
 		) RETURNING id
 	`, moduleID, inspectionID).Scan(&measurementID)
 	if err != nil {

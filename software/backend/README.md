@@ -107,6 +107,101 @@ All endpoints are prefixed with `/api/v1` (except `/health`).
 | `PUT` | `/api/v1/modules/{moduleID}/technicians/{technicianID}` | `manager` | Grant or revoke (`can_view`) Technician access to a module (including installer) |
 | `PUT` | `/api/v1/modules/{moduleID}/clients` | `manager` | Update Clients assigned to a module |
 | `PATCH` | `/api/v1/modules/{moduleID}/email-preferences` | `client` | Enable or disable operational email notifications for an assigned module |
+| `GET` | `/api/v1/modules/{moduleID}/latest-inspection` | `manager`, `technician`, `client` | Retrieve latest inspection summary, baseline temperature, and confirmed anomalies |
+| `GET` | `/api/v1/modules/{moduleID}/inspections/{inspectionId}/measurements` | `manager`, `technician`, `client` | Paginated raw measurement list (`?page=1&limit=10`, ordered by `x_position_cm ASC`) |
+
+### Device Management, Telemetry & Inspection Lifecycle
+
+These endpoints are used by the physical ESP32 firmware (authenticated via Bearer `device_token` issued at claim) and authorized users:
+
+| Method | Path | Auth | Description |
+| :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/devices/claim` | Public | Physical pairing by MAC address; issues unique `device_token` (`dev_sec_...`) |
+| `POST` | `/api/v1/devices/{moduleId}/device-ping` | Device Token / JWT | Periodic heartbeat, binary water sensor state (`water_available`), homing limits check, and radiometer status |
+| `GET` | `/api/v1/devices/{moduleId}/configuration` | Device Token / JWT | Retrieve latest server configuration version for physical NVS sync |
+| `POST` | `/api/v1/devices/{moduleId}/configuration/ack` | Device Token / JWT | Acknowledge configuration applied to NVS; transitions status to `synced` (returns 409 if version is stale) |
+| `POST` | `/api/v1/devices/{moduleId}/telemetry` | Device Token / JWT | Ingest raw radiometric measurements in streaming (1 per 2 cm step) or batches (max 5 items) |
+| `POST` | `/api/v1/devices/{moduleId}/inspections/{inspectionSourceEventId}/finalize` | Device Token / JWT | Finalize inspection session with baseline temperature and confirmed hotspots |
+| `POST` | `/api/v1/devices/{moduleId}/cleanings` | Device Token / JWT | Ingest cleaning actuation report (water consumption, pump duration, attempt, status) |
+
+#### Telemetry Ingestion Contract (`POST /api/v1/devices/{moduleId}/telemetry`)
+
+- **Payload Structure:**
+  ```json
+  {
+    "inspection_source_event_id": "90000000-0000-0000-0000-000000000001",
+    "inspection_type": "scheduled",
+    "scheduled_for": "2026-11-04T08:00:00Z",
+    "batch": [
+      {
+        "source_event_id": "a1000000-0000-0000-0000-000000000001",
+        "measured_at": "2026-11-04T08:00:02Z",
+        "x_position_cm": 2.0,
+        "max_temperature_c": 35.4,
+        "voltage_v": 18.5,
+        "current_a": 4.2,
+        "power_w": 77.7,
+        "thermal_frame": [35.0, null, 35.2, "... (768 items total)"]
+      }
+    ]
+  }
+  ```
+- **Batch Size:** Maximum of **5** measurement items per request.
+- **Raw Measurements Only:** Medição bruta **NÃO** contém `hotspot_detected`. O conceito de candidato por medição individual não existe neste fluxo.
+- **Nullable Electrical Readings:** `voltage_v`, `current_a`, and `power_w` are *nullable* (`null` when the INA219 sensor fails, disconnects, or is not populated). They must never be converted into fictional zeros.
+- **Thermal Frame:** Exactly 768 float positions (32 columns × 24 rows) with `null` strictly representing invalid/dead sensor pixels.
+- **Memory Management:** As soon as the backend responds with `200 OK`, the firmware releases the 768-pixel frame from RAM, avoiding buffer overflow on the ESP32.
+- **Scheduled Time Fallback:** If `scheduled_for` is omitted (e.g. firmware lacking RTC sync), the backend falls back to `started_at` automatically.
+- **Strict Idempotency:** Resending the same `source_event_id` with identical content succeeds idempotently (`200 OK` with existing records preserved). Any payload with the same `source_event_id` but divergent data is rejected with `409 Conflict`.
+
+#### Inspection Finalization Contract (`POST /api/v1/devices/{moduleId}/inspections/{inspectionSourceEventId}/finalize`)
+
+- **Payload Structure:**
+  ```json
+  {
+    "finished_at": "2026-11-04T08:05:00Z",
+    "baseline_temperature_c": 35.2,
+    "confirmed_hotspots": [
+      {
+        "source_event_id": "b1000000-0000-0000-0000-000000000001",
+        "global_x_position_cm": 6.0,
+        "row_index": 12,
+        "max_temperature_c": 52.8,
+        "detected_at": "2026-11-04T08:02:15Z",
+        "origin_measurement_event_id": "a1000000-0000-0000-0000-000000000003",
+        "confirming_event_ids": [
+          "a1000000-0000-0000-0000-000000000003",
+          "a1000000-0000-0000-0000-000000000004"
+        ]
+      }
+    ]
+  }
+  ```
+- **Baseline Temperature:** Firmware calculates `baseline_temperature_c` as the median of all valid pixel temperatures captured across the entire scan.
+- **Spatial Overlap Confirmation:** A hotspot is confirmed **exclusively by the firmware** if a candidate ($T \ge \text{baseline} + 10^\circ\text{C}$) persists across at least 2 consecutive acquisitions (step $2\text{ cm}$, optical overlap $60\%$, spatial tolerance $\le 0.5\text{ cm}$).
+- **Hotspot Confirmation Constraints:** `confirming_event_ids` must contain $\ge 2$ unique measurement IDs belonging to the same inspection, and must include `origin_measurement_event_id`.
+- **Verification Inspection (`type = "verification"`):** Triggered after cleaning (`cleaning_operation_id` required, which must have `pump_actuated = true` and `post_cleaning_result = "pending"`). The required 30-minute thermal settling wait and valid solar window are enforced by the firmware. Finalization atomically updates the cleaning operation (`resolved` vs `unresolved`) and the anomaly lifecycle (`open`, `resolved`, or `unresolved` with retry budget).
+
+### Architectural Separation of Responsibilities
+
+```text
+┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────┐
+│     ESP32 Firmware     │      │      Go API Server     │      │   Flutter Mobile App   │
+├────────────────────────┤      ├────────────────────────┤      ├────────────────────────┤
+│ • Autonomous scan      │      │ • HTTPS Authentication │      │ • Authorized Admin/UI  │
+│ • Step 2cm movement    │      │ • Strict idempotency   │      │ • Individual frames    │
+│ • Streams raw frames   │ ────>│ • Persistence in PG    │ ────>│   rendered at X coord  │
+│ • Frees RAM per frame  │ REST │ • Exposes telemetry    │ REST │ • No frame stitching   │
+│ • Computes baseline    │      │ • Does NOT stitch maps │      │ • Exclusive highlight   │
+│ • Confirms hotspots    │      │ • Does NOT do overlap  │      │   of confirmed spots   │
+│ • Enforces water inter-│      │ • Does NOT confirm     │      │ • Displays N/A when    │
+│   locks & 30min wait   │      │   hotspots             │      │   electricals are null │
+└────────────────────────┘      └────────────────────────┘      └────────────────────────┘
+```
+
+- **Firmware:** Captures, streams raw data, calculates inspection baseline, identifies candidates, confirms hotspots via multi-frame spatial overlap, and finalizes sessions. Enforces safety interlocks locally.
+- **Backend:** Validates input, stores measurements and inspection state idempotently, and exposes data over REST. **Does NOT** calculate baseline, compare consecutive frames, calculate overlap, stitch composite maps, or confirm hotspots.
+- **Mobile:** Renders raw frames at their respective X coordinates. **Does NOT** merge thermal matrices, calculate overlap, recalculate baseline, or infer hotspots. Hotspot visual highlights are strictly driven by backend-confirmed `anomaly_events`. Display of missing electrical metrics shows `N/A`.
 
 ### Standardized Error Format
 

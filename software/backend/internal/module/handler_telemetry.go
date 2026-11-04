@@ -158,6 +158,8 @@ func (h *Handler) handleFinalizeInspection(w http.ResponseWriter, r *http.Reques
 			httpjson.WriteError(w, http.StatusNotFound, "inspection not found", "NOT_FOUND")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrConflict):
+			httpjson.WriteError(w, http.StatusConflict, "conflict with existing inspection", "CONFLICT")
 		case errors.Is(err, ErrInvalidInput):
 			httpjson.WriteError(w, http.StatusBadRequest, "invalid inspection finalization data", "INVALID_INPUT")
 		default:

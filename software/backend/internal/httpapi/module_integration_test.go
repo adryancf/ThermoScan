@@ -707,9 +707,9 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 
 	// Test telemetry ingestion with authentic 768-float matrix
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
+		"inspection_source_event_id": "d4e28639-6548-436f-b4df-b62a6bca2349",
 		"x_position_cm":          25.5,
 		"max_temperature_c":      52.0,
-		"hotspot_detected":      true,
 		"voltage_v":              18.4,
 		"current_a":              4.2,
 		"thermal_frame":          testFrame768(35.0, 52.0),
@@ -718,15 +718,15 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected 201 ingesting telemetry, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Test chunked batch upload (<= 10 frames) with inspection_source_event_id
+	// Test chunked batch upload (<= 5 frames) with inspection_source_event_id
 	inspSourceID := "d4e28639-6548-436f-b4df-b62a6bca2350"
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
 		"inspection_source_event_id": inspSourceID,
 		"batch": []map[string]any{
-			{"source_event_id": "00000000-0000-0000-0000-000000000001", "x_position_cm": 0.0, "max_temperature_c": 37.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 37.0)},
-			{"source_event_id": "00000000-0000-0000-0000-000000000002", "x_position_cm": 2.0, "max_temperature_c": 38.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 38.0)},
-			{"source_event_id": "00000000-0000-0000-0000-000000000003", "x_position_cm": 4.0, "max_temperature_c": 56.5, "hotspot_detected": true, "voltage_v": 18.2, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 56.5)},
-			{"source_event_id": "00000000-0000-0000-0000-000000000004", "x_position_cm": 6.0, "max_temperature_c": 55.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 55.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000001", "x_position_cm": 0.0, "max_temperature_c": 37.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 37.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000002", "x_position_cm": 2.0, "max_temperature_c": 38.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 38.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000003", "x_position_cm": 4.0, "max_temperature_c": 56.5, "voltage_v": 18.2, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 56.5)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000004", "x_position_cm": 6.0, "max_temperature_c": 55.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 55.0)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
@@ -827,8 +827,8 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		"inspection_type":           "verification",
 		"cleaning_operation_id":     cleanCreatedResp.Cleaning.ID,
 		"batch": []map[string]any{
-			{"source_event_id": "00000000-0000-0000-0000-000000000011", "x_position_cm": 3.0, "max_temperature_c": 36.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 36.0)},
-			{"source_event_id": "00000000-0000-0000-0000-000000000012", "x_position_cm": 5.0, "max_temperature_c": 36.5, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 36.5)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000011", "x_position_cm": 3.0, "max_temperature_c": 36.0, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 36.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000012", "x_position_cm": 5.0, "max_temperature_c": 36.5, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 36.5)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
@@ -1081,8 +1081,8 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/telemetry", claimResp.DeviceToken, map[string]any{
 		"inspection_source_event_id": insp2SourceID,
 		"batch": []map[string]any{
-			{"source_event_id": "00000000-0000-0000-0000-000000000021", "x_position_cm": 10.0, "max_temperature_c": 50.0, "hotspot_detected": true, "voltage_v": 18.6, "current_a": 4.3, "thermal_frame": testFrame768(36.0, 50.0)},
-			{"source_event_id": "00000000-0000-0000-0000-000000000022", "x_position_cm": 12.0, "max_temperature_c": 52.0, "hotspot_detected": true, "voltage_v": 18.6, "current_a": 4.3, "thermal_frame": testFrame768(36.0, 52.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000021", "x_position_cm": 10.0, "max_temperature_c": 50.0, "voltage_v": 18.6, "current_a": 4.3, "thermal_frame": testFrame768(36.0, 50.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000022", "x_position_cm": 12.0, "max_temperature_c": 52.0, "voltage_v": 18.6, "current_a": 4.3, "thermal_frame": testFrame768(36.0, 52.0)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
@@ -1466,8 +1466,8 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/telemetry", claimMod2.DeviceToken, map[string]any{
 		"inspection_source_event_id": delModInspSourceID,
 		"batch": []map[string]any{
-			{"source_event_id": "00000000-0000-0000-0000-000000000051", "x_position_cm": 8.0, "max_temperature_c": 54.0, "hotspot_detected": true, "voltage_v": 18.0, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 54.0)},
-			{"source_event_id": "00000000-0000-0000-0000-000000000052", "x_position_cm": 10.0, "max_temperature_c": 55.0, "hotspot_detected": true, "voltage_v": 18.0, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 55.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000051", "x_position_cm": 8.0, "max_temperature_c": 54.0, "voltage_v": 18.0, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 54.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000052", "x_position_cm": 10.0, "max_temperature_c": 55.0, "voltage_v": 18.0, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 55.0)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
@@ -1680,9 +1680,9 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 
 	// ESP32 with old deviceToken tries to send telemetry -> 401 UNAUTHORIZED
 	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/telemetry", claimMod2.DeviceToken, map[string]any{
+		"inspection_source_event_id": "00000000-0000-0000-0000-000000000077",
 		"x_position_cm":     10.0,
 		"max_temperature_c": 36.0,
-		"hotspot_detected":  false,
 		"voltage_v":         18.0,
 		"current_a":         4.0,
 		"thermal_frame":     testFrame768(35.0, 36.0),
@@ -1719,9 +1719,9 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 
 	// Manager with JWT tries to send telemetry -> 404 NOT_FOUND
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+mod2.Module.ID+"/telemetry", mgrAAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": "00000000-0000-0000-0000-000000000078",
 		"x_position_cm":     10.0,
 		"max_temperature_c": 36.0,
-		"hotspot_detected":  false,
 		"voltage_v":         18.0,
 		"current_a":         4.0,
 		"thermal_frame":     testFrame768(35.0, 36.0),
@@ -1809,9 +1809,9 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 		defer wg.Done()
 		time.Sleep(20 * time.Millisecond)
 		telemetryRec := doJSON(http.MethodPost, "/api/v1/modules/"+mod4.Module.ID+"/telemetry", mgrAAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": "00000000-0000-0000-0000-000000000079",
 			"x_position_cm":     10.0,
 			"max_temperature_c": 36.0,
-			"hotspot_detected":  false,
 			"voltage_v":         18.0,
 			"current_a":         4.0,
 			"thermal_frame":     testFrame768(35.0, 36.0),

@@ -70,25 +70,33 @@ class RadiometricScanCard extends StatelessWidget {
     final confirmedAnomalies = insp?.confirmedAnomalies ?? [];
     final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
 
-    // m.hotspotDetected is strictly treated as candidate in that measurement step
-    final hasCandidate = allMeasurements.any((item) => item.hotspotDetected) || (m?.hotspotDetected ?? false);
-
     final peakTemp = allMeasurements.isNotEmpty
         ? allMeasurements.map((e) => e.maxTemperatureC).reduce((a, b) => a > b ? a : b)
         : (m?.maxTemperatureC ?? 0.0);
     final baselineTemp = insp?.inspection.baselineTemperatureC;
-    final voltage = m?.voltageV ?? (allMeasurements.isNotEmpty ? allMeasurements.first.voltageV : 0.0);
-    final current = m?.currentA ?? (allMeasurements.isNotEmpty ? allMeasurements.first.currentA : 0.0);
-    final power = m?.powerW ?? (allMeasurements.isNotEmpty ? allMeasurements.first.powerW : (voltage * current));
+    final double? voltage = m?.voltageV ?? (allMeasurements.isNotEmpty ? allMeasurements.first.voltageV : null);
+    final double? current = m?.currentA ?? (allMeasurements.isNotEmpty ? allMeasurements.first.currentA : null);
+    final double? power = m?.powerW ?? (allMeasurements.isNotEmpty ? allMeasurements.first.powerW : (voltage != null && current != null ? voltage * current : null));
     final xPos = m?.xPositionCm ?? (allMeasurements.isNotEmpty ? allMeasurements.first.xPositionCm : 0.0);
 
     final delta = (peakTemp > 0 && baselineTemp != null && baselineTemp > 0)
         ? (peakTemp - baselineTemp)
-        : 0.0;
+        : null;
 
     final panelLength = (module.panelLengthCm != null && module.panelLengthCm! > 0)
         ? module.panelLengthCm!
         : 20.0;
+
+    final String deltaText;
+    if (hasConfirmedHotspots) {
+      deltaText = delta != null
+          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
+          : 'Hotspot Confirmed';
+    } else {
+      deltaText = delta != null
+          ? 'Delta: ${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
+          : 'Delta: N/A';
+    }
 
     return Container(
       width: double.infinity,
@@ -133,28 +141,20 @@ class RadiometricScanCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: hasConfirmedHotspots
                       ? AppColors.errorBackground
-                      : (hasCandidate
-                          ? AppColors.warningBackground
-                          : AppColors.successBackground),
+                      : AppColors.successBackground,
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
                     color: hasConfirmedHotspots
                         ? AppColors.errorBorder
-                        : (hasCandidate
-                            ? AppColors.warningBorder
-                            : AppColors.successBorder),
+                        : AppColors.successBorder,
                   ),
                 ),
                 child: Text(
-                  hasConfirmedHotspots
-                      ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
-                      : (hasCandidate
-                          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Candidate)'
-                          : 'Delta: ${delta.toStringAsFixed(1)}°C (Normal)'),
+                  deltaText,
                   style: AppTypography.caption.copyWith(
                     color: hasConfirmedHotspots
                         ? AppColors.error
-                        : (hasCandidate ? AppColors.warning : AppColors.success),
+                        : AppColors.success,
                     fontWeight: FontWeight.w800,
                     fontSize: 10,
                   ),
@@ -253,7 +253,6 @@ class RadiometricScanCard extends StatelessWidget {
                                       final idx = entry.key;
                                       final meas = entry.value;
                                       final leftPx = padLeft + (meas.xPositionCm * pxPerCm);
-                                      final isFrameCandidate = meas.hotspotDetected;
                                       final isFrameConfirmed = confirmedAnomalies.any(
                                         (a) => (a.xPositionCm >= meas.xPositionCm &&
                                                 a.xPositionCm <= meas.xPositionCm + 5.0),
@@ -269,17 +268,13 @@ class RadiometricScanCard extends StatelessWidget {
                                           decoration: BoxDecoration(
                                             color: isFrameConfirmed
                                                 ? AppColors.error.withValues(alpha: 0.28)
-                                                : (isFrameCandidate
-                                                    ? AppColors.warning.withValues(alpha: 0.22)
-                                                    : Colors.white.withValues(alpha: 0.10)),
+                                                : Colors.white.withValues(alpha: 0.10),
                                             borderRadius: BorderRadius.circular(6),
                                             border: Border.all(
                                               color: isFrameConfirmed
                                                   ? AppColors.error
-                                                  : (isFrameCandidate
-                                                      ? AppColors.warning
-                                                      : Colors.white.withValues(alpha: 0.5)),
-                                              width: (isFrameConfirmed || isFrameCandidate) ? 1.5 : 1,
+                                                  : Colors.white.withValues(alpha: 0.5),
+                                              width: isFrameConfirmed ? 1.5 : 1,
                                             ),
                                           ),
                                           child: Column(
@@ -290,9 +285,7 @@ class RadiometricScanCard extends StatelessWidget {
                                                 decoration: BoxDecoration(
                                                   color: isFrameConfirmed
                                                       ? AppColors.error.withValues(alpha: 0.85)
-                                                      : (isFrameCandidate
-                                                          ? AppColors.warning.withValues(alpha: 0.85)
-                                                          : Colors.black.withValues(alpha: 0.55)),
+                                                      : Colors.black.withValues(alpha: 0.55),
                                                   borderRadius: BorderRadius.circular(3),
                                                 ),
                                                 child: Text(
@@ -309,9 +302,7 @@ class RadiometricScanCard extends StatelessWidget {
                                                 style: TextStyle(
                                                   color: isFrameConfirmed
                                                       ? AppColors.errorBackground
-                                                      : (isFrameCandidate
-                                                          ? AppColors.warningBackground
-                                                          : Colors.white),
+                                                      : Colors.white,
                                                   fontSize: 8.5,
                                                   fontWeight: FontWeight.w700,
                                                 ),
@@ -471,10 +462,13 @@ class RadiometricScanCard extends StatelessWidget {
                   : allMeasurements.asMap().entries.map((entry) {
                       final idx = entry.key;
                       final f = entry.value;
-                      final isCandidate = f.hotspotDetected;
                       final isConfirmed = confirmedAnomalies.any(
                         (a) => (a.xPositionCm >= f.xPositionCm && a.xPositionCm <= f.xPositionCm + 5.0),
                       );
+
+                      final vStr = f.voltageV != null ? '${f.voltageV!.toStringAsFixed(1)}V' : 'N/A';
+                      final iStr = f.currentA != null ? '${f.currentA!.toStringAsFixed(2)}A' : 'N/A';
+                      final pStr = f.powerW != null ? '${f.powerW!.toStringAsFixed(1)}W' : 'N/A';
 
                       return Container(
                         margin: const EdgeInsets.only(right: 8),
@@ -485,13 +479,13 @@ class RadiometricScanCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: isConfirmed
                               ? AppColors.errorBackground
-                              : (isCandidate ? AppColors.warningBackground : AppColors.background),
+                              : AppColors.background,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: isConfirmed
                                 ? AppColors.error
-                                : (isCandidate ? AppColors.warning : AppColors.border),
-                            width: (isConfirmed || isCandidate) ? 1.5 : 1,
+                                : AppColors.border,
+                            width: isConfirmed ? 1.5 : 1,
                           ),
                         ),
                         child: Column(
@@ -503,13 +497,11 @@ class RadiometricScanCard extends StatelessWidget {
                                 Icon(
                                   isConfirmed
                                       ? Icons.warning_amber_rounded
-                                      : (isCandidate
-                                          ? Icons.info_outline_rounded
-                                          : Icons.check_circle_outline_rounded),
+                                      : Icons.check_circle_outline_rounded,
                                   size: 14,
                                   color: isConfirmed
                                       ? AppColors.error
-                                      : (isCandidate ? AppColors.warning : AppColors.success),
+                                      : AppColors.success,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
@@ -518,7 +510,7 @@ class RadiometricScanCard extends StatelessWidget {
                                     fontWeight: FontWeight.w700,
                                     color: isConfirmed
                                         ? AppColors.error
-                                        : (isCandidate ? AppColors.warning : AppColors.textPrimary),
+                                        : AppColors.textPrimary,
                                   ),
                                 ),
                                 if (isConfirmed) ...[
@@ -538,23 +530,6 @@ class RadiometricScanCard extends StatelessWidget {
                                       ),
                                     ),
                                   ),
-                                ] else if (isCandidate) ...[
-                                  const SizedBox(width: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.warning,
-                                      borderRadius: BorderRadius.circular(3),
-                                    ),
-                                    child: const Text(
-                                      'CANDIDATE',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ),
                                 ],
                               ],
                             ),
@@ -567,7 +542,7 @@ class RadiometricScanCard extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              '${f.voltageV.toStringAsFixed(1)}V • ${f.currentA.toStringAsFixed(2)}A • ${f.powerW.toStringAsFixed(1)}W',
+                              '$vStr • $iStr • $pStr',
                               style: AppTypography.caption.copyWith(
                                 fontSize: 9.0,
                                 color: AppColors.primary,
@@ -590,10 +565,10 @@ class RadiometricScanCard extends StatelessWidget {
                   label: 'Peak Temperature',
                   value: '${peakTemp.toStringAsFixed(1)}°C',
                   subtext: hasConfirmedHotspots
-                      ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
-                      : (hasCandidate
-                          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Candidate)'
-                          : (peakTemp < 60.0 ? 'Normal curve' : 'Exceeds 60°C')),
+                      ? (delta != null
+                          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
+                          : 'Hotspot confirmed')
+                      : (peakTemp < 60.0 ? 'Normal curve' : 'Exceeds 60°C'),
                   isWarning: hasConfirmedHotspots,
                 ),
               ),
@@ -617,7 +592,9 @@ class RadiometricScanCard extends StatelessWidget {
               Expanded(
                 child: _buildMetricTile(
                   label: 'DC Voltage & Current',
-                  value: '${voltage.toStringAsFixed(1)} V · ${current.toStringAsFixed(2)} A',
+                  value: (voltage == null && current == null)
+                      ? 'N/A'
+                      : '${voltage != null ? "${voltage.toStringAsFixed(1)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(2)} A" : "N/A"}',
                   subtext: 'Array electrical output',
                   isWarning: false,
                 ),
@@ -626,8 +603,8 @@ class RadiometricScanCard extends StatelessWidget {
               Expanded(
                 child: _buildMetricTile(
                   label: 'Active Power',
-                  value: '${power.toStringAsFixed(1)} W',
-                  subtext: 'Calculated (V × I)',
+                  value: power != null ? '${power.toStringAsFixed(1)} W' : 'N/A',
+                  subtext: (voltage != null && current != null) ? 'Calculated (V × I)' : 'Yield output',
                   isWarning: false,
                   valueColor: AppColors.primary,
                 ),

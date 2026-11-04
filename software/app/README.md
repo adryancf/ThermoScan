@@ -63,6 +63,16 @@ software/app/thermoscan/lib/
   4. Photovoltaic array configuration (dimensions, panel count, spacing, minimum solar angle, and inspection interval).
   5. Full review and confirmation.
 - **Module Overview & Configuration:** Role-aware module configuration editing (geometry/location for Manager and Installer Technician; minimum solar angle for Manager and any authorized Technician; inspection interval for Manager, Installer Technician, and assigned Client), inspection interval audit history, Manager access/responsibility control, and Client per-module operational email notification toggle.
+- **Module Details & Radiometric Scan Card (`SCR-10`):**
+  - Displays the active or latest inspection summary, including the firmware-computed baseline temperature (`baseline_temperature_c`).
+  - **No Frame Fusion / Blending:** Raw MLX90640 thermal frames (32×24) are rendered directly at their physical $X$ coordinate (`x_position_cm`) on the panel canvas ruler without artificial linear blending or stitched single matrices.
+  - **Exclusive Hotspot Highlight:** Only firmware-confirmed hotspots (`anomaly_events` with $\ge 2$ confirming frames and spatial overlap) receive visual warning badges, boundary markers, and coordinate callouts. Unconfirmed candidates are not highlighted as anomalies.
+  - **Graceful Handling of Missing Electrical Metrics:** Displays `N/A` when DC voltage, current, or power readings are null or unavailable due to INA219 sensor faults.
+- **Module Measurements & Inspection Explorer (`SCR-11`):**
+  - **Paginated Active Inspection Measurements:** Queries `GET /api/v1/modules/{id}/inspections/{inspectionId}/measurements?page=1&limit=10` ordered by `x_position_cm ASC`.
+  - Interactive pagination controls (Previous / Next, page counter, total item count).
+  - Individual step telemetry tiles with $X$ position, peak temperature, INA219 electrical readings (with `N/A` fallback for null values), and confirmed hotspot indicator.
+  - Chronological session grouping for historical inspection logs with expandable session cards and filter pills (`All`, `Hotspots`, `Normal`).
 
 ## Environment Configuration
 

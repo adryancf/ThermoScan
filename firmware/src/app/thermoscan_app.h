@@ -18,6 +18,10 @@
 #include "domain/cleaning_state_machine.h"
 #include "domain/thermal_analyzer.h"
 #include "domain/solar_geometry.h"
+#include "domain/quantized_frame.h"
+#include "domain/temperature_histogram.h"
+#include "utils/heap_tracker.h"
+#include "utils/uuid_generator.h"
 
 namespace app {
 
@@ -34,6 +38,7 @@ enum class AppState {
 };
 
 struct AppConfig {
+    uint32_t config_version{1};
     float panel_length_cm{100.0f};
     float panel_width_cm{50.0f};
     int32_t panel_count{1};
@@ -95,7 +100,15 @@ private:
     domain::CleaningStateMachine cleaning_sm_;
     domain::ThermalAnalyzer thermal_analyzer_;
 
-    std::vector<domain::ScanAcquisition> acquisitions_;
+    std::vector<domain::QuantizedThermalFrame> quantized_frames_;
+    domain::TemperatureHistogram histogram_;
+    std::vector<TelemetryMeasurementItem> current_batch_;
+    std::string inspection_source_event_id_{};
+    uint32_t inspection_started_at_{0};
+    uint32_t inspection_scheduled_for_{0};
+    std::string current_cleaning_op_id_{};
+    bool scan_truncated_by_memory_{false};
+
     domain::HotspotEvent active_hotspot_{};
     float baseline_temp_c_{25.0f};
 

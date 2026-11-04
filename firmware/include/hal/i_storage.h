@@ -14,6 +14,10 @@ struct StorageState {
     uint32_t spray_ended_timestamp{0};
     bool pending_verification{false};
     uint32_t next_inspection_timestamp{0};
+    float active_hotspot_x_cm{0.0f};
+    float baseline_temp_c{0.0f};
+    std::string cleaning_operation_id;
+    std::string inspection_source_event_id;
 };
 
 class IStorage {

@@ -133,16 +133,19 @@ public:
     int batches_ingested{0};
     int inspections_finalized{0};
     int cleaning_reports_ingested{0};
+    uint32_t last_acked_config_version{0};
+    CleaningReportInput last_cleaning_report{};
 
     bool init() override { return true; }
     bool claimDevice(const std::string&) override { return true; }
     bool sendPing() override { pings_sent++; return true; }
-    bool getConfiguration(std::string& out) override { out = "{}"; return true; }
-    bool ackConfiguration(uint32_t) override { return true; }
+    bool getConfiguration(std::string& out) override { out = "{\"config_version\":2}"; return true; }
+    bool ackConfiguration(uint32_t v) override { last_acked_config_version = v; return true; }
     bool ingestTelemetryBatch(const IngestTelemetryBatchInput&) override { batches_ingested++; return true; }
     bool finalizeInspection(const std::string&, const FinalizeInspectionInput&) override { inspections_finalized++; return true; }
-    bool ingestCleaningReport(const CleaningReportInput&, std::string& out_id) override {
+    bool ingestCleaningReport(const CleaningReportInput& cr, std::string& out_id) override {
         cleaning_reports_ingested++;
+        last_cleaning_report = cr;
         out_id = "clean-test-uuid";
         return true;
     }
@@ -248,11 +251,146 @@ void test_manual_inspection_trigger_and_idle_flow(void) {
     TEST_ASSERT_EQUAL(AppState::SCANNING, app.getState());
 }
 
+void test_batch_telemetry_and_finalize_flow(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Trigger scan: panel length 20 cm = 11 steps of 2 cm (steps 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
+    // Batch size is 5 -> 3 batches sent!
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    app.tick(); // SCANNING completes and transitions to ANALYZING
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app.getState());
+    TEST_ASSERT_GREATER_THAN(0, cloud.batches_ingested);
+
+    app.tick(); // ANALYZING calculates baseline, calls finalizeInspection, transitions to SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_finalized);
+}
+
+void test_scan_truncation_at_memory_limit(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Panel is 100 cm (which would be 51 steps of 2 cm), but SCAN_MAX_ACQUISITIONS is 35
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    app.tick(); // SCANNING loop should safely truncate at 35 acquisitions, not crash/hang!
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app.getState());
+    TEST_ASSERT_GREATER_THAN(0, cloud.batches_ingested);
+
+    app.tick(); // ANALYZING -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_finalized);
+}
+
+void test_cleaning_refusal_without_pump(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // Deplete water reservoir
+    water.available = false;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Trigger manual cleaning
+    app.triggerManualCleaning(14.0f);
+    app.tick(); // IDLE -> CLEANING
+    app.tick(); // CLEANING evaluates pre-spray: water missing -> REFUSED!
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    // Verify: pump was NEVER actuated
+    TEST_ASSERT_FALSE(spray.isPumpActive());
+    TEST_ASSERT_EQUAL(1, cloud.cleaning_reports_ingested);
+    TEST_ASSERT_FALSE(cloud.last_cleaning_report.pump_actuated);
+    TEST_ASSERT_EQUAL(0, cloud.last_cleaning_report.attempt_number);
+    TEST_ASSERT_EQUAL_STRING("refused", cloud.last_cleaning_report.status.c_str());
+}
+
+void test_unsynced_clock_prevents_ping_and_solar_window(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // Simulate clock unsynchronized (now == 0)
+    time.epoch = 0;
+    time.sync = false;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // In IDLE, if now == 0, ping must NOT be sent in tight loops!
+    for (int i = 0; i < 10; ++i) {
+        app.tick();
+    }
+    TEST_ASSERT_EQUAL(0, cloud.pings_sent);
+}
+
+void test_ack_configuration_called_in_syncing(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Force transition to SYNCING
+    app.triggerManualInspection();
+    app.tick(); // SCANNING
+    app.tick(); // ANALYZING
+    app.tick(); // SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // Executes handleSyncing() -> fetches config & calls ackConfiguration!
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_UINT32(1, cloud.last_acked_config_version);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
     RUN_TEST(test_conservative_nvs_recovery_with_pending_verification);
     RUN_TEST(test_motion_limit_failure_enters_emergency_stop);
     RUN_TEST(test_manual_inspection_trigger_and_idle_flow);
+    RUN_TEST(test_batch_telemetry_and_finalize_flow);
+    RUN_TEST(test_scan_truncation_at_memory_limit);
+    RUN_TEST(test_cleaning_refusal_without_pump);
+    RUN_TEST(test_unsynced_clock_prevents_ping_and_solar_window);
+    RUN_TEST(test_ack_configuration_called_in_syncing);
     return UNITY_END();
 }

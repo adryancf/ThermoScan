@@ -151,6 +151,10 @@ bool NvsStorage::saveAll(const StorageState& state) {
     ok &= saveSprayEndedTimestamp(state.spray_ended_timestamp);
     ok &= savePendingVerification(state.pending_verification);
     ok &= saveNextInspectionTimestamp(state.next_inspection_timestamp);
+    preferences_.putFloat("hotspot_x", state.active_hotspot_x_cm);
+    preferences_.putFloat("base_temp", state.baseline_temp_c);
+    preferences_.putString("clean_op_id", state.cleaning_operation_id.c_str());
+    preferences_.putString("insp_src_id", state.inspection_source_event_id.c_str());
     return ok;
 }
 
@@ -164,6 +168,10 @@ bool NvsStorage::loadAll(StorageState& state) {
     getSprayEndedTimestamp(state.spray_ended_timestamp);
     getPendingVerification(state.pending_verification);
     getNextInspectionTimestamp(state.next_inspection_timestamp);
+    state.active_hotspot_x_cm = preferences_.getFloat("hotspot_x", 0.0f);
+    state.baseline_temp_c = preferences_.getFloat("base_temp", 25.0f);
+    state.cleaning_operation_id = preferences_.getString("clean_op_id", "").c_str();
+    state.inspection_source_event_id = preferences_.getString("insp_src_id", "").c_str();
     return true;
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -348,7 +349,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 	}
 
 	if len(items) == 0 {
-		return nil, ErrInvalidInput
+		return nil, fmt.Errorf("%w: batch cannot be empty", ErrInvalidInput)
 	}
 	if len(items) > 5 {
 		return nil, ErrBatchTooLarge
@@ -356,22 +357,22 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 
 	// Validate mandatory inspection_source_event_id
 	if input.InspectionSourceEventID == nil || strings.TrimSpace(*input.InspectionSourceEventID) == "" {
-		return nil, ErrInvalidInput
+		return nil, fmt.Errorf("%w: inspection_source_event_id is required", ErrInvalidInput)
 	}
 	inspSourceUUID, err := auth.ParseUUID(strings.TrimSpace(*input.InspectionSourceEventID))
 	if err != nil {
-		return nil, ErrInvalidInput
+		return nil, fmt.Errorf("%w: invalid inspection_source_event_id UUID: %w", ErrInvalidInput, err)
 	}
 
 	// Validate intra-batch uniqueness of source_event_id
 	seenSourceIDs := make(map[string]struct{}, len(items))
 	for _, f := range items {
 		if f.SourceEventID == "" && len(items) > 1 {
-			return nil, ErrInvalidInput
+			return nil, fmt.Errorf("%w: source_event_id is required for batch items", ErrInvalidInput)
 		}
 		if f.SourceEventID != "" {
 			if _, exists := seenSourceIDs[f.SourceEventID]; exists {
-				return nil, ErrInvalidInput
+				return nil, fmt.Errorf("%w: duplicate source_event_id %q in batch", ErrInvalidInput, f.SourceEventID)
 			}
 			seenSourceIDs[f.SourceEventID] = struct{}{}
 		}
@@ -381,23 +382,23 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 	panelLength := numericToFloatPtr(row.PanelLengthCm)
 	for _, f := range items {
 		if f.XPositionCm < 0 {
-			return nil, ErrInvalidInput
+			return nil, fmt.Errorf("%w: x_position_cm (%.1f) cannot be negative", ErrInvalidInput, f.XPositionCm)
 		}
 		if panelLength != nil && f.XPositionCm > *panelLength {
-			return nil, ErrInvalidInput
+			return nil, fmt.Errorf("%w: x_position_cm (%.1f) exceeds module panel_length_cm (%.1f)", ErrInvalidInput, f.XPositionCm, *panelLength)
 		}
 		if !isFinite(f.XPositionCm) || !isFinite(f.MaxTemperatureC) {
-			return nil, ErrInvalidInput
+			return nil, fmt.Errorf("%w: x_position_cm and max_temperature_c must be finite numbers", ErrInvalidInput)
 		}
 		if !isFinitePtr(f.VoltageV) || !isFinitePtr(f.CurrentA) || !isFinitePtr(f.PowerW) {
-			return nil, ErrInvalidInput
+			return nil, fmt.Errorf("%w: electrical readings must be finite numbers or null", ErrInvalidInput)
 		}
 		if len(f.ThermalFrame) != 32*24 {
-			return nil, ErrInvalidInput
+			return nil, fmt.Errorf("%w: thermal frame must have exactly 768 pixels (got %d)", ErrInvalidInput, len(f.ThermalFrame))
 		}
 		for _, v := range f.ThermalFrame {
 			if v != nil && !isFinite(*v) {
-				return nil, ErrInvalidInput
+				return nil, fmt.Errorf("%w: thermal frame pixels must be finite numbers or null", ErrInvalidInput)
 			}
 		}
 	}

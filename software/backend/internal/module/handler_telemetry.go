@@ -147,7 +147,7 @@ func (h *Handler) handleFinalizeInspection(w http.ResponseWriter, r *http.Reques
 
 	var req FinalizeInspectionInput
 	if err := httpjson.DecodeJSON(r, &req); err != nil {
-		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body: "+err.Error(), "INVALID_BODY")
 		return
 	}
 
@@ -161,7 +161,7 @@ func (h *Handler) handleFinalizeInspection(w http.ResponseWriter, r *http.Reques
 		case errors.Is(err, ErrConflict):
 			httpjson.WriteError(w, http.StatusConflict, "conflict with existing inspection", "CONFLICT")
 		case errors.Is(err, ErrInvalidInput):
-			httpjson.WriteError(w, http.StatusBadRequest, "invalid inspection finalization data", "INVALID_INPUT")
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid inspection finalization data: "+err.Error(), "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}

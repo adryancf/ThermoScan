@@ -45,7 +45,7 @@ func (h *Handler) handleGetDeviceStatus(w http.ResponseWriter, r *http.Request) 
 func (h *Handler) handleClaimDevice(w http.ResponseWriter, r *http.Request) {
 	var req ClaimDeviceInput
 	if err := httpjson.DecodeJSON(r, &req); err != nil {
-		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body: "+err.Error(), "INVALID_BODY")
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *Handler) handleGetDeviceConfiguration(w http.ResponseWriter, r *http.Re
 		case errors.Is(err, ErrConflict):
 			httpjson.WriteError(w, http.StatusConflict, "conflict with existing measurement", "CONFLICT")
 		case errors.Is(err, ErrInvalidInput):
-			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input", "INVALID_INPUT")
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input: "+err.Error(), "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}
@@ -166,7 +166,7 @@ func (h *Handler) handleAcknowledgeDeviceConfiguration(w http.ResponseWriter, r 
 
 	var req AcknowledgeDeviceConfigurationInput
 	if err := httpjson.DecodeJSON(r, &req); err != nil {
-		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body: "+err.Error(), "INVALID_BODY")
 		return
 	}
 
@@ -211,7 +211,7 @@ func (h *Handler) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) 
 
 	var req IngestTelemetryInput
 	if err := httpjson.DecodeJSON(r, &req); err != nil {
-		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body: "+err.Error(), "INVALID_BODY")
 		return
 	}
 
@@ -227,7 +227,7 @@ func (h *Handler) handleIngestTelemetry(w http.ResponseWriter, r *http.Request) 
 		case errors.Is(err, ErrConflict):
 			httpjson.WriteError(w, http.StatusConflict, "conflict with existing measurement", "CONFLICT")
 		case errors.Is(err, ErrInvalidInput):
-			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input", "INVALID_INPUT")
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input: "+err.Error(), "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}
@@ -259,7 +259,7 @@ func (h *Handler) handleIngestCleaning(w http.ResponseWriter, r *http.Request) {
 
 	var req IngestCleaningInput
 	if err := httpjson.DecodeJSON(r, &req); err != nil {
-		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body", "INVALID_BODY")
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body: "+err.Error(), "INVALID_BODY")
 		return
 	}
 
@@ -275,7 +275,7 @@ func (h *Handler) handleIngestCleaning(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, ErrConflict):
 			httpjson.WriteError(w, http.StatusConflict, "conflict with existing measurement", "CONFLICT")
 		case errors.Is(err, ErrInvalidInput):
-			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input", "INVALID_INPUT")
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid telemetry input: "+err.Error(), "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}

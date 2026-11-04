@@ -11,27 +11,16 @@ DELETE FROM user_devices WHERE user_id NOT IN (SELECT id FROM users WHERE role =
 -- 2. Wipe operational notifications
 DELETE FROM notifications;
 
--- 3. Wipe inspections, measurements, operations and anomalies
-DELETE FROM reservoir_readings;
-DELETE FROM measurements;
-DELETE FROM inspections;
-DELETE FROM cleaning_operations;
-DELETE FROM anomaly_events;
-DELETE FROM interval_change_logs;
+-- 3. Wipe operational tables, inspections, operations, anomalies and modules with CASCADE
+TRUNCATE TABLE cleaning_operations, anomaly_events, measurements, inspections, reservoir_readings, interval_change_logs, module_technicians, module_managers, module_clients, modules CASCADE;
 
--- 4. Wipe module relations and modules
-DELETE FROM module_technicians;
-DELETE FROM module_managers;
-DELETE FROM module_clients;
-DELETE FROM modules;
-
--- 5. Wipe technician-manager relationships
+-- 4. Wipe technician-manager relationships
 DELETE FROM technician_managers;
 
--- 6. Wipe all company users (managers, technicians, clients)
+-- 5. Wipe all company users (managers, technicians, clients)
 DELETE FROM users WHERE role <> 'system_admin';
 
--- 7. Wipe all companies
+-- 6. Wipe all companies
 DELETE FROM companies;
 
 -- Re-enable default manager deletion guard trigger

@@ -38,7 +38,7 @@ bool CleaningStateMachine::startSpray() {
     return true;
 }
 
-bool CleaningStateMachine::monitorDuringSpray(bool water_available) {
+bool CleaningStateMachine::monitorDuringSpray(bool water_available, uint32_t current_time_sec) {
     if (status_ != CleaningStatus::IN_PROGRESS) {
         return false;
     }
@@ -46,6 +46,7 @@ bool CleaningStateMachine::monitorDuringSpray(bool water_available) {
     if (!water_available) {
         status_ = CleaningStatus::FAILED;
         reason_ = "water_depleted_during_cleaning";
+        spray_ended_timestamp_ = current_time_sec;
         return false;
     }
 
@@ -117,6 +118,14 @@ AnomalyResult CleaningStateMachine::processVerificationResult(bool hotspot_still
 }
 
 void CleaningStateMachine::reset() {
+    status_ = CleaningStatus::IDLE;
+    anomaly_result_ = AnomalyResult::OPEN;
+    effective_attempts_ = 0;
+    spray_ended_timestamp_ = 0;
+    reason_.clear();
+}
+
+void CleaningStateMachine::resetForNewAnomaly() {
     status_ = CleaningStatus::IDLE;
     anomaly_result_ = AnomalyResult::OPEN;
     effective_attempts_ = 0;

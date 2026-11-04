@@ -160,7 +160,7 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
     for (const auto& ev : raw_confirmed_events) {
         bool merged = false;
         for (auto& existing : result_events) {
-            if (existing.row == ev.row && std::abs(existing.target_x_cm - ev.target_x_cm) <= tolerance_cm) {
+            if (existing.row == ev.row && std::abs(existing.target_x_cm - ev.target_x_cm) <= eff_tolerance) {
                 if (ev.max_temp_c > existing.max_temp_c) {
                     existing.max_temp_c = ev.max_temp_c;
                     existing.target_x_cm = ev.target_x_cm;
@@ -182,7 +182,7 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
                     const auto& cand = per_acq_candidates[i][c];
                     bool already_clustered = false;
                     for (const auto& ev : result_events) {
-                        if (ev.row == cand.row && std::abs(ev.target_x_cm - cand.global_x_cm) <= tolerance_cm) {
+                        if (ev.row == cand.row && std::abs(ev.target_x_cm - cand.global_x_cm) <= eff_tolerance) {
                             already_clustered = true;
                             break;
                         }
@@ -198,6 +198,123 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
                     }
                 }
             }
+        }
+    }
+
+    return result_events;
+}
+
+std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
+    const std::vector<QuantizedThermalFrame>& frames,
+    float baseline_temp_c,
+    float tolerance_cm,
+    bool only_confirmed) const {
+    const float eff_tolerance = (tolerance_cm > 0.0f) ? tolerance_cm : spatial_tolerance_cm_;
+
+    if (frames.empty()) {
+        return {};
+    }
+
+    const float threshold_c = baseline_temp_c + HOTSPOT_THRESHOLD_DELTA_C;
+    const int16_t threshold_q = static_cast<int16_t>(std::round(threshold_c * QuantizedThermalFrame::SCALE));
+
+    // Extract candidates per frame
+    std::vector<std::vector<HotspotCandidate>> per_frame_candidates(frames.size());
+    for (size_t i = 0; i < frames.size(); ++i) {
+        const auto& f = frames[i];
+        if (!f.valid) continue;
+
+        for (int row = 0; row < MLX_ROWS; ++row) {
+            for (int col = 0; col < MLX_COLS; ++col) {
+                size_t idx = static_cast<size_t>(row * MLX_COLS + col);
+                int16_t q = f.pixels[idx];
+                if (q != QuantizedThermalFrame::INVALID_PIXEL && q >= threshold_q) {
+                    HotspotCandidate cand;
+                    cand.col = col;
+                    cand.row = row;
+                    cand.temp_c = QuantizedThermalFrame::toFloat(q);
+                    cand.global_x_cm = calculateGlobalX(f.x_position_cm, col, calibrated_fov_cm_);
+                    cand.acquisition_index = i;
+                    per_frame_candidates[i].push_back(cand);
+                }
+            }
+        }
+    }
+
+    // Track confirmed status
+    std::vector<std::vector<bool>> candidate_confirmed(frames.size());
+    for (size_t i = 0; i < frames.size(); ++i) {
+        candidate_confirmed[i].resize(per_frame_candidates[i].size(), false);
+    }
+
+    std::vector<HotspotEvent> raw_confirmed_events;
+
+    // Evaluate consecutive acquisitions k and k+1
+    for (size_t k = 0; k + 1 < frames.size(); ++k) {
+        const auto& f_k = frames[k];
+        const auto& f_next = frames[k + 1];
+
+        if (!f_k.valid || !f_next.valid) continue;
+
+        const float dx = std::abs(f_next.x_position_cm - f_k.x_position_cm);
+        if (std::abs(dx - STEP_SIZE_CM) > 0.6f) continue;
+
+        const auto& cands_k = per_frame_candidates[k];
+        const auto& cands_next = per_frame_candidates[k + 1];
+
+        for (size_t idx_a = 0; idx_a < cands_k.size(); ++idx_a) {
+            const auto& cand_a = cands_k[idx_a];
+            for (size_t idx_b = 0; idx_b < cands_next.size(); ++idx_b) {
+                const auto& cand_b = cands_next[idx_b];
+
+                if (cand_a.row == cand_b.row) {
+                    const float spatial_diff = std::abs(cand_a.global_x_cm - cand_b.global_x_cm);
+                    if (spatial_diff <= eff_tolerance) {
+                        candidate_confirmed[k][idx_a] = true;
+                        candidate_confirmed[k + 1][idx_b] = true;
+
+                        HotspotEvent ev;
+                        ev.target_x_cm = (cand_a.global_x_cm + cand_b.global_x_cm) / 2.0f;
+                        ev.row = cand_a.row;
+                        ev.max_temp_c = std::max(cand_a.temp_c, cand_b.temp_c);
+                        ev.baseline_temp_c = baseline_temp_c;
+                        ev.confirmed = true;
+                        ev.origin_measurement_event_id = f_k.source_event_id;
+                        if (!f_k.source_event_id.empty()) {
+                            ev.confirming_event_ids.push_back(f_k.source_event_id);
+                        }
+                        if (!f_next.source_event_id.empty()) {
+                            ev.confirming_event_ids.push_back(f_next.source_event_id);
+                        }
+                        raw_confirmed_events.push_back(ev);
+                    }
+                }
+            }
+        }
+    }
+
+    // Cluster/merge overlapping confirmed events in same row within eff_tolerance
+    std::vector<HotspotEvent> result_events;
+    for (const auto& ev : raw_confirmed_events) {
+        bool merged = false;
+        for (auto& existing : result_events) {
+            if (existing.row == ev.row && std::abs(existing.target_x_cm - ev.target_x_cm) <= eff_tolerance) {
+                if (ev.max_temp_c > existing.max_temp_c) {
+                    existing.max_temp_c = ev.max_temp_c;
+                    existing.target_x_cm = ev.target_x_cm;
+                }
+                for (const auto& cid : ev.confirming_event_ids) {
+                    if (std::find(existing.confirming_event_ids.begin(), existing.confirming_event_ids.end(), cid) ==
+                        existing.confirming_event_ids.end()) {
+                        existing.confirming_event_ids.push_back(cid);
+                    }
+                }
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) {
+            result_events.push_back(ev);
         }
     }
 

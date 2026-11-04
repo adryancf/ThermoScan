@@ -60,11 +60,15 @@ public:
     /**
      * @brief Continuously monitors fluid level while spray is active.
      * If water is depleted during cleaning, halts operation immediately,
-     * transitions to FAILED ("water_depleted_during_cleaning"), and preserves the consumed attempt.
+     * transitions to FAILED ("water_depleted_during_cleaning"), records the real
+     * spray termination timestamp to enforce the mandatory 30-min cooldown,
+     * and preserves the consumed attempt.
      *
+     * @param water_available Current water sensor reading.
+     * @param current_time_sec Current epoch timestamp in seconds.
      * @return true if water is still available, false if depleted.
      */
-    bool monitorDuringSpray(bool water_available);
+    bool monitorDuringSpray(bool water_available, uint32_t current_time_sec = 0);
 
     /**
      * @brief Concludes successful spray actuation.
@@ -119,6 +123,7 @@ public:
 
     // State management
     void reset();
+    void resetForNewAnomaly();
     void restoreState(CleaningStatus status,
                       AnomalyResult result,
                       uint8_t effective_attempts,

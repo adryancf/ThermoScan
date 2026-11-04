@@ -4,8 +4,10 @@
 #include <vector>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include "pinout.h"
 #include "hal/i_thermal_camera.h"
+#include "domain/quantized_frame.h"
 
 namespace domain {
 
@@ -38,6 +40,8 @@ struct HotspotEvent {
     float max_temp_c{0.0f};
     float baseline_temp_c{0.0f};
     bool confirmed{false};
+    std::string origin_measurement_event_id{};
+    std::vector<std::string> confirming_event_ids{};
 };
 
 /**
@@ -119,6 +123,17 @@ public:
     std::vector<HotspotEvent> analyzeScan(const std::vector<ScanAcquisition>& acquisitions,
                                          float tolerance_cm = -1.0f,
                                          bool only_confirmed = true) const;
+
+    /**
+     * @brief Evaluates scan sequence from memory-efficient quantized thermal frames.
+     * Candidates are identified using the consolidated baseline temperature (T >= baseline + 10 °C).
+     * Two consecutive acquisitions (step ~2 cm, 60% overlap) confirm a hotspot if on the same row
+     * and matching in global X within spatial tolerance.
+     */
+    std::vector<HotspotEvent> analyzeQuantizedScan(const std::vector<QuantizedThermalFrame>& frames,
+                                                  float baseline_temp_c,
+                                                  float tolerance_cm = -1.0f,
+                                                  bool only_confirmed = true) const;
 
 private:
     float calibrated_fov_cm_{FOV_OPTICAL_CM};

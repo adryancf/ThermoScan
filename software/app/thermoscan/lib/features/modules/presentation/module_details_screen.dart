@@ -401,27 +401,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         measurementsAsync.valueOrNull?.isNotEmpty == true
             ? measurementsAsync.valueOrNull!.first
             : null;
+    final latestInspectionAsync = ref.watch(latestInspectionProvider(mod.id));
+    final latestInspection = latestInspectionAsync.valueOrNull;
     final thermalMapAsync = ref.watch(moduleThermalMapProvider(mod.id));
     final thermalMap = thermalMapAsync.valueOrNull;
-
-    // Resolve configuration sync info
-    final syncInfo = deviceStatus?.effectiveConfigurationSync ??
-        details.effectiveConfigurationSync ??
-        mod.configurationSync ??
-        (mod.isPendingConfiguration
-            ? const ConfigurationSyncInfo(
-                state: 'pending',
-                configVersion: 1,
-                configAppliedVersion: 0,
-              )
-            : ConfigurationSyncInfo(
-                state: 'synced',
-                configVersion: 1,
-                configAppliedVersion: 1,
-                configAppliedAt: mod.configuredAt != null
-                    ? DateTime.tryParse(mod.configuredAt!)
-                    : null,
-              ));
 
     return RefreshIndicator(
       color: AppColors.primary,
@@ -429,6 +412,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         ref.invalidate(moduleDetailsProvider(widget.moduleId));
         ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
         ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+        ref.invalidate(latestInspectionProvider(widget.moduleId));
         ref.invalidate(moduleThermalMapProvider(widget.moduleId));
         await ref.read(moduleDetailsProvider(widget.moduleId).future);
       },
@@ -492,19 +476,15 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               const SizedBox(height: 16),
             ],
 
-            // 2. Configuration Sync Status Chip/Card
-            _buildConfigurationSyncCard(syncInfo),
-            const SizedBox(height: 16),
-
-            // 3. 2x2 Sensor Health Grid
+            // 2. Sensor Health Grid with integrated Live Sync Status & Ping
             _buildSensorHealthGrid(deviceStatus),
             const SizedBox(height: 16),
 
-            // 4. Module Info Collapsible Card / Accordion
+            // 3. Module Info Collapsible Card / Accordion
             _buildModuleInfoCard(mod, details),
             const SizedBox(height: 16),
 
-            // 5. Hardware Handshake Shortcut
+            // 4. Device Verification Shortcut
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
@@ -522,7 +502,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(
-                      Icons.handshake_outlined,
+                      Icons.verified_outlined,
                       color: AppColors.primary,
                       size: 20,
                     ),
@@ -533,14 +513,14 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'ESP32 Hardware Handshake',
+                          'ESP32 Device Verification',
                           style: AppTypography.bodySmall.copyWith(
                             fontWeight: FontWeight.w700,
                           ),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          'Safety interlocks & Wi-Fi checklist',
+                          'Safety interlocks & connection diagnostics',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.textSecondary,
                           ),
@@ -550,9 +530,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   ),
                   TextButton(
                     onPressed: () =>
-                        context.push('/modules/${mod.id}/handshake'),
+                        context.push('/modules/${mod.id}/device-verification'),
                     child: Text(
-                      'Verify Hardware Handshake →',
+                      'Verify Hardware →',
                       style: AppTypography.caption.copyWith(
                         color: AppColors.primary,
                         fontWeight: FontWeight.w700,
@@ -569,6 +549,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               RadiometricScanCard(
                 module: mod,
                 latestMeasurement: latestMeasurement,
+                latestInspection: latestInspection,
                 thermalMap: thermalMap,
               ),
               const SizedBox(height: 16),
@@ -625,73 +606,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     );
   }
 
-  /// Configuration Sync Status Chip/Card
-  Widget _buildConfigurationSyncCard(ConfigurationSyncInfo syncInfo) {
-    final state = syncInfo.state;
-    final v = syncInfo.configVersion;
-
-    Color bg;
-    Color border;
-    Color iconColor;
-    IconData icon;
-    String message;
-
-    if (state == 'synced') {
-      bg = AppColors.successBackground;
-      border = AppColors.successBorder;
-      iconColor = AppColors.success;
-      icon = Icons.check_circle_outline_rounded;
-      final dateStr = _formatDateTime(syncInfo.configAppliedAt);
-      message = 'Configuration v$v synced to ESP32 on $dateStr';
-    } else if (state == 'failed') {
-      bg = AppColors.errorBackground;
-      border = AppColors.errorBorder;
-      iconColor = AppColors.error;
-      icon = Icons.error_outline_rounded;
-      final err = syncInfo.configApplyError ?? 'unknown error';
-      message = 'Failed to apply configuration v$v: $err';
-    } else {
-      bg = AppColors.warningBackground;
-      border = AppColors.warningBorder;
-      iconColor = AppColors.warning;
-      icon = Icons.access_time_rounded;
-      message = 'Configuration v$v pending sync on device';
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Icon(icon, color: iconColor, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              message,
-              style: AppTypography.bodySmall.copyWith(
-                color: iconColor,
-                fontWeight: FontWeight.w700,
-                fontSize: 12.5,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 2x2 Sensor Health Grid
+  /// Sensor Health Grid with integrated connection status and refresh action
   Widget _buildSensorHealthGrid(DeviceStatus? status) {
     final limitsOk = status?.limitsCheckPassed == true;
     final thermalOk = status?.thermalSensorActive == true;
     final waterAvailable = status?.waterAvailable;
     final isOnline = status?.isOnline == true;
+    final lastSyncDate = status?.lastPingAt ?? status?.lastSeenAt ?? status?.latestMeasurementAt;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -703,12 +624,53 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               'Sensor Health & Diagnostics',
               style: AppTypography.h3.copyWith(fontSize: 15),
             ),
-            Text(
-              'Live 2×2 Telemetry',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textSecondary,
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isOnline ? AppColors.success : AppColors.warning,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  isOnline
+                      ? (lastSyncDate != null
+                          ? 'Sync: ${_formatDateTime(DateTime.tryParse(lastSyncDate))}'
+                          : 'Online')
+                      : 'Offline',
+                  style: AppTypography.caption.copyWith(
+                    color: isOnline ? AppColors.success : AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: () {
+                    ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Querying ESP32 device status...'),
+                        duration: Duration(seconds: 1),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  },
+                  borderRadius: BorderRadius.circular(12),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(
+                      Icons.sync_rounded,
+                      size: 16,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

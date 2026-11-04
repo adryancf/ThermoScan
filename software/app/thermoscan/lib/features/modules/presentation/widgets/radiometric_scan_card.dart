@@ -9,18 +9,22 @@ class RadiometricScanCard extends StatelessWidget {
     super.key,
     required this.module,
     this.latestMeasurement,
+    this.latestInspection,
     this.thermalMap,
   });
 
   final PvModule module;
   final ModuleMeasurement? latestMeasurement;
+  final LatestInspection? latestInspection;
   final ModuleThermalMap? thermalMap;
 
   @override
   Widget build(BuildContext context) {
     final m = latestMeasurement;
+    final insp = latestInspection;
     final tm = thermalMap;
-    if (m == null && tm == null) {
+
+    if (m == null && insp == null && tm == null) {
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -64,27 +68,42 @@ class RadiometricScanCard extends StatelessWidget {
     }
 
     final peakTemp = m?.maxTemperatureC ?? 0.0;
-    final baselineTemp = m?.baselineTemperatureC ?? 0.0;
+    final baselineTemp = insp?.inspection.baselineTemperatureC ?? m?.baselineTemperatureC ?? 0.0;
     final voltage = m?.voltageV ?? 0.0;
     final current = m?.currentA ?? 0.0;
     final power = m?.powerW ?? (voltage * current);
     final xPos = m?.xPositionCm ?? 0.0;
-    final isHotspot = m?.hotspotDetected ?? false;
-    final delta = peakTemp - baselineTemp;
+    final isHotspot = (insp?.confirmedAnomalies.isNotEmpty == true) || (m?.hotspotDetected ?? false);
+    final delta = (peakTemp > 0 && baselineTemp > 0) ? (peakTemp - baselineTemp) : 0.0;
 
-    // 5 cm Bands resolution directly from authentic backend telemetry
-    List<ThermalBand> bands = tm?.bands ?? [];
-    if (bands.isEmpty && m != null) {
-      bands = [
+    // Calculate 5 cm bands strictly based on module length (e.g. 10cm -> 2 bands, 20cm -> 4 bands)
+    final panelLength = (module.panelLengthCm != null && module.panelLengthCm! > 0)
+        ? module.panelLengthCm!
+        : 20.0;
+    final totalExpectedBands = (panelLength / 5.0).ceil().clamp(1, 40);
+
+    List<ThermalBand> bands = [];
+    for (int i = 0; i < totalExpectedBands; i++) {
+      final startX = i * 5.0;
+      final endX = ((i + 1) * 5.0 > panelLength) ? panelLength : (i + 1) * 5.0;
+      final hasMeasurementInBand = (m != null && xPos >= startX && xPos <= endX);
+      final hasAnomalyInBand = insp?.confirmedAnomalies.any(
+            (a) => a.xPositionCm >= startX && a.xPositionCm <= endX,
+          ) ?? false;
+      final bandHasHotspot = hasAnomalyInBand || (hasMeasurementInBand && isHotspot);
+      final bandMaxTemp = hasMeasurementInBand ? peakTemp : 0.0;
+      final bandAvgTemp = hasMeasurementInBand ? baselineTemp : 0.0;
+
+      bands.add(
         ThermalBand(
-          bandIndex: 1,
-          startXCm: xPos,
-          endXCm: xPos + 5.0,
-          maxTemperatureC: peakTemp,
-          avgTemperatureC: baselineTemp,
-          hasHotspot: isHotspot,
+          bandIndex: i + 1,
+          startXCm: startX,
+          endXCm: endX,
+          maxTemperatureC: bandMaxTemp,
+          avgTemperatureC: bandAvgTemp,
+          hasHotspot: bandHasHotspot,
         ),
-      ];
+      );
     }
 
     return Container(
@@ -153,7 +172,7 @@ class RadiometricScanCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // 2D Thermal Viewport Canvas Container with 5 cm Bands Overlay
+          // 2D Thermal Viewport Canvas with Prominent 5 cm Bands Overlay
           Container(
             height: 190,
             width: double.infinity,
@@ -183,7 +202,7 @@ class RadiometricScanCard extends StatelessWidget {
             ),
             child: Stack(
               children: [
-                // 5 cm Band Vertical Divider Lines
+                // Prominent 5 cm Band Vertical Divider Lines
                 Row(
                   children: List.generate(bands.length, (idx) {
                     final b = bands[idx];
@@ -193,11 +212,10 @@ class RadiometricScanCard extends StatelessWidget {
                           border: Border(
                             right: idx < bands.length - 1
                                 ? BorderSide(
-                                    color: Colors.white.withValues(alpha: 0.25),
-                                    width: 1,
+                                    color: Colors.white.withValues(alpha: 0.45),
+                                    width: 1.5,
                                   )
                                 : BorderSide.none,
-                            // Highlight band if it contains hotspot
                             top: b.hasHotspot
                                 ? const BorderSide(color: AppColors.error, width: 3)
                                 : BorderSide.none,
@@ -206,7 +224,7 @@ class RadiometricScanCard extends StatelessWidget {
                                 : BorderSide.none,
                           ),
                           color: b.hasHotspot
-                              ? AppColors.error.withValues(alpha: 0.12)
+                              ? AppColors.error.withValues(alpha: 0.18)
                               : Colors.transparent,
                         ),
                         child: Align(
@@ -215,20 +233,20 @@ class RadiometricScanCard extends StatelessWidget {
                             padding: const EdgeInsets.only(top: 6),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 4,
+                                horizontal: 5,
                                 vertical: 2,
                               ),
                               decoration: BoxDecoration(
                                 color: b.hasHotspot
                                     ? AppColors.error.withValues(alpha: 0.85)
-                                    : Colors.black.withValues(alpha: 0.5),
+                                    : Colors.black.withValues(alpha: 0.60),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 b.label,
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontSize: 8.5,
+                                  fontSize: 9.0,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -244,39 +262,48 @@ class RadiometricScanCard extends StatelessWidget {
                 Positioned(
                   bottom: 8,
                   left: 8,
-                  child: _buildBadge('X: ${xPos.toStringAsFixed(1)} cm (Passo 2cm)'),
+                  child: _buildBadge('X: ${xPos.toStringAsFixed(1)} cm (Step 2cm)'),
                 ),
                 Positioned(
                   bottom: 8,
                   right: 8,
-                  child: _buildBadge('T_max: ${peakTemp.toStringAsFixed(1)}°C'),
+                  child: _buildBadge(
+                    'T_max: ${peakTemp.toStringAsFixed(1)}°C',
+                    highlight: isHotspot,
+                  ),
                 ),
 
-                // Hotspot Target Reticle Marker
+                // Hotspot Target Pin
                 if (isHotspot)
                   Positioned(
-                    top: 65,
-                    left: 170,
+                    top: 50,
+                    right: 60,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
-                          width: 24,
-                          height: 24,
+                          width: 14,
+                          height: 14,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              width: 2,
-                            ),
+                            color: AppColors.error,
+                            border: Border.all(color: Colors.white, width: 2),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: AppColors.error,
+                                blurRadius: 8,
+                                spreadRadius: 2,
+                              ),
+                            ],
                           ),
-                          alignment: Alignment.center,
-                          child: Container(
-                            width: 5,
-                            height: 5,
-                            decoration: const BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: Colors.white,
+                          child: Center(
+                            child: Container(
+                              width: 4,
+                              height: 4,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white,
+                              ),
                             ),
                           ),
                         ),
@@ -291,7 +318,7 @@ class RadiometricScanCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: const Text(
-                            'Hotspot Detectado',
+                            'Hotspot Detected',
                             style: TextStyle(
                               fontFamily: 'monospace',
                               fontSize: 9,
@@ -344,9 +371,9 @@ class RadiometricScanCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
 
-          // Faixas de 5 cm - Seletor / Breakdown
+          // 5 cm Thermal Sectors Breakdown
           Text(
-            'Discretização do Painel (Faixas de 5 cm)',
+            'Thermal Zones (5 cm Sectors)',
             style: AppTypography.caption.copyWith(
               fontWeight: FontWeight.w700,
               color: AppColors.textPrimary,
@@ -405,8 +432,8 @@ class RadiometricScanCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         (b.maxTemperatureC <= 0.0 && b.avgTemperatureC <= 0.0)
-                            ? 'Sem leitura no setor'
-                            : 'Pico: ${b.maxTemperatureC.toStringAsFixed(1)}°C • Média: ${b.avgTemperatureC.toStringAsFixed(1)}°C',
+                            ? 'No readings in sector'
+                            : 'Peak: ${b.maxTemperatureC.toStringAsFixed(1)}°C • Avg: ${b.avgTemperatureC.toStringAsFixed(1)}°C',
                         style: AppTypography.caption.copyWith(
                           fontSize: 9.5,
                           color: AppColors.textSecondary,
@@ -420,26 +447,27 @@ class RadiometricScanCard extends StatelessWidget {
           ),
           const SizedBox(height: 16),
 
-          // 4 Key Telemetry Metrics Grid
+          // 4 Key Telemetry Metrics Grid with Baseline Temperature
           Row(
             children: [
               Expanded(
                 child: _buildMetricTile(
                   label: 'Peak Temperature',
                   value: '${peakTemp.toStringAsFixed(1)}°C',
-                  subtext: peakTemp < 60.0
-                      ? 'Below 60°C threshold'
-                      : 'Exceeds threshold',
-                  isWarning: peakTemp >= 60.0,
+                  subtext: isHotspot
+                      ? 'Delta: +${delta.toStringAsFixed(1)}°C'
+                      : (peakTemp < 60.0 ? 'Normal curve' : 'Exceeds 60°C'),
+                  isWarning: isHotspot || peakTemp >= 60.0,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildMetricTile(
-                  label: 'DC Output Voltage',
-                  value: '${voltage.toStringAsFixed(1)} V',
-                  subtext: 'Nominal string curve',
+                  label: 'Baseline Temperature',
+                  value: baselineTemp > 0 ? '${baselineTemp.toStringAsFixed(1)}°C' : 'N/A',
+                  subtext: 'Inspection median reference',
                   isWarning: false,
+                  valueColor: AppColors.secondary,
                 ),
               ),
             ],
@@ -449,9 +477,9 @@ class RadiometricScanCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _buildMetricTile(
-                  label: 'String Current',
-                  value: '${current.toStringAsFixed(2)} A',
-                  subtext: 'Array active',
+                  label: 'DC Voltage & Current',
+                  value: '${voltage.toStringAsFixed(1)} V · ${current.toStringAsFixed(2)} A',
+                  subtext: 'Array electrical output',
                   isWarning: false,
                 ),
               ),
@@ -472,20 +500,22 @@ class RadiometricScanCard extends StatelessWidget {
     );
   }
 
-  Widget _buildBadge(String text) {
+  Widget _buildBadge(String text, {bool highlight = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.5),
+        color: highlight
+            ? AppColors.error.withValues(alpha: 0.85)
+            : Colors.black.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         text,
         style: const TextStyle(
           color: Colors.white,
-          fontFamily: 'monospace',
-          fontSize: 10,
+          fontSize: 9.5,
           fontWeight: FontWeight.w600,
+          fontFamily: 'monospace',
         ),
       ),
     );
@@ -495,15 +525,17 @@ class RadiometricScanCard extends StatelessWidget {
     required String label,
     required String value,
     required String subtext,
-    required bool isWarning,
+    bool isWarning = false,
     Color? valueColor,
   }) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.background,
+        color: isWarning ? AppColors.errorBackground : AppColors.background,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
+        border: Border.all(
+          color: isWarning ? AppColors.errorBorder : AppColors.border,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -511,27 +543,26 @@ class RadiometricScanCard extends StatelessWidget {
           Text(
             label,
             style: AppTypography.caption.copyWith(
-              fontSize: 11,
-              color: AppColors.textSecondary,
+              color: isWarning ? AppColors.error : AppColors.textSecondary,
+              fontWeight: FontWeight.w500,
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 4),
           Text(
             value,
             style: AppTypography.h3.copyWith(
-              fontSize: 16,
+              color: isWarning
+                  ? AppColors.error
+                  : (valueColor ?? AppColors.textPrimary),
               fontWeight: FontWeight.w700,
-              color: valueColor ??
-                  (isWarning ? AppColors.error : AppColors.textPrimary),
             ),
           ),
           const SizedBox(height: 2),
           Text(
             subtext,
             style: AppTypography.caption.copyWith(
-              fontSize: 10,
               color: isWarning ? AppColors.error : AppColors.textSecondary,
-              fontWeight: isWarning ? FontWeight.w700 : FontWeight.w500,
+              fontSize: 10,
             ),
           ),
         ],

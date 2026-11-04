@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"sort"
 	"strconv"
 	"time"
 
@@ -14,6 +13,11 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+)
+
+var (
+	ErrInspectionCompleted = errors.New("inspection already finalized")
+	ErrBatchTooLarge       = errors.New("telemetry batch exceeds maximum limit of 10 items")
 )
 
 func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, limit, offset int32) ([]MeasurementDTO, error) {
@@ -48,27 +52,37 @@ func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal
 
 	out := make([]MeasurementDTO, 0, len(rows))
 	for _, m := range rows {
+		var thermalFrameData any
+		if len(m.ThermalFrame) > 0 {
+			_ = json.Unmarshal(m.ThermalFrame, &thermalFrameData)
+		}
+
 		out = append(out, MeasurementDTO{
-			ID:               auth.FormatUUID(m.ID),
-			ModuleID:         auth.FormatUUID(m.ModuleID),
-			InspectionID:     auth.FormatUUID(m.InspectionID),
-			SourceEventID:    auth.FormatUUID(m.SourceEventID),
-			MeasuredAt:       m.MeasuredAt.UTC().Format(time.RFC3339),
-			XPositionCM:      m.XPositionCm,
-			BaselineTempC:    m.BaselineTemperatureC,
-			MaxTempC:         m.MaxTemperatureC,
-			HotspotDetected:  m.HotspotDetected,
-			HotspotConfirmed: m.HotspotConfirmed,
-			VoltageV:         m.VoltageV,
-			CurrentA:         m.CurrentA,
-			PowerW:           m.PowerW,
-			ReceivedAt:       m.ReceivedAt.UTC().Format(time.RFC3339),
+			ID:              auth.FormatUUID(m.ID),
+			ModuleID:        auth.FormatUUID(m.ModuleID),
+			InspectionID:    auth.FormatUUID(m.InspectionID),
+			SourceEventID:   auth.FormatUUID(m.SourceEventID),
+			MeasuredAt:      m.MeasuredAt.UTC().Format(time.RFC3339),
+			XPositionCM:     m.XPositionCm,
+			MaxTempC:        m.MaxTemperatureC,
+			HotspotDetected: m.HotspotDetected,
+			VoltageV:        m.VoltageV,
+			CurrentA:        m.CurrentA,
+			PowerW:          m.PowerW,
+			ThermalFrame:    thermalFrameData,
+			ReceivedAt:      m.ReceivedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return out, nil
 }
 
-func (s *Service) GetLatestThermalMap(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) (*ThermalMapDTO, error) {
+func (s *Service) ListInspectionMeasurementsPaged(
+	ctx context.Context,
+	principal auth.Principal,
+	moduleID pgtype.UUID,
+	inspectionID pgtype.UUID,
+	page, limit int32,
+) (*PagedMeasurementsDTO, error) {
 	if !principal.CompanyID.Valid || !moduleID.Valid {
 		return nil, ErrForbidden
 	}
@@ -89,7 +103,99 @@ func (s *Service) GetLatestThermalMap(ctx context.Context, principal auth.Princi
 		return nil, err
 	}
 
-	tm, err := s.queries.GetLatestThermalMapByModule(ctx, moduleID)
+	if page < 1 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	offset := (page - 1) * limit
+
+	totalCount, err := s.queries.CountMeasurementsByInspection(ctx, db.CountMeasurementsByInspectionParams{
+		InspectionID: inspectionID,
+		ModuleID:     moduleID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := s.queries.ListMeasurementsByInspectionPaged(ctx, db.ListMeasurementsByInspectionPagedParams{
+		InspectionID: inspectionID,
+		ModuleID:     moduleID,
+		Limit:        limit,
+		Offset:       offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]MeasurementDTO, 0, len(rows))
+	for _, m := range rows {
+		var thermalFrameData any
+		if len(m.ThermalFrame) > 0 {
+			_ = json.Unmarshal(m.ThermalFrame, &thermalFrameData)
+		}
+
+		items = append(items, MeasurementDTO{
+			ID:              auth.FormatUUID(m.ID),
+			ModuleID:        auth.FormatUUID(m.ModuleID),
+			InspectionID:    auth.FormatUUID(m.InspectionID),
+			SourceEventID:   auth.FormatUUID(m.SourceEventID),
+			MeasuredAt:      m.MeasuredAt.UTC().Format(time.RFC3339),
+			XPositionCM:     m.XPositionCm,
+			MaxTempC:        m.MaxTemperatureC,
+			HotspotDetected: m.HotspotDetected,
+			VoltageV:        m.VoltageV,
+			CurrentA:        m.CurrentA,
+			PowerW:          m.PowerW,
+			ThermalFrame:    thermalFrameData,
+			ReceivedAt:      m.ReceivedAt.UTC().Format(time.RFC3339),
+		})
+	}
+
+	totalPages := 0
+	if totalCount > 0 {
+		totalPages = int(math.Ceil(float64(totalCount) / float64(limit)))
+	}
+	hasNextPage := int(page) < totalPages
+
+	return &PagedMeasurementsDTO{
+		Pagination: PaginationMetadataDTO{
+			Page:        int(page),
+			Limit:       int(limit),
+			TotalCount:  totalCount,
+			TotalPages:  totalPages,
+			HasNextPage: hasNextPage,
+		},
+		Measurements: items,
+	}, nil
+}
+
+func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) (*LatestInspectionDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	inspRow, err := s.queries.GetLatestInspectionByModule(ctx, moduleID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
@@ -97,245 +203,95 @@ func (s *Service) GetLatestThermalMap(ctx context.Context, principal auth.Princi
 		return nil, err
 	}
 
-	measurements, _ := s.queries.ListMeasurementsByModule(ctx, db.ListMeasurementsByModuleParams{
-		ModuleID: moduleID,
-		Limit:    100,
-		Offset:   0,
+	totalMeas, err := s.queries.CountMeasurementsByInspection(ctx, db.CountMeasurementsByInspectionParams{
+		InspectionID: inspRow.ID,
+		ModuleID:     moduleID,
 	})
-	bands := computeBandsFromMeasurements(tm.WidthPixels, measurements)
+	if err != nil {
+		return nil, err
+	}
 
-	return &ThermalMapDTO{
-		ID:               auth.FormatUUID(tm.ID),
-		InspectionID:     auth.FormatUUID(tm.InspectionID),
-		WidthPixels:      tm.WidthPixels,
-		HeightPixels:     tm.HeightPixels,
-		TemperaturesC:    tm.TemperaturesC,
-		AlgorithmVersion: tm.AlgorithmVersion,
-		Bands:            bands,
-		GeneratedAt:      tm.GeneratedAt.UTC().Format(time.RFC3339),
+	anomRows, err := s.queries.ListAnomaliesByInspection(ctx, db.ListAnomaliesByInspectionParams{
+		InspectionID: inspRow.ID,
+		ModuleID:     moduleID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var baseTempPtr *float64
+	if inspRow.BaselineTemperatureC != "" {
+		if bVal, err := strconv.ParseFloat(inspRow.BaselineTemperatureC, 64); err == nil {
+			baseTempPtr = &bVal
+		}
+	}
+
+	var startedAtStr, finishedAtStr, cleanOpIDStr *string
+	if inspRow.StartedAt != nil {
+		s := inspRow.StartedAt.UTC().Format(time.RFC3339)
+		startedAtStr = &s
+	}
+	if inspRow.FinishedAt != nil {
+		f := inspRow.FinishedAt.UTC().Format(time.RFC3339)
+		finishedAtStr = &f
+	}
+	if inspRow.CleaningOperationID.Valid {
+		c := auth.FormatUUID(inspRow.CleaningOperationID)
+		cleanOpIDStr = &c
+	}
+	var verifResult *string
+	if inspRow.VerificationResult.Valid {
+		verifResult = &inspRow.VerificationResult.String
+	}
+
+	anomalies := make([]ConfirmedAnomalyDTO, 0, len(anomRows))
+	for _, a := range anomRows {
+		xPos, _ := strconv.ParseFloat(a.XPositionCm, 64)
+		confirmingIDs := make([]string, 0, len(a.ConfirmingMeasurementIds))
+		for _, cid := range a.ConfirmingMeasurementIds {
+			confirmingIDs = append(confirmingIDs, auth.FormatUUID(cid))
+		}
+
+		var closedAtStr *string
+		if a.ClosedAt != nil {
+			c := a.ClosedAt.UTC().Format(time.RFC3339)
+			closedAtStr = &c
+		}
+
+		anomalies = append(anomalies, ConfirmedAnomalyDTO{
+			ID:                       auth.FormatUUID(a.ID),
+			ModuleID:                 auth.FormatUUID(a.ModuleID),
+			OriginMeasurementID:      auth.FormatUUID(a.OriginMeasurementID),
+			ConfirmingMeasurementIDs: confirmingIDs,
+			SourceEventID:            auth.FormatUUID(a.SourceEventID),
+			XPositionCM:              xPos,
+			DetectedAt:               a.DetectedAt.UTC().Format(time.RFC3339),
+			Status:                   a.Status,
+			ActuatedAttemptsCount:    a.ActuatedAttemptsCount,
+			RetryPending:             a.RetryPending,
+			ClosedAt:                 closedAtStr,
+		})
+	}
+
+	return &LatestInspectionDTO{
+		Inspection: InspectionDTO{
+			ID:                   auth.FormatUUID(inspRow.ID),
+			ModuleID:             auth.FormatUUID(inspRow.ModuleID),
+			SourceEventID:        auth.FormatUUID(inspRow.SourceEventID),
+			Type:                 inspRow.Type,
+			CleaningOperationID:  cleanOpIDStr,
+			BaselineTemperatureC: baseTempPtr,
+			ScheduledFor:         inspRow.ScheduledFor.UTC().Format(time.RFC3339),
+			StartedAt:            startedAtStr,
+			FinishedAt:           finishedAtStr,
+			Status:               inspRow.Status,
+			VerificationResult:   verifResult,
+			CreatedAt:            inspRow.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:            inspRow.UpdatedAt.UTC().Format(time.RFC3339),
+		},
+		TotalMeasurements:  totalMeas,
+		ConfirmedAnomalies: anomalies,
 	}, nil
-}
-
-func computeBandsFromMeasurements(widthPixels int32, measurements []db.ListMeasurementsByModuleRow) []ThermalBandDTO {
-	totalCols := int(widthPixels)
-	if totalCols <= 0 {
-		totalCols = 32
-	}
-
-	var totalLengthCm float64
-	if totalCols <= 32 {
-		totalLengthCm = 5.0
-	} else {
-		steps := float64(totalCols-32) / 13.0
-		totalLengthCm = 5.0 + steps*2.0
-	}
-
-	numBands := int(math.Ceil(totalLengthCm / 5.0))
-	if numBands < 1 {
-		numBands = 1
-	}
-
-	bands := make([]ThermalBandDTO, 0, numBands)
-	for b := 0; b < numBands; b++ {
-		startX := float64(b) * 5.0
-		endX := startX + 5.0
-		if endX > totalLengthCm {
-			endX = totalLengthCm
-		}
-
-		hasHotspot := false
-		maxTemp := 0.0
-		avgTemp := 0.0
-		count := 0
-
-		for _, m := range measurements {
-			x, _ := strconv.ParseFloat(m.XPositionCm, 64)
-			mT, _ := strconv.ParseFloat(m.MaxTemperatureC, 64)
-			bT, _ := strconv.ParseFloat(m.BaselineTemperatureC, 64)
-			if x >= startX && x < endX {
-				if m.HotspotDetected {
-					hasHotspot = true
-				}
-				if mT > maxTemp {
-					maxTemp = mT
-				}
-				avgTemp += bT
-				count++
-			}
-		}
-
-		var maxTempPtr *float64
-		var avgTempPtr *float64
-		hasData := false
-
-		if count > 0 {
-			hasData = true
-			a := math.Round((avgTemp/float64(count))*10) / 10
-			m := math.Round(maxTemp*10) / 10
-			avgTempPtr = &a
-			maxTempPtr = &m
-		}
-
-		bands = append(bands, ThermalBandDTO{
-			BandIndex:       b + 1,
-			StartXCm:        math.Round(startX*10) / 10,
-			EndXCm:          math.Round(endX*10) / 10,
-			MaxTemperatureC: maxTempPtr,
-			AvgTemperatureC: avgTempPtr,
-			HasHotspot:      hasHotspot,
-			HasData:         hasData,
-		})
-	}
-	return bands
-}
-
-func stitchThermalFrames(frames []IngestTelemetryInput) (int32, int32, []float64, []ThermalBandDTO) {
-	if len(frames) == 0 {
-		return 32, 24, make([]float64, 32*24), nil
-	}
-
-	sort.Slice(frames, func(i, j int) bool {
-		return frames[i].XPositionCm < frames[j].XPositionCm
-	})
-
-	if len(frames) == 1 {
-		f := frames[0]
-		data := f.ThermalFrame
-		maxT := f.MaxTemperatureC
-		baseT := f.BaselineTemperatureC
-		bands := []ThermalBandDTO{
-			{
-				BandIndex:       1,
-				StartXCm:        0.0,
-				EndXCm:          5.0,
-				MaxTemperatureC: &maxT,
-				AvgTemperatureC: &baseT,
-				HasHotspot:      f.HotspotDetected,
-				HasData:         true,
-			},
-		}
-		return 32, 24, data, bands
-	}
-
-	colsPerStep := 13
-	totalCols := 32 + (len(frames)-1)*colsPerStep
-	totalRows := 24
-
-	composite := make([]float64, totalCols*totalRows)
-	weights := make([]float64, totalCols*totalRows)
-
-	for frameIdx, f := range frames {
-		frameData := f.ThermalFrame
-		colOffset := frameIdx * colsPerStep
-
-		for r := 0; r < totalRows; r++ {
-			for c := 0; c < 32; c++ {
-				targetCol := colOffset + c
-				if targetCol >= totalCols {
-					continue
-				}
-				targetIdx := r*totalCols + targetCol
-				srcIdx := r*32 + c
-
-				w := 1.0
-				if c < 13 && frameIdx > 0 {
-					w = float64(c+1) / 13.0
-				} else if c >= (32-13) && frameIdx < len(frames)-1 {
-					w = float64(32-c) / 13.0
-				}
-				if w < 0.05 {
-					w = 0.05
-				}
-
-				composite[targetIdx] += frameData[srcIdx] * w
-				weights[targetIdx] += w
-			}
-		}
-	}
-
-	for i := range composite {
-		if weights[i] > 0 {
-			composite[i] = math.Round((composite[i]/weights[i])*10.0) / 10.0
-		}
-	}
-
-	minX := frames[0].XPositionCm
-	maxX := frames[len(frames)-1].XPositionCm + 5.0
-	totalLengthCm := maxX - minX
-	if totalLengthCm <= 0 {
-		totalLengthCm = 5.0
-	}
-
-	numBands := int(math.Ceil(totalLengthCm / 5.0))
-	if numBands < 1 {
-		numBands = 1
-	}
-
-	bands := make([]ThermalBandDTO, 0, numBands)
-	for b := 0; b < numBands; b++ {
-		startX := minX + float64(b)*5.0
-		endX := startX + 5.0
-		if endX > maxX {
-			endX = maxX
-		}
-
-		maxTemp := 0.0
-		sumTemp := 0.0
-		count := 0
-		hasHotspot := false
-
-		for _, f := range frames {
-			centerFrameX := f.XPositionCm + 2.5
-			if centerFrameX >= startX && centerFrameX <= endX {
-				if f.HotspotDetected {
-					hasHotspot = true
-				}
-				if f.MaxTemperatureC > maxTemp {
-					maxTemp = f.MaxTemperatureC
-				}
-			}
-		}
-
-		colStart := int(float64(b) * 5.0 / totalLengthCm * float64(totalCols))
-		colEnd := int(float64(b+1) * 5.0 / totalLengthCm * float64(totalCols))
-		if colEnd > totalCols {
-			colEnd = totalCols
-		}
-		for r := 0; r < totalRows; r++ {
-			for c := colStart; c < colEnd; c++ {
-				t := composite[r*totalCols+c]
-				if t > maxTemp {
-					maxTemp = t
-				}
-				sumTemp += t
-				count++
-			}
-		}
-
-		var avgTempPtr *float64
-		var maxTempPtr *float64
-		hasData := false
-
-		if count > 0 {
-			hasData = true
-			a := math.Round((sumTemp/float64(count))*10.0) / 10.0
-			m := math.Round(maxTemp*10.0) / 10.0
-			avgTempPtr = &a
-			maxTempPtr = &m
-		}
-
-		bands = append(bands, ThermalBandDTO{
-			BandIndex:       b + 1,
-			StartXCm:        math.Round(startX*10.0) / 10.0,
-			EndXCm:          math.Round(endX*10.0) / 10.0,
-			MaxTemperatureC: maxTempPtr,
-			AvgTemperatureC: avgTempPtr,
-			HasHotspot:      hasHotspot,
-			HasData:         hasData,
-		})
-	}
-
-	return int32(totalCols), int32(totalRows), composite, bands
 }
 
 func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, input IngestTelemetryInput) (*MeasurementDTO, error) {
@@ -367,55 +323,138 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		return nil, err
 	}
 
-	framesToProcess := input.Batch
-	if len(framesToProcess) == 0 {
-		framesToProcess = []IngestTelemetryInput{input}
+	// 1. Gather upload frames
+	var items []IngestMeasurementItemInput
+	if len(input.Batch) > 0 {
+		items = input.Batch
+	} else if len(input.Measurements) > 0 {
+		items = input.Measurements
+	} else if len(input.ThermalFrame) > 0 {
+		sourceID := ""
+		if input.SourceEventID != nil {
+			sourceID = *input.SourceEventID
+		}
+		items = []IngestMeasurementItemInput{
+			{
+				SourceEventID:   sourceID,
+				MeasuredAt:      input.MeasuredAt,
+				XPositionCm:     input.XPositionCm,
+				MaxTemperatureC: input.MaxTemperatureC,
+				HotspotDetected: input.HotspotDetected,
+				VoltageV:        input.VoltageV,
+				CurrentA:        input.CurrentA,
+				PowerW:          input.PowerW,
+				ThermalFrame:    input.ThermalFrame,
+			},
+		}
 	}
 
-	for _, f := range framesToProcess {
+	if len(items) == 0 {
+		return nil, ErrInvalidInput
+	}
+	if len(items) > 10 {
+		return nil, ErrBatchTooLarge
+	}
+
+	for _, f := range items {
 		if len(f.ThermalFrame) != 32*24 {
 			return nil, ErrInvalidInput
 		}
 	}
 
 	now := time.Now().UTC()
-	measuredAt := now
-	if framesToProcess[0].MeasuredAt != nil && !framesToProcess[0].MeasuredAt.IsZero() {
-		measuredAt = framesToProcess[0].MeasuredAt.UTC()
-	}
 
+	// 2. Resolve or create Inspection session
+	var inspID pgtype.UUID
 	inspType := "scheduled"
 	if input.InspectionType != nil && *input.InspectionType != "" {
 		inspType = *input.InspectionType
 	}
-	schedFor := measuredAt
-	if input.InspectionScheduledFor != nil {
-		schedFor = *input.InspectionScheduledFor
-	}
-	startedAt := measuredAt
-	if input.InspectionStartedAt != nil {
-		startedAt = *input.InspectionStartedAt
+
+	var cleanOpUUID pgtype.UUID
+	if input.CleaningOperationID != nil && *input.CleaningOperationID != "" {
+		cleanOpUUID, err = auth.ParseUUID(*input.CleaningOperationID)
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
 	}
 
-	// 1. Create inspection session with real timestamps
-	inspEventID := newRandomUUID()
-	insp, err := qtx.CreateInspection(ctx, db.CreateInspectionParams{
-		ModuleID:      moduleID,
-		SourceEventID: inspEventID,
-		Type:          inspType,
-		ScheduledFor:  schedFor,
-		StartedAt:     &startedAt,
-		FinishedAt:    &now,
-		Status:        "completed",
-	})
-	if err != nil {
-		return nil, err
+	if inspType == "verification" && !cleanOpUUID.Valid {
+		return nil, ErrInvalidInput
 	}
 
+	var inspSourceUUID pgtype.UUID
+	if input.InspectionSourceEventID != nil && *input.InspectionSourceEventID != "" {
+		inspSourceUUID, err = auth.ParseUUID(*input.InspectionSourceEventID)
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+
+		existingInsp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
+			ModuleID:      moduleID,
+			SourceEventID: inspSourceUUID,
+		})
+		if err == nil {
+			inspID = existingInsp.ID
+		} else if errors.Is(err, pgx.ErrNoRows) {
+			schedFor := now
+			if input.InspectionScheduledFor != nil {
+				schedFor = input.InspectionScheduledFor.UTC()
+			}
+			startedAt := now
+			if input.InspectionStartedAt != nil {
+				startedAt = input.InspectionStartedAt.UTC()
+			}
+
+			newInsp, err := qtx.CreateInspection(ctx, db.CreateInspectionParams{
+				ModuleID:            moduleID,
+				SourceEventID:       inspSourceUUID,
+				Type:                inspType,
+				CleaningOperationID: cleanOpUUID,
+				ScheduledFor:        schedFor,
+				StartedAt:           &startedAt,
+				FinishedAt:          nil,
+				Status:              "in_progress",
+			})
+			if err != nil {
+				return nil, err
+			}
+			inspID = newInsp.ID
+		} else {
+			return nil, err
+		}
+	} else {
+		// Standalone telemetry without inspection_source_event_id
+		inspSourceUUID = newRandomUUID()
+		schedFor := now
+		if input.InspectionScheduledFor != nil {
+			schedFor = input.InspectionScheduledFor.UTC()
+		}
+		startedAt := now
+		if input.InspectionStartedAt != nil {
+			startedAt = input.InspectionStartedAt.UTC()
+		}
+
+		newInsp, err := qtx.CreateInspection(ctx, db.CreateInspectionParams{
+			ModuleID:            moduleID,
+			SourceEventID:       inspSourceUUID,
+			Type:                inspType,
+			CleaningOperationID: cleanOpUUID,
+			ScheduledFor:        schedFor,
+			StartedAt:           &startedAt,
+			FinishedAt:          &now,
+			Status:              "completed",
+		})
+		if err != nil {
+			return nil, err
+		}
+		inspID = newInsp.ID
+	}
+
+	// 3. Ingest each measurement frame (chunked upload, idempotent via ON CONFLICT)
 	var primaryMeasRow *db.CreateMeasurementRow
 
-	// 2. Ingest each measurement frame with authentic sensor data
-	for _, f := range framesToProcess {
+	for _, f := range items {
 		fMeasuredAt := now
 		if f.MeasuredAt != nil && !f.MeasuredAt.IsZero() {
 			fMeasuredAt = f.MeasuredAt.UTC()
@@ -431,21 +470,28 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			return nil, err
 		}
 
-		measEventID := newRandomUUID()
+		var measSourceUUID pgtype.UUID
+		if f.SourceEventID != "" {
+			measSourceUUID, err = auth.ParseUUID(f.SourceEventID)
+			if err != nil {
+				return nil, ErrInvalidInput
+			}
+		} else {
+			measSourceUUID = newRandomUUID()
+		}
+
 		meas, err := qtx.CreateMeasurement(ctx, db.CreateMeasurementParams{
-			ModuleID:             moduleID,
-			InspectionID:         insp.ID,
-			SourceEventID:        measEventID,
-			MeasuredAt:           fMeasuredAt,
-			XPositionCm:          floatPtrToNumeric(&f.XPositionCm),
-			BaselineTemperatureC: floatPtrToNumeric(&f.BaselineTemperatureC),
-			MaxTemperatureC:      floatPtrToNumeric(&f.MaxTemperatureC),
-			HotspotDetected:      f.HotspotDetected,
-			HotspotConfirmed:     f.HotspotConfirmed,
-			VoltageV:             floatPtrToNumeric(&f.VoltageV),
-			CurrentA:             floatPtrToNumeric(&f.CurrentA),
-			PowerW:               floatPtrToNumeric(&powerW),
-			ThermalFrame:         frameBytes,
+			ModuleID:        moduleID,
+			InspectionID:    inspID,
+			SourceEventID:   measSourceUUID,
+			MeasuredAt:      fMeasuredAt,
+			XPositionCm:     floatPtrToNumeric(&f.XPositionCm),
+			MaxTemperatureC: floatPtrToNumeric(&f.MaxTemperatureC),
+			HotspotDetected: f.HotspotDetected,
+			VoltageV:        floatPtrToNumeric(&f.VoltageV),
+			CurrentA:        floatPtrToNumeric(&f.CurrentA),
+			PowerW:          floatPtrToNumeric(&powerW),
+			ThermalFrame:    frameBytes,
 		})
 		if err != nil {
 			return nil, err
@@ -455,65 +501,208 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			primaryMeasRow = &meas
 		}
 
-		// If hotspot detected, register real anomaly event
-		if f.HotspotDetected {
-			anomEventID := newRandomUUID()
+		// For standalone upload (no inspection_source_event_id), register anomaly immediately if hotspot detected
+		if input.InspectionSourceEventID == nil && f.HotspotDetected {
+			anomSourceUUID := newRandomUUID()
 			_, _ = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
-				ModuleID:              moduleID,
-				OriginMeasurementID:   meas.ID,
-				SourceEventID:         anomEventID,
-				XPositionCm:           floatPtrToNumeric(&f.XPositionCm),
-				DetectedAt:            fMeasuredAt,
-				Status:                "open",
-				ActuatedAttemptsCount: 0,
-				RetryPending:          false,
+				ModuleID:                 moduleID,
+				OriginMeasurementID:      meas.ID,
+				ConfirmingMeasurementIds: []pgtype.UUID{meas.ID, meas.ID},
+				SourceEventID:            anomSourceUUID,
+				XPositionCm:              floatPtrToNumeric(&f.XPositionCm),
+				DetectedAt:               fMeasuredAt,
+				Status:                   "open",
+				ActuatedAttemptsCount:    0,
+				RetryPending:             false,
 			})
 		}
 	}
 
-	// 3. Run multi-frame stitching with authentic overlap-60 blending
-	totalCols, totalRows, compositeData, _ := stitchThermalFrames(framesToProcess)
-	compositeBytes, _ := json.Marshal(compositeData)
-	_, _ = qtx.CreateInspectionThermalMap(ctx, db.CreateInspectionThermalMapParams{
-		InspectionID:     insp.ID,
-		WidthPixels:      totalCols,
-		HeightPixels:     totalRows,
-		TemperaturesC:    compositeBytes,
-		AlgorithmVersion: "overlap-60-blend-v1.0",
-	})
-
-	// 4. Update device online timestamp (without overwriting water_available!)
+	// 4. Update device online timestamp
 	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
 		ID: moduleID,
 	})
-	if input.WaterAvailable != nil {
-		pingEventID := newRandomUUID()
-		_, _ = qtx.RecordDeviceHandshakePing(ctx, db.RecordDeviceHandshakePingParams{
-			ModuleID:       moduleID,
-			SourceEventID:  pingEventID,
-			WaterAvailable: pgtype.Bool{Bool: *input.WaterAvailable, Valid: true},
-		})
-	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
 	meas := primaryMeasRow
+	var thermalFrameData any
+	if len(meas.ThermalFrame) > 0 {
+		_ = json.Unmarshal(meas.ThermalFrame, &thermalFrameData)
+	}
+
 	return &MeasurementDTO{
-		ID:               auth.FormatUUID(meas.ID),
-		ModuleID:         auth.FormatUUID(meas.ModuleID),
-		InspectionID:     auth.FormatUUID(meas.InspectionID),
-		SourceEventID:    auth.FormatUUID(meas.SourceEventID),
-		MeasuredAt:       meas.MeasuredAt.UTC().Format(time.RFC3339),
-		XPositionCM:      meas.XPositionCm,
-		BaselineTempC:    meas.BaselineTemperatureC,
-		MaxTempC:         meas.MaxTemperatureC,
-		HotspotDetected:  meas.HotspotDetected,
-		HotspotConfirmed: meas.HotspotConfirmed,
-		VoltageV:         meas.VoltageV,
-		CurrentA:         meas.CurrentA,
-		PowerW:           meas.PowerW,
-		ReceivedAt:       meas.ReceivedAt.UTC().Format(time.RFC3339),
+		ID:              auth.FormatUUID(meas.ID),
+		ModuleID:        auth.FormatUUID(meas.ModuleID),
+		InspectionID:    auth.FormatUUID(meas.InspectionID),
+		SourceEventID:   auth.FormatUUID(meas.SourceEventID),
+		MeasuredAt:      meas.MeasuredAt.UTC().Format(time.RFC3339),
+		XPositionCM:     meas.XPositionCm,
+		MaxTempC:        meas.MaxTemperatureC,
+		HotspotDetected: meas.HotspotDetected,
+		VoltageV:        meas.VoltageV,
+		CurrentA:        meas.CurrentA,
+		PowerW:          meas.PowerW,
+		ThermalFrame:    thermalFrameData,
+		ReceivedAt:      meas.ReceivedAt.UTC().Format(time.RFC3339),
 	}, nil
+}
+
+func (s *Service) FinalizeInspection(
+	ctx context.Context,
+	principal auth.Principal,
+	moduleID pgtype.UUID,
+	inspSourceEventID pgtype.UUID,
+	input FinalizeInspectionInput,
+) (*LatestInspectionDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid || !inspSourceEventID.Valid {
+		return nil, ErrForbidden
+	}
+
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	row, err := qtx.GetModuleByIDForUpdate(ctx, db.GetModuleByIDForUpdateParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, qtx, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	insp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
+		ModuleID:      moduleID,
+		SourceEventID: inspSourceEventID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	// Idempotency check: if inspection is already completed, return existing state
+	if insp.Status == "completed" {
+		_ = tx.Rollback(ctx)
+		return s.GetLatestInspection(ctx, principal, moduleID)
+	}
+
+	now := time.Now().UTC()
+	finAt := now
+	if input.FinishedAt != nil && !input.FinishedAt.IsZero() {
+		finAt = input.FinishedAt.UTC()
+	}
+
+	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{
+		Status:               "completed",
+		FinishedAt:           &finAt,
+		BaselineTemperatureC: floatPtrToNumeric(&input.BaselineTemperatureC),
+		ID:                   insp.ID,
+		ModuleID:             moduleID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Process confirmed hotspots
+	for _, ch := range input.ConfirmedHotspots {
+		if len(ch.ConfirmingEventIDs) < 2 {
+			return nil, ErrInvalidInput
+		}
+
+		var originMeasID pgtype.UUID
+		if ch.OriginMeasurementEventID != "" {
+			origSourceUUID, err := auth.ParseUUID(ch.OriginMeasurementEventID)
+			if err != nil {
+				return nil, ErrInvalidInput
+			}
+			mRow, err := qtx.GetMeasurementBySourceEventID(ctx, db.GetMeasurementBySourceEventIDParams{
+				ModuleID:      moduleID,
+				SourceEventID: origSourceUUID,
+			})
+			if err != nil || mRow.InspectionID.Bytes != insp.ID.Bytes {
+				return nil, ErrInvalidInput
+			}
+			originMeasID = mRow.ID
+		}
+
+		confirmingUUIDs := make([]pgtype.UUID, 0, len(ch.ConfirmingEventIDs))
+		var maxMeasuredAt time.Time
+
+		for _, cidStr := range ch.ConfirmingEventIDs {
+			cidUUID, err := auth.ParseUUID(cidStr)
+			if err != nil {
+				return nil, ErrInvalidInput
+			}
+			mRow, err := qtx.GetMeasurementBySourceEventID(ctx, db.GetMeasurementBySourceEventIDParams{
+				ModuleID:      moduleID,
+				SourceEventID: cidUUID,
+			})
+			if err != nil || mRow.InspectionID.Bytes != insp.ID.Bytes {
+				return nil, ErrInvalidInput
+			}
+			confirmingUUIDs = append(confirmingUUIDs, mRow.ID)
+			if mRow.MeasuredAt.After(maxMeasuredAt) {
+				maxMeasuredAt = mRow.MeasuredAt
+			}
+			if !originMeasID.Valid {
+				originMeasID = mRow.ID
+			}
+		}
+
+		detectedAt := maxMeasuredAt
+		if ch.DetectedAt != nil && !ch.DetectedAt.IsZero() {
+			detectedAt = ch.DetectedAt.UTC()
+		}
+
+		var anomSourceUUID pgtype.UUID
+		if ch.SourceEventID != "" {
+			anomSourceUUID, err = auth.ParseUUID(ch.SourceEventID)
+			if err != nil {
+				return nil, ErrInvalidInput
+			}
+		} else {
+			anomSourceUUID = newRandomUUID()
+		}
+
+		_, err = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
+			ModuleID:                 moduleID,
+			OriginMeasurementID:      originMeasID,
+			ConfirmingMeasurementIds: confirmingUUIDs,
+			SourceEventID:            anomSourceUUID,
+			XPositionCm:              floatPtrToNumeric(&ch.GlobalXPositionCm),
+			DetectedAt:               detectedAt,
+			Status:                   "open",
+			ActuatedAttemptsCount:    0,
+			RetryPending:             false,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+		ID: moduleID,
+	})
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return s.GetLatestInspection(ctx, principal, moduleID)
 }

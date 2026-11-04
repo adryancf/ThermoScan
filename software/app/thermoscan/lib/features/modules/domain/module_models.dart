@@ -539,13 +539,14 @@ class ModuleMeasurement {
     required this.sourceEventId,
     required this.measuredAt,
     required this.xPositionCm,
-    required this.baselineTemperatureC,
+    this.baselineTemperatureC = 0.0,
     required this.maxTemperatureC,
     required this.hotspotDetected,
-    required this.hotspotConfirmed,
+    this.hotspotConfirmed = false,
     required this.voltageV,
     required this.currentA,
     required this.powerW,
+    this.thermalFrame,
     required this.receivedAt,
   });
 
@@ -562,9 +563,17 @@ class ModuleMeasurement {
   final double voltageV;
   final double currentA;
   final double powerW;
+  final List<double>? thermalFrame;
   final String receivedAt;
 
   factory ModuleMeasurement.fromJson(Map<String, dynamic> json) {
+    List<double>? frame;
+    if (json['thermal_frame'] is List) {
+      frame = (json['thermal_frame'] as List)
+          .map((e) => (e as num).toDouble())
+          .toList();
+    }
+
     return ModuleMeasurement(
       id: json['id'] as String? ?? '',
       moduleId: json['module_id'] as String? ?? '',
@@ -579,7 +588,160 @@ class ModuleMeasurement {
       voltageV: double.tryParse(json['voltage_v']?.toString() ?? '') ?? 0.0,
       currentA: double.tryParse(json['current_a']?.toString() ?? '') ?? 0.0,
       powerW: double.tryParse(json['power_w']?.toString() ?? '') ?? 0.0,
+      thermalFrame: frame,
       receivedAt: json['received_at'] as String? ?? '',
+    );
+  }
+}
+
+class ModuleInspection {
+  const ModuleInspection({
+    required this.id,
+    required this.moduleId,
+    required this.sourceEventId,
+    required this.type,
+    this.cleaningOperationId,
+    this.baselineTemperatureC,
+    required this.scheduledFor,
+    this.startedAt,
+    this.finishedAt,
+    required this.status,
+    this.verificationResult,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String moduleId;
+  final String sourceEventId;
+  final String type;
+  final String? cleaningOperationId;
+  final double? baselineTemperatureC;
+  final String scheduledFor;
+  final String? startedAt;
+  final String? finishedAt;
+  final String status;
+  final String? verificationResult;
+  final String createdAt;
+  final String updatedAt;
+
+  factory ModuleInspection.fromJson(Map<String, dynamic> json) {
+    return ModuleInspection(
+      id: json['id'] as String? ?? '',
+      moduleId: json['module_id'] as String? ?? '',
+      sourceEventId: json['source_event_id'] as String? ?? '',
+      type: json['type'] as String? ?? 'scheduled',
+      cleaningOperationId: json['cleaning_operation_id'] as String?,
+      baselineTemperatureC: (json['baseline_temperature_c'] as num?)?.toDouble(),
+      scheduledFor: json['scheduled_for'] as String? ?? '',
+      startedAt: json['started_at'] as String?,
+      finishedAt: json['finished_at'] as String?,
+      status: json['status'] as String? ?? 'completed',
+      verificationResult: json['verification_result'] as String?,
+      createdAt: json['created_at'] as String? ?? '',
+      updatedAt: json['updated_at'] as String? ?? '',
+    );
+  }
+}
+
+class ConfirmedAnomaly {
+  const ConfirmedAnomaly({
+    required this.id,
+    required this.moduleId,
+    required this.originMeasurementId,
+    required this.confirmingMeasurementIds,
+    required this.sourceEventId,
+    required this.xPositionCm,
+    required this.detectedAt,
+    required this.status,
+    required this.actuatedAttemptsCount,
+    required this.retryPending,
+    this.closedAt,
+  });
+
+  final String id;
+  final String moduleId;
+  final String originMeasurementId;
+  final List<String> confirmingMeasurementIds;
+  final String sourceEventId;
+  final double xPositionCm;
+  final String detectedAt;
+  final String status;
+  final int actuatedAttemptsCount;
+  final bool retryPending;
+  final String? closedAt;
+
+  factory ConfirmedAnomaly.fromJson(Map<String, dynamic> json) {
+    final rawConfirming = json['confirming_measurement_ids'] as List<dynamic>? ?? [];
+    return ConfirmedAnomaly(
+      id: json['id'] as String? ?? '',
+      moduleId: json['module_id'] as String? ?? '',
+      originMeasurementId: json['origin_measurement_id'] as String? ?? '',
+      confirmingMeasurementIds: rawConfirming.map((e) => e.toString()).toList(),
+      sourceEventId: json['source_event_id'] as String? ?? '',
+      xPositionCm: (json['x_position_cm'] as num?)?.toDouble() ?? 0.0,
+      detectedAt: json['detected_at'] as String? ?? '',
+      status: json['status'] as String? ?? 'open',
+      actuatedAttemptsCount: (json['actuated_attempts_count'] as num?)?.toInt() ?? 0,
+      retryPending: json['retry_pending'] as bool? ?? false,
+      closedAt: json['closed_at'] as String?,
+    );
+  }
+}
+
+class LatestInspection {
+  const LatestInspection({
+    required this.inspection,
+    required this.totalMeasurements,
+    required this.confirmedAnomalies,
+  });
+
+  final ModuleInspection inspection;
+  final int totalMeasurements;
+  final List<ConfirmedAnomaly> confirmedAnomalies;
+
+  factory LatestInspection.fromJson(Map<String, dynamic> json) {
+    final inspJson = json['inspection'] as Map<String, dynamic>? ?? {};
+    final anomsJson = json['confirmed_anomalies'] as List<dynamic>? ?? [];
+    return LatestInspection(
+      inspection: ModuleInspection.fromJson(inspJson),
+      totalMeasurements: (json['total_measurements'] as num?)?.toInt() ?? 0,
+      confirmedAnomalies: anomsJson
+          .map((a) => ConfirmedAnomaly.fromJson(a as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
+class PagedMeasurements {
+  const PagedMeasurements({
+    required this.page,
+    required this.limit,
+    required this.totalCount,
+    required this.totalPages,
+    required this.hasNextPage,
+    required this.measurements,
+  });
+
+  final int page;
+  final int limit;
+  final int totalCount;
+  final int totalPages;
+  final bool hasNextPage;
+  final List<ModuleMeasurement> measurements;
+
+  factory PagedMeasurements.fromJson(Map<String, dynamic> json) {
+    final pag = json['pagination'] as Map<String, dynamic>? ?? {};
+    final items = json['measurements'] as List<dynamic>? ?? [];
+    return PagedMeasurements(
+      page: (pag['page'] as num?)?.toInt() ?? 1,
+      limit: (pag['limit'] as num?)?.toInt() ?? 10,
+      totalCount: (pag['total_count'] as num?)?.toInt() ?? 0,
+      totalPages: (pag['total_pages'] as num?)?.toInt() ?? 1,
+      hasNextPage: pag['has_next_page'] as bool? ?? false,
+      measurements: items
+          .map((m) => ModuleMeasurement.fromJson(m as Map<String, dynamic>))
+          .toList(),
     );
   }
 }

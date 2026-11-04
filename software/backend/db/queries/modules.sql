@@ -570,12 +570,6 @@ SET
 WHERE module_id = $1
   AND type = 'verification';
 
--- name: DeleteInspectionThermalMapsForModule :exec
-DELETE FROM inspection_thermal_maps
-WHERE inspection_id IN (
-    SELECT id FROM inspections WHERE module_id = $1
-);
-
 -- name: DeleteAllReservoirReadingsForModule :exec
 DELETE FROM reservoir_readings
 WHERE module_id = $1;

@@ -29,7 +29,7 @@ func TestSchemaTablesAndQueries(t *testing.T) {
 	}
 	defer conn.Close(ctx)
 
-	// 1. Verify all 17 tables exist in public schema
+	// 1. Verify all 16 tables exist in public schema
 	var tableCount int
 	err = conn.QueryRow(ctx, `
 		SELECT count(*)
@@ -40,8 +40,8 @@ func TestSchemaTablesAndQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to count tables: %v", err)
 	}
-	if tableCount != 17 {
-		t.Fatalf("expected 17 tables in public schema, got %d", tableCount)
+	if tableCount != 16 {
+		t.Fatalf("expected 16 tables in public schema, got %d", tableCount)
 	}
 
 	// 2. Run transactional tests using sqlc Queries and roll back at the end
@@ -182,12 +182,12 @@ func TestSchemaTablesAndQueries(t *testing.T) {
 	err = tx.QueryRow(ctx, `
 		INSERT INTO measurements (
 			module_id, inspection_id, source_event_id, measured_at,
-			x_position_cm, baseline_temperature_c, max_temperature_c,
-			hotspot_detected, hotspot_confirmed, voltage_v, current_a, power_w, thermal_frame
+			x_position_cm, max_temperature_c,
+			hotspot_detected, voltage_v, current_a, power_w, thermal_frame
 		) VALUES (
 			$1, $2, gen_random_uuid(), now(),
-			10.0, 35.0, 50.0,
-			true, true, 20.0, 4.0, 80.0, '[[35.0]]'::jsonb
+			10.0, 50.0,
+			true, 20.0, 4.0, 80.0, '[[35.0]]'::jsonb
 		) RETURNING id
 	`, moduleID, inspectionID).Scan(&measurementID)
 	if err != nil {
@@ -196,10 +196,10 @@ func TestSchemaTablesAndQueries(t *testing.T) {
 
 	err = tx.QueryRow(ctx, `
 		INSERT INTO anomaly_events (
-			module_id, origin_measurement_id, source_event_id, x_position_cm,
+			module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm,
 			detected_at, status, actuated_attempts_count, retry_pending, retry_reason
 		) VALUES (
-			$1, $2, gen_random_uuid(), 10.0,
+			$1, $2, ARRAY[$2, $2]::uuid[], gen_random_uuid(), 10.0,
 			now(), 'open', 0, true, 'insufficient_water'
 		) RETURNING id
 	`, moduleID, measurementID).Scan(&anomalyID)

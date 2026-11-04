@@ -490,18 +490,6 @@ func (q *Queries) DeleteAllTechniciansForModule(ctx context.Context, arg DeleteA
 	return err
 }
 
-const deleteInspectionThermalMapsForModule = `-- name: DeleteInspectionThermalMapsForModule :exec
-DELETE FROM inspection_thermal_maps
-WHERE inspection_id IN (
-    SELECT id FROM inspections WHERE module_id = $1
-)
-`
-
-func (q *Queries) DeleteInspectionThermalMapsForModule(ctx context.Context, moduleID pgtype.UUID) error {
-	_, err := q.db.Exec(ctx, deleteInspectionThermalMapsForModule, moduleID)
-	return err
-}
-
 const deleteModule = `-- name: DeleteModule :exec
 DELETE FROM modules
 WHERE company_id = $1

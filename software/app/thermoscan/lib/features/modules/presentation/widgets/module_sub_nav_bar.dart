@@ -5,7 +5,7 @@ import 'package:thermoscan/core/theme/app_typography.dart';
 
 /// Module Sub-navigation bar conforming to prototype_1 and prototype_2 (SCR-10, SCR-11, SCR-12, SCR-13, SCR-14).
 /// Obsolete: replaced by TabBar / TabBarView in [ModuleDetailsScreen].
-@deprecated
+@Deprecated('Replaced by TabBar in ModuleDetailsScreen')
 class ModuleSubNavBar extends StatelessWidget {
   const ModuleSubNavBar({
     super.key,

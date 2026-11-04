@@ -676,13 +676,13 @@ class _ModuleInstallationWizardScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Module configuration saved. Proceeding to hardware handshake verification.',
+            'Module configuration saved. Proceeding to device verification.',
           ),
           backgroundColor: AppColors.success,
           duration: Duration(seconds: 3),
         ),
       );
-      context.pushReplacement('/modules/$targetModuleId/handshake');
+      context.pushReplacement('/modules/$targetModuleId/device-verification');
     } catch (err) {
       if (!mounted) return;
       final errorText = err.toString();

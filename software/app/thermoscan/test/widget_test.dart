@@ -722,9 +722,9 @@ void main() {
 
     // Verify SCR-10 Radiometric Scan & Telemetry metrics
     expect(find.text('32×24 Sensor Interpolation'), findsOneWidget);
-    expect(find.text('Discretização do Painel (Faixas de 5 cm)'), findsOneWidget);
+    expect(find.text('Thermal Zones (5 cm Sectors)'), findsOneWidget);
     expect(find.text('Peak Temperature'), findsOneWidget);
-    expect(find.text('DC Output Voltage'), findsOneWidget);
+    expect(find.text('Baseline Temperature'), findsOneWidget);
     expect(find.text('Active Power'), findsOneWidget);
 
     // Verify TabBar tabs
@@ -738,7 +738,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Telemetry History'), findsOneWidget);
-    expect(find.text('Position X=12.4 cm • Baseline: 36.4°C'), findsOneWidget);
+    expect(find.textContaining('Inspection Session'), findsOneWidget);
     expect(find.text('NORMAL'), findsOneWidget);
 
     // Tap Cleanings in TabBar (SCR-12)
@@ -790,30 +790,30 @@ void main() {
     await tester.tap(find.text('PV-001 Roof Array'));
     await tester.pumpAndSettle();
 
-    // Scroll into view and tap "Verify Hardware Handshake →"
-    final handshakeFinder = find.text('Verify Hardware Handshake →');
+    // Scroll into view and tap "Verify Hardware →"
+    final handshakeFinder = find.text('Verify Hardware →');
     expect(handshakeFinder, findsOneWidget);
     await tester.ensureVisible(handshakeFinder);
     await tester.pumpAndSettle();
     await tester.tap(handshakeFinder);
     await tester.pumpAndSettle();
 
-    // Verify Hardware Handshake Screen is open
-    expect(find.text('Hardware Handshake'), findsOneWidget);
-    expect(find.text('ESP32 Hardware Handshake'), findsOneWidget);
+    // Verify Device Verification Screen is open
+    expect(find.text('Device Verification'), findsOneWidget);
+    expect(find.text('ESP32 Device Verification'), findsOneWidget);
     expect(
       find.text('Verifying live Wi-Fi connectivity, safety interlocks and cloud sync'),
       findsOneWidget,
     );
 
     // Verify all 4 checklist steps are displayed
-    expect(find.text('1. Configuration Sync'), findsOneWidget);
-    expect(find.text('2. Wi-Fi & HTTPS REST Connection'), findsOneWidget);
-    expect(find.text('3. Binary Water Level Sensor'), findsOneWidget);
-    expect(find.text('4. Hardware Interlocks & Radiometer'), findsOneWidget);
+    expect(find.text('1. System Configuration & Setup'), findsOneWidget);
+    expect(find.text('2. Wi-Fi & HTTPS Connection'), findsOneWidget);
+    expect(find.text('3. Water Reservoir Sensor'), findsOneWidget);
+    expect(find.text('4. Hardware Safety & Radiometer'), findsOneWidget);
 
-    // Tap View Module Overview escape button
-    final overviewBtnFinder = find.text('View Module Overview');
+    // Tap Module Overview escape button
+    final overviewBtnFinder = find.text('Module Overview');
     await tester.ensureVisible(overviewBtnFinder);
     await tester.pumpAndSettle();
     await tester.tap(overviewBtnFinder);

@@ -642,9 +642,9 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected 0 initial cleanings, got %d", len(cleanResp.Cleanings))
 	}
 
-	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/thermal-map", tech1Auth.AccessToken, nil)
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/latest-inspection", tech1Auth.AccessToken, nil)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 getting thermal map, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 getting latest inspection, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// Test device status handshake
@@ -736,49 +736,84 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected 201 ingesting cleaning, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Test batch multi-frame telemetry with 2cm steps & 60% overlap
+	// Test chunked batch upload (<= 10 frames) with inspection_source_event_id
+	inspSourceID := "d4e28639-6548-436f-b4df-b62a6bca2350"
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
+		"inspection_source_event_id": inspSourceID,
 		"batch": []map[string]any{
-			{"x_position_cm": 0.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 37.0)},
-			{"x_position_cm": 2.0, "baseline_temperature_c": 35.0, "max_temperature_c": 38.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 38.0)},
-			{"x_position_cm": 4.0, "baseline_temperature_c": 35.0, "max_temperature_c": 56.5, "hotspot_detected": true, "voltage_v": 18.2, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 56.5)},
-			{"x_position_cm": 6.0, "baseline_temperature_c": 35.0, "max_temperature_c": 37.5, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 37.5)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000001", "x_position_cm": 0.0, "max_temperature_c": 37.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 37.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000002", "x_position_cm": 2.0, "max_temperature_c": 38.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 38.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000003", "x_position_cm": 4.0, "max_temperature_c": 56.5, "hotspot_detected": true, "voltage_v": 18.2, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 56.5)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000004", "x_position_cm": 6.0, "max_temperature_c": 55.0, "hotspot_detected": true, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 55.0)},
 		},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 ingesting batch telemetry, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Verify thermal map has 60% overlap stitching and 5cm bands
-	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/thermal-map", tech1Auth.AccessToken, nil)
+	// Finalize inspection with baseline and confirmed hotspot
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/inspections/"+inspSourceID+"/finalize", tech1Auth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":            "00000000-0000-0000-0000-000000000099",
+				"global_x_position_cm":        4.5,
+				"max_temperature_c":           56.5,
+				"origin_measurement_event_id": "00000000-0000-0000-0000-000000000003",
+				"confirming_event_ids":        []string{"00000000-0000-0000-0000-000000000003", "00000000-0000-0000-0000-000000000004"},
+			},
+		},
+	})
 	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200 getting thermal map, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200 finalizing inspection, got %d: %s", rec.Code, rec.Body.String())
 	}
-	var tmResp struct {
-		ThermalMap struct {
-			WidthPixels      int32  `json:"width_pixels"`
-			HeightPixels     int32  `json:"height_pixels"`
-			AlgorithmVersion string `json:"algorithm_version"`
-			Bands            []struct {
-				BandIndex       int     `json:"band_index"`
-				StartXCm        float64 `json:"start_x_cm"`
-				EndXCm          float64 `json:"end_x_cm"`
-				MaxTemperatureC float64 `json:"max_temperature_c"`
-				HasHotspot      bool    `json:"has_hotspot"`
-			} `json:"bands"`
-		} `json:"thermal_map"`
+
+	// Verify latest inspection returns baseline and confirmed anomalies
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/latest-inspection", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting latest inspection, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &tmResp); err != nil {
-		t.Fatalf("failed to decode thermal map response: %v", err)
+	var latestResp struct {
+		LatestInspection struct {
+			Inspection struct {
+				ID                   string   `json:"id"`
+				BaselineTemperatureC *float64 `json:"baseline_temperature_c"`
+				Status               string   `json:"status"`
+			} `json:"inspection"`
+			TotalMeasurements  int64 `json:"total_measurements"`
+			ConfirmedAnomalies []any `json:"confirmed_anomalies"`
+		} `json:"latest_inspection"`
 	}
-	if tmResp.ThermalMap.WidthPixels <= 32 {
-		t.Fatalf("expected stitched width > 32 cols, got %d", tmResp.ThermalMap.WidthPixels)
+	if err := json.Unmarshal(rec.Body.Bytes(), &latestResp); err != nil {
+		t.Fatalf("failed to decode latest inspection: %v", err)
 	}
-	if len(tmResp.ThermalMap.Bands) == 0 {
-		t.Fatalf("expected 5cm bands in thermal map, got 0")
+	if latestResp.LatestInspection.Inspection.BaselineTemperatureC == nil || *latestResp.LatestInspection.Inspection.BaselineTemperatureC != 35.0 {
+		t.Fatalf("expected baseline 35.0, got %v", latestResp.LatestInspection.Inspection.BaselineTemperatureC)
 	}
-	if tmResp.ThermalMap.AlgorithmVersion != "overlap-60-blend-v1.0" {
-		t.Fatalf("expected algorithm overlap-60-blend-v1.0, got %q", tmResp.ThermalMap.AlgorithmVersion)
+	if len(latestResp.LatestInspection.ConfirmedAnomalies) != 1 {
+		t.Fatalf("expected 1 confirmed anomaly, got %d", len(latestResp.LatestInspection.ConfirmedAnomalies))
+	}
+
+	// Query paginated measurements ordered by x_position_cm ASC
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/inspections/"+latestResp.LatestInspection.Inspection.ID+"/measurements?page=1&limit=2", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting paged measurements, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var pagedResp struct {
+		Pagination struct {
+			Page        int   `json:"page"`
+			Limit       int   `json:"limit"`
+			TotalCount  int64 `json:"total_count"`
+			TotalPages  int   `json:"total_pages"`
+			HasNextPage bool  `json:"has_next_page"`
+		} `json:"pagination"`
+		Measurements []any `json:"measurements"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &pagedResp); err != nil {
+		t.Fatalf("failed to decode paged measurements: %v", err)
+	}
+	if pagedResp.Pagination.TotalCount != 4 || len(pagedResp.Measurements) != 2 || !pagedResp.Pagination.HasNextPage {
+		t.Fatalf("expected 4 total, 2 items, has_next_page=true, got %+v", pagedResp.Pagination)
 	}
 
 	// Test Opção B: ESP32 Hardware Claim and direct device_token authentication
@@ -1552,12 +1587,6 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 	assertCount("module_managers")
 	assertCount("module_technicians")
 	assertCount("module_clients")
-
-	var mapCnt int
-	err = pool.QueryRow(ctx, "SELECT count(*) FROM inspection_thermal_maps WHERE inspection_id = $1", verifInspID).Scan(&mapCnt)
-	if err != nil || mapCnt != 0 {
-		t.Fatalf("expected 0 thermal maps, got err=%v cnt=%d", err, mapCnt)
-	}
 
 	// =========================================================================
 	// 6. Rejection of data sent to deleted modules & Device reconnection rejection

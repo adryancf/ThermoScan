@@ -10,7 +10,7 @@ import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 
-/// Post-installation Hardware Handshake & Checklist Screen (Abordagem A)
+/// Post-installation Device Verification & Checklist Screen
 class ModuleHardwareHandshakeScreen extends ConsumerStatefulWidget {
   const ModuleHardwareHandshakeScreen({
     super.key,
@@ -24,9 +24,107 @@ class ModuleHardwareHandshakeScreen extends ConsumerStatefulWidget {
       _ModuleHardwareHandshakeScreenState();
 }
 
+/// Backward compatibility alias
+typedef ModuleDeviceVerificationScreen = ModuleHardwareHandshakeScreen;
+
 class _ModuleHardwareHandshakeScreenState
     extends ConsumerState<ModuleHardwareHandshakeScreen> {
   Timer? _pollTimer;
+
+  void _showCommunicationFlowModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.hub_outlined,
+                    color: AppColors.primary,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text('Device Verification Flow', style: AppTypography.h3),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _buildFlowStep(
+              '1. Cloud Setup',
+              'Module dimensions, tilt angle and solar coordinates are registered in the cloud.',
+            ),
+            _buildFlowStep(
+              '2. ESP32 Wi-Fi Sync',
+              'ESP32 connects to Wi-Fi and downloads the active operating parameters.',
+            ),
+            _buildFlowStep(
+              '3. Safety Checks',
+              'Carriage homing switches and fluid sensor confirm safe conditions.',
+            ),
+            _buildFlowStep(
+              '4. Ready for Scans',
+              'Module enters active monitoring, ready for autonomous inspections.',
+            ),
+            const SizedBox(height: 16),
+            PrimaryButton(
+              label: 'Understood',
+              onPressed: () => Navigator.pop(ctx),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFlowStep(String stepTitle, String stepDesc) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.check_circle_outline_rounded,
+            color: AppColors.success,
+            size: 18,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stepTitle,
+                  style: AppTypography.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  stepDesc,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -56,10 +154,15 @@ class _ModuleHardwareHandshakeScreenState
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: ThermoScanAppBar(
-        title: 'Hardware Handshake',
+        title: 'Device Verification',
         role: user?.role,
         showBack: true,
         onBack: () => context.go('/modules/${widget.moduleId}'),
+        trailingAction: IconButton(
+          tooltip: 'Communication Flow Help',
+          icon: const Icon(Icons.help_outline_rounded, color: AppColors.primary),
+          onPressed: () => _showCommunicationFlowModal(context),
+        ),
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -70,7 +173,7 @@ class _ModuleHardwareHandshakeScreenState
             children: [
               // Header
               Text(
-                'ESP32 Hardware Handshake',
+                'ESP32 Device Verification',
                 style: AppTypography.h2,
               ),
               const SizedBox(height: 4),
@@ -202,13 +305,13 @@ class _ModuleHardwareHandshakeScreenState
 
                   return Column(
                     children: [
-                      // Item 1: Configuration Sync (Two-Phase Verification)
+                      // Item 1: Configuration Sync (Clean 2-step setup)
                       _buildTwoPhaseConfigCard(
-                        title: '1. Configuration Sync',
+                        title: '1. System Configuration & Setup',
                         description: step1Passed
-                            ? 'Geometry confirmed on server and synced to ESP32.'
+                            ? 'Geometry saved in cloud and verified on ESP32.'
                             : (subAPassed
-                                ? 'Configuration saved on server. Awaiting ESP32 confirmation.'
+                                ? 'Configuration saved in cloud. Awaiting ESP32 confirmation.'
                                 : 'Pending initial geometry configuration.'),
                         isPassed: step1Passed,
                         isWarning: step1Warning,
@@ -221,12 +324,12 @@ class _ModuleHardwareHandshakeScreenState
                       ),
                       const SizedBox(height: 10),
 
-                      // Item 2: Wi-Fi & HTTPS REST Handshake
+                      // Item 2: Wi-Fi & HTTPS REST Connection
                       _buildChecklistCard(
-                        title: '2. Wi-Fi & HTTPS REST Connection',
+                        title: '2. Wi-Fi & HTTPS Connection',
                         description: status.isOnline
-                            ? 'ESP32 connected. Telemetry sync acknowledged by API Go.'
-                            : 'Awaiting device ping. Ensure ESP32 is powered on and connected to local Wi-Fi.',
+                            ? 'ESP32 connected. Telemetry sync acknowledged by cloud API.'
+                            : 'Awaiting device ping. Ensure ESP32 is powered on and connected to Wi-Fi.',
                         isPassed: status.isOnline,
                         isLoading: step2Loading,
                         isWarning: false,
@@ -236,13 +339,13 @@ class _ModuleHardwareHandshakeScreenState
 
                       // Item 3: Capacitive Water Sensor
                       _buildChecklistCard(
-                        title: '3. Binary Water Level Sensor',
+                        title: '3. Water Reservoir Sensor',
                         description: status.waterAvailable == true
-                            ? 'Water level: OK (water_available=true). Wash cycles permitted.'
+                            ? 'Water level: OK. Cleaning cycles permitted.'
                             : status.waterAvailable == false
-                                ? 'Water level: Insufficient. Cleaning cycles locked until tank refill.'
-                                : 'Awaiting first water reserve reading from capacitive probe.',
-                        isPassed: status.waterAvailable == true,
+                                ? 'Water level: Insufficient. Cleaning locked until tank refill.'
+                                : 'Awaiting fluid level reading from capacitive probe.',
+                        isPassed: step3Passed,
                         isWarning: step3Warning,
                         isLoading: step3Loading,
                         icon: Icons.water_drop_rounded,
@@ -251,9 +354,9 @@ class _ModuleHardwareHandshakeScreenState
 
                       // Item 4: Limit Switches & Thermal Camera
                       _buildChecklistCard(
-                        title: '4. Hardware Interlocks & Radiometer',
+                        title: '4. Hardware Safety & Radiometer',
                         description: status.limitsCheckPassed
-                            ? 'Microswitches NC homed. MLX90640 radiometric sensor initialized.'
+                            ? 'Homing limit switches verified. Thermal sensor initialized.'
                             : 'Awaiting sensor self-test and rail homing sequence.',
                         isPassed: status.limitsCheckPassed,
                         isWarning: false,
@@ -266,13 +369,30 @@ class _ModuleHardwareHandshakeScreenState
               ),
               const SizedBox(height: 24),
 
-              // Finish & Proceed Button
-              PrimaryButton(
-                label: 'View Module Overview',
-                icon: Icons.arrow_forward_rounded,
-                onPressed: () {
-                  context.pushReplacement('/modules/${widget.moduleId}');
-                },
+              // Two Navigation Action Buttons (Back to Modules + Overview)
+              Row(
+                children: [
+                  Expanded(
+                    child: SecondaryButton(
+                      label: 'Modules List',
+                      icon: Icons.list_alt_rounded,
+                      onPressed: () {
+                        ref.invalidate(modulesListProvider);
+                        context.go('/modules');
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: PrimaryButton(
+                      label: 'Module Overview',
+                      icon: Icons.arrow_forward_rounded,
+                      onPressed: () {
+                        context.go('/modules/${widget.moduleId}');
+                      },
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -567,7 +687,7 @@ class _ModuleHardwareHandshakeScreenState
             ),
             child: Column(
               children: [
-                // Sub-item A: Saved on Server
+                // Step 1: Cloud Settings Saved
                 Row(
                   children: [
                     Icon(
@@ -581,18 +701,32 @@ class _ModuleHardwareHandshakeScreenState
                     ),
                     const SizedBox(width: 10),
                     Expanded(
-                      child: Text(
-                        'Sub-item A: Saved on Server',
-                        style: AppTypography.bodySmall.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: subAPassed
-                              ? AppColors.textPrimary
-                              : AppColors.textSecondary,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Step 1: Cloud Settings Saved',
+                            style: AppTypography.bodySmall.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: subAPassed
+                                  ? AppColors.textPrimary
+                                  : AppColors.textSecondary,
+                            ),
+                          ),
+                          Text(
+                            subAPassed
+                                ? 'Dimensions and limits registered'
+                                : 'Awaiting geometry configuration',
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 10.5,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     Text(
-                      subAPassed ? 'Configured' : 'Pending',
+                      subAPassed ? 'Ready' : 'Pending',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -607,7 +741,7 @@ class _ModuleHardwareHandshakeScreenState
                   padding: EdgeInsets.symmetric(vertical: 8),
                   child: Divider(height: 1),
                 ),
-                // Sub-item B: Confirmed by ESP32
+                // Step 2: Device Synchronized
                 Row(
                   children: [
                     subBLoading
@@ -640,7 +774,7 @@ class _ModuleHardwareHandshakeScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Sub-item B: Confirmed by ESP32',
+                            'Step 2: Device Synchronized',
                             style: AppTypography.bodySmall.copyWith(
                               fontWeight: FontWeight.w600,
                               color: subBPassed
@@ -652,33 +786,29 @@ class _ModuleHardwareHandshakeScreenState
                                           : AppColors.textSecondary)),
                             ),
                           ),
-                          if (subBWarning) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              syncInfo.isFailed
-                                  ? 'Failed: ${syncInfo.configApplyError ?? "Error applying configuration"}'
-                                  : 'Awaiting sync (v${syncInfo.configAppliedVersion} on device, v${syncInfo.configVersion} on server)',
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 10.5,
-                                color: AppColors.warning,
-                              ),
+                          Text(
+                            subBPassed
+                                ? 'Settings downloaded and applied to ESP32'
+                                : (subBWarning
+                                    ? 'Failed: ${syncInfo.configApplyError ?? "Error applying configuration"}'
+                                    : (subBLoading
+                                        ? 'Connecting to device and applying settings...'
+                                        : 'Awaiting device to connect')),
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 10.5,
+                              color: subBWarning
+                                  ? AppColors.warning
+                                  : (subBLoading
+                                      ? AppColors.primary
+                                      : AppColors.textSecondary),
                             ),
-                          ] else if (subBLoading) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              'Awaiting sync (v${syncInfo.configAppliedVersion} on device, v${syncInfo.configVersion} on server)',
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 10.5,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                          ],
+                          ),
                         ],
                       ),
                     ),
                     Text(
                       subBPassed
-                          ? 'v${syncInfo.configAppliedVersion} OK'
+                          ? 'Synced'
                           : (syncInfo.isFailed
                               ? 'Failed'
                               : (subBLoading ? 'Syncing...' : 'Pending')),

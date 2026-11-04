@@ -886,12 +886,7 @@ func (s *Service) DeleteModule(ctx context.Context, principal auth.Principal, mo
 		return err
 	}
 
-	// 6. Delete inspection thermal maps for module
-	if err := qtx.DeleteInspectionThermalMapsForModule(ctx, moduleID); err != nil {
-		return err
-	}
-
-	// 7. Delete all measurements for module
+	// 6. Delete all measurements for module
 	if err := qtx.DeleteAllMeasurementsForModule(ctx, moduleID); err != nil {
 		return err
 	}

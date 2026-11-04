@@ -122,7 +122,7 @@ class _MockModuleRepo extends ModuleRepository {
       ];
 
   @override
-  Future<List<ModuleClientItem>> listCompanyClients() async => const [];
+  Future<List<ModuleClientItem>> listCompanyClientOptions() async => const [];
 
   @override
   Future<ModuleDetails> getModuleDetails(String moduleId) async => details;
@@ -421,17 +421,15 @@ void main() {
       expect(find.text('Cleanings'), findsOneWidget);
       expect(find.text('Configuration'), findsOneWidget);
 
-      // 2x2 Sensor Grid items
+      // 2x2 Sensor Grid items & Connectivity status
       expect(find.text('Limits Check Passed'), findsOneWidget);
       expect(find.text('Thermal Sensor Active'), findsOneWidget);
       expect(find.text('Water Reservoir'), findsOneWidget);
       expect(find.text('ESP32 Connectivity'), findsOneWidget);
-
-      // Configuration Sync Badge
-      expect(find.textContaining('Configuration v2 synced to ESP32'), findsOneWidget);
+      expect(find.text('Online'), findsOneWidget);
     });
 
-    testWidgets('Hardware Handshake Screen shows two-phase Step 1 verification', (tester) async {
+    testWidgets('Device Verification Screen shows 2-step Setup verification', (tester) async {
       const activeMod = PvModule(
         id: 'mod-active',
         companyId: 'c1',
@@ -498,10 +496,10 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // Check two-phase Step 1 verification
-      expect(find.text('1. Configuration Sync'), findsOneWidget);
-      expect(find.text('Sub-item A: Saved on Server'), findsOneWidget);
-      expect(find.text('Sub-item B: Confirmed by ESP32'), findsOneWidget);
+      // Check 2-step setup verification
+      expect(find.text('1. System Configuration & Setup'), findsOneWidget);
+      expect(find.text('Step 1: Cloud Settings Saved'), findsOneWidget);
+      expect(find.text('Step 2: Device Synchronized'), findsOneWidget);
 
       // Cleanly dispose periodic timer by unmounting widget
       await tester.pumpWidget(const SizedBox());

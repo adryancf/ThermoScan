@@ -297,6 +297,36 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          // Association to Origin Measurement / Hotspot
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.link_rounded,
+                  size: 15,
+                  color: AppColors.secondary,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Associated Hotspot: X = ${c.targetXPositionCm.toStringAsFixed(1)} cm (Anomaly ${c.anomalyEventId.length > 8 ? c.anomalyEventId.substring(0, 8) : c.anomalyEventId})',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textPrimary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
           if (c.failureReason != null && c.failureReason!.isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(

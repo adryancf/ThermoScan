@@ -159,20 +159,19 @@ type UpdateConfigurationInput struct {
 }
 
 type MeasurementDTO struct {
-	ID               string `json:"id"`
-	ModuleID         string `json:"module_id"`
-	InspectionID     string `json:"inspection_id"`
-	SourceEventID    string `json:"source_event_id"`
-	MeasuredAt       string `json:"measured_at"`
-	XPositionCM      string `json:"x_position_cm"`
-	BaselineTempC    string `json:"baseline_temperature_c"`
-	MaxTempC         string `json:"max_temperature_c"`
-	HotspotDetected  bool   `json:"hotspot_detected"`
-	HotspotConfirmed bool   `json:"hotspot_confirmed"`
-	VoltageV         string `json:"voltage_v"`
-	CurrentA         string `json:"current_a"`
-	PowerW           string `json:"power_w"`
-	ReceivedAt       string `json:"received_at"`
+	ID              string `json:"id"`
+	ModuleID        string `json:"module_id"`
+	InspectionID    string `json:"inspection_id"`
+	SourceEventID   string `json:"source_event_id"`
+	MeasuredAt      string `json:"measured_at"`
+	XPositionCM     string `json:"x_position_cm"`
+	MaxTempC        string `json:"max_temperature_c"`
+	HotspotDetected bool   `json:"hotspot_detected"`
+	VoltageV        string `json:"voltage_v"`
+	CurrentA        string `json:"current_a"`
+	PowerW          string `json:"power_w"`
+	ThermalFrame    any    `json:"thermal_frame,omitempty"`
+	ReceivedAt      string `json:"received_at"`
 }
 
 type CleaningDTO struct {
@@ -191,16 +190,6 @@ type CleaningDTO struct {
 	FailureReason      *string `json:"failure_reason,omitempty"`
 	PostCleaningResult string  `json:"post_cleaning_result"`
 	CreatedAt          string  `json:"created_at"`
-}
-
-type ThermalBandDTO struct {
-	BandIndex       int      `json:"band_index"`
-	StartXCm        float64  `json:"start_x_cm"`
-	EndXCm          float64  `json:"end_x_cm"`
-	MaxTemperatureC *float64 `json:"max_temperature_c"`
-	AvgTemperatureC *float64 `json:"avg_temperature_c"`
-	HasHotspot      bool     `json:"has_hotspot"`
-	HasData         bool     `json:"has_data"`
 }
 
 type AlertDTO struct {
@@ -224,15 +213,53 @@ type AlertsSummaryDTO struct {
 	Alerts   []AlertDTO `json:"alerts"`
 }
 
-type ThermalMapDTO struct {
-	ID               string           `json:"id"`
-	InspectionID     string           `json:"inspection_id"`
-	WidthPixels      int32            `json:"width_pixels"`
-	HeightPixels     int32            `json:"height_pixels"`
-	TemperaturesC    any              `json:"temperatures_c"`
-	AlgorithmVersion string           `json:"algorithm_version"`
-	Bands            []ThermalBandDTO `json:"bands"`
-	GeneratedAt      string           `json:"generated_at"`
+type InspectionDTO struct {
+	ID                   string   `json:"id"`
+	ModuleID             string   `json:"module_id"`
+	SourceEventID        string   `json:"source_event_id"`
+	Type                 string   `json:"type"`
+	CleaningOperationID  *string  `json:"cleaning_operation_id,omitempty"`
+	BaselineTemperatureC *float64 `json:"baseline_temperature_c,omitempty"`
+	ScheduledFor         string   `json:"scheduled_for"`
+	StartedAt            *string  `json:"started_at,omitempty"`
+	FinishedAt           *string  `json:"finished_at,omitempty"`
+	Status               string   `json:"status"`
+	VerificationResult   *string  `json:"verification_result,omitempty"`
+	CreatedAt            string   `json:"created_at"`
+	UpdatedAt            string   `json:"updated_at"`
+}
+
+type ConfirmedAnomalyDTO struct {
+	ID                       string   `json:"id"`
+	ModuleID                 string   `json:"module_id"`
+	OriginMeasurementID      string   `json:"origin_measurement_id"`
+	ConfirmingMeasurementIDs []string `json:"confirming_measurement_ids"`
+	SourceEventID            string   `json:"source_event_id"`
+	XPositionCM              float64  `json:"x_position_cm"`
+	DetectedAt               string   `json:"detected_at"`
+	Status                   string   `json:"status"`
+	ActuatedAttemptsCount    int32    `json:"actuated_attempts_count"`
+	RetryPending             bool     `json:"retry_pending"`
+	ClosedAt                 *string  `json:"closed_at,omitempty"`
+}
+
+type LatestInspectionDTO struct {
+	Inspection         InspectionDTO         `json:"inspection"`
+	TotalMeasurements  int64                 `json:"total_measurements"`
+	ConfirmedAnomalies []ConfirmedAnomalyDTO `json:"confirmed_anomalies"`
+}
+
+type PaginationMetadataDTO struct {
+	Page        int   `json:"page"`
+	Limit       int   `json:"limit"`
+	TotalCount  int64 `json:"total_count"`
+	TotalPages  int   `json:"total_pages"`
+	HasNextPage bool  `json:"has_next_page"`
+}
+
+type PagedMeasurementsDTO struct {
+	Pagination   PaginationMetadataDTO `json:"pagination"`
+	Measurements []MeasurementDTO      `json:"measurements"`
 }
 
 type DeviceStatusDTO struct {
@@ -298,25 +325,59 @@ type AcknowledgeDeviceConfigurationInput struct {
 	Error         *string `json:"error,omitempty"`
 }
 
+type IngestMeasurementItemInput struct {
+	SourceEventID         string     `json:"source_event_id"`
+	MeasuredAt            *time.Time `json:"measured_at"`
+	XPositionCm           float64    `json:"x_position_cm"`
+	MaxTemperatureC       float64    `json:"max_temperature_c"`
+	BaselineTemperatureC *float64   `json:"baseline_temperature_c,omitempty"`
+	HotspotDetected       bool       `json:"hotspot_detected"`
+	HotspotConfirmed     *bool      `json:"hotspot_confirmed,omitempty"`
+	VoltageV              float64    `json:"voltage_v"`
+	CurrentA              float64    `json:"current_a"`
+	PowerW                *float64   `json:"power_w"`
+	ThermalFrame          []float64  `json:"thermal_frame"`
+}
+
 type IngestTelemetryInput struct {
-	MeasuredAt             *time.Time             `json:"measured_at"`
-	InspectionScheduledFor *time.Time             `json:"inspection_scheduled_for"`
-	InspectionStartedAt    *time.Time             `json:"inspection_started_at"`
-	InspectionType         *string                `json:"inspection_type"`
-	WaterAvailable         *bool                  `json:"water_available"`
-	XPositionCm            float64                `json:"x_position_cm"`
-	BaselineTemperatureC   float64                `json:"baseline_temperature_c"`
-	MaxTemperatureC        float64                `json:"max_temperature_c"`
-	HotspotDetected        bool                   `json:"hotspot_detected"`
-	HotspotConfirmed       bool                   `json:"hotspot_confirmed"`
-	VoltageV               float64                `json:"voltage_v"`
-	CurrentA               float64                `json:"current_a"`
-	PowerW                 *float64               `json:"power_w"`
-	ThermalFrame           []float64              `json:"thermal_frame"`
-	ThermalMap             []float64              `json:"thermal_map"`
-	WidthPixels            int                    `json:"width_pixels"`
-	HeightPixels           int                    `json:"height_pixels"`
-	Batch                  []IngestTelemetryInput `json:"batch"`
+	InspectionSourceEventID *string                      `json:"inspection_source_event_id"`
+	InspectionScheduledFor  *time.Time                   `json:"inspection_scheduled_for"`
+	InspectionStartedAt     *time.Time                   `json:"inspection_started_at"`
+	InspectionType          *string                      `json:"inspection_type"`
+	CleaningOperationID     *string                      `json:"cleaning_operation_id"`
+	// Single item shorthand:
+	SourceEventID           *string                      `json:"source_event_id"`
+	MeasuredAt              *time.Time                   `json:"measured_at"`
+	XPositionCm             float64                      `json:"x_position_cm"`
+	MaxTemperatureC         float64                      `json:"max_temperature_c"`
+	BaselineTemperatureC   *float64                     `json:"baseline_temperature_c,omitempty"`
+	HotspotDetected         bool                         `json:"hotspot_detected"`
+	HotspotConfirmed       *bool                        `json:"hotspot_confirmed,omitempty"`
+	WidthPixels            *int                         `json:"width_pixels,omitempty"`
+	HeightPixels           *int                         `json:"height_pixels,omitempty"`
+	VoltageV                float64                      `json:"voltage_v"`
+	CurrentA                float64                      `json:"current_a"`
+	PowerW                  *float64                     `json:"power_w"`
+	ThermalFrame            []float64                    `json:"thermal_frame"`
+	// Chunked batch uploads (max 10 items per upload):
+	Measurements            []IngestMeasurementItemInput `json:"measurements"`
+	Batch                   []IngestMeasurementItemInput `json:"batch"`
+}
+
+type FinalizeInspectionInput struct {
+	FinishedAt            *time.Time              `json:"finished_at"`
+	BaselineTemperatureC float64                 `json:"baseline_temperature_c"`
+	ConfirmedHotspots     []ConfirmedHotspotInput `json:"confirmed_hotspots"`
+}
+
+type ConfirmedHotspotInput struct {
+	SourceEventID            string     `json:"source_event_id"`
+	GlobalXPositionCm        float64    `json:"global_x_position_cm"`
+	RowIndex                 *int       `json:"row_index"`
+	MaxTemperatureC          float64    `json:"max_temperature_c"`
+	DetectedAt               *time.Time `json:"detected_at"`
+	OriginMeasurementEventID string     `json:"origin_measurement_event_id"`
+	ConfirmingEventIDs       []string   `json:"confirming_event_ids"`
 }
 
 type IngestCleaningInput struct {

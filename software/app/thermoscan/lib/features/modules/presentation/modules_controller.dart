@@ -59,6 +59,12 @@ final moduleCleaningsProvider = FutureProvider.autoDispose
   return repo.listCleanings(moduleId: moduleId);
 });
 
+final latestInspectionProvider = FutureProvider.autoDispose
+    .family<LatestInspection?, String>((ref, moduleId) {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.getLatestInspection(moduleId: moduleId);
+});
+
 final moduleThermalMapProvider = FutureProvider.autoDispose
     .family<ModuleThermalMap?, String>((ref, moduleId) {
   final repo = ref.watch(moduleRepositoryProvider);

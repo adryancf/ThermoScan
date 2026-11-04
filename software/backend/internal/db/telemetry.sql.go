@@ -12,10 +12,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countMeasurementsByInspection = `-- name: CountMeasurementsByInspection :one
+SELECT count(*)
+FROM measurements
+WHERE inspection_id = $1 AND module_id = $2
+`
+
+type CountMeasurementsByInspectionParams struct {
+	InspectionID pgtype.UUID
+	ModuleID     pgtype.UUID
+}
+
+func (q *Queries) CountMeasurementsByInspection(ctx context.Context, arg CountMeasurementsByInspectionParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countMeasurementsByInspection, arg.InspectionID, arg.ModuleID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAnomalyEvent = `-- name: CreateAnomalyEvent :one
 INSERT INTO anomaly_events (
     module_id,
     origin_measurement_id,
+    confirming_measurement_ids,
     source_event_id,
     x_position_cm,
     detected_at,
@@ -30,41 +49,47 @@ INSERT INTO anomaly_events (
     $5,
     $6,
     $7,
-    $8
+    $8,
+    $9
 )
-RETURNING id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+ON CONFLICT (module_id, source_event_id) DO UPDATE
+SET updated_at = now()
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 `
 
 type CreateAnomalyEventParams struct {
-	ModuleID              pgtype.UUID
-	OriginMeasurementID   pgtype.UUID
-	SourceEventID         pgtype.UUID
-	XPositionCm           pgtype.Numeric
-	DetectedAt            time.Time
-	Status                string
-	ActuatedAttemptsCount int32
-	RetryPending          bool
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	XPositionCm              pgtype.Numeric
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
 }
 
 type CreateAnomalyEventRow struct {
-	ID                    pgtype.UUID
-	ModuleID              pgtype.UUID
-	OriginMeasurementID   pgtype.UUID
-	SourceEventID         pgtype.UUID
-	XPositionCm           string
-	DetectedAt            time.Time
-	Status                string
-	ActuatedAttemptsCount int32
-	RetryPending          bool
-	ClosedAt              *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 func (q *Queries) CreateAnomalyEvent(ctx context.Context, arg CreateAnomalyEventParams) (CreateAnomalyEventRow, error) {
 	row := q.db.QueryRow(ctx, createAnomalyEvent,
 		arg.ModuleID,
 		arg.OriginMeasurementID,
+		arg.ConfirmingMeasurementIds,
 		arg.SourceEventID,
 		arg.XPositionCm,
 		arg.DetectedAt,
@@ -77,6 +102,7 @@ func (q *Queries) CreateAnomalyEvent(ctx context.Context, arg CreateAnomalyEvent
 		&i.ID,
 		&i.ModuleID,
 		&i.OriginMeasurementID,
+		&i.ConfirmingMeasurementIds,
 		&i.SourceEventID,
 		&i.XPositionCm,
 		&i.DetectedAt,
@@ -201,6 +227,7 @@ INSERT INTO inspections (
     module_id,
     source_event_id,
     type,
+    cleaning_operation_id,
     scheduled_for,
     started_at,
     finished_at,
@@ -212,23 +239,13 @@ INSERT INTO inspections (
     $4,
     $5,
     $6,
-    $7
+    $7,
+    $8
 )
-RETURNING id, module_id, source_event_id, type, cleaning_operation_id, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at
+RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at
 `
 
 type CreateInspectionParams struct {
-	ModuleID      pgtype.UUID
-	SourceEventID pgtype.UUID
-	Type          string
-	ScheduledFor  time.Time
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
-	Status        string
-}
-
-type CreateInspectionRow struct {
-	ID                  pgtype.UUID
 	ModuleID            pgtype.UUID
 	SourceEventID       pgtype.UUID
 	Type                string
@@ -237,9 +254,22 @@ type CreateInspectionRow struct {
 	StartedAt           *time.Time
 	FinishedAt          *time.Time
 	Status              string
-	VerificationResult  pgtype.Text
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+}
+
+type CreateInspectionRow struct {
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+	SourceEventID        pgtype.UUID
+	Type                 string
+	CleaningOperationID  pgtype.UUID
+	BaselineTemperatureC string
+	ScheduledFor         time.Time
+	StartedAt            *time.Time
+	FinishedAt           *time.Time
+	Status               string
+	VerificationResult   pgtype.Text
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 func (q *Queries) CreateInspection(ctx context.Context, arg CreateInspectionParams) (CreateInspectionRow, error) {
@@ -247,6 +277,7 @@ func (q *Queries) CreateInspection(ctx context.Context, arg CreateInspectionPara
 		arg.ModuleID,
 		arg.SourceEventID,
 		arg.Type,
+		arg.CleaningOperationID,
 		arg.ScheduledFor,
 		arg.StartedAt,
 		arg.FinishedAt,
@@ -259,6 +290,7 @@ func (q *Queries) CreateInspection(ctx context.Context, arg CreateInspectionPara
 		&i.SourceEventID,
 		&i.Type,
 		&i.CleaningOperationID,
+		&i.BaselineTemperatureC,
 		&i.ScheduledFor,
 		&i.StartedAt,
 		&i.FinishedAt,
@@ -270,52 +302,6 @@ func (q *Queries) CreateInspection(ctx context.Context, arg CreateInspectionPara
 	return i, err
 }
 
-const createInspectionThermalMap = `-- name: CreateInspectionThermalMap :one
-INSERT INTO inspection_thermal_maps (
-    inspection_id,
-    width_pixels,
-    height_pixels,
-    temperatures_c,
-    algorithm_version
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5
-)
-RETURNING id, inspection_id, width_pixels, height_pixels, temperatures_c, algorithm_version, generated_at
-`
-
-type CreateInspectionThermalMapParams struct {
-	InspectionID     pgtype.UUID
-	WidthPixels      int32
-	HeightPixels     int32
-	TemperaturesC    []byte
-	AlgorithmVersion string
-}
-
-func (q *Queries) CreateInspectionThermalMap(ctx context.Context, arg CreateInspectionThermalMapParams) (InspectionThermalMap, error) {
-	row := q.db.QueryRow(ctx, createInspectionThermalMap,
-		arg.InspectionID,
-		arg.WidthPixels,
-		arg.HeightPixels,
-		arg.TemperaturesC,
-		arg.AlgorithmVersion,
-	)
-	var i InspectionThermalMap
-	err := row.Scan(
-		&i.ID,
-		&i.InspectionID,
-		&i.WidthPixels,
-		&i.HeightPixels,
-		&i.TemperaturesC,
-		&i.AlgorithmVersion,
-		&i.GeneratedAt,
-	)
-	return i, err
-}
-
 const createMeasurement = `-- name: CreateMeasurement :one
 INSERT INTO measurements (
     module_id,
@@ -323,10 +309,8 @@ INSERT INTO measurements (
     source_event_id,
     measured_at,
     x_position_cm,
-    baseline_temperature_c,
     max_temperature_c,
     hotspot_detected,
-    hotspot_confirmed,
     voltage_v,
     current_a,
     power_w,
@@ -342,45 +326,41 @@ INSERT INTO measurements (
     $8,
     $9,
     $10,
-    $11,
-    $12,
-    $13
+    $11
 )
-RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, baseline_temperature_c::text AS baseline_temperature_c, max_temperature_c::text AS max_temperature_c, hotspot_detected, hotspot_confirmed, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at
+ON CONFLICT (module_id, source_event_id) DO UPDATE
+SET received_at = now()
+RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, hotspot_detected, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at
 `
 
 type CreateMeasurementParams struct {
-	ModuleID             pgtype.UUID
-	InspectionID         pgtype.UUID
-	SourceEventID        pgtype.UUID
-	MeasuredAt           time.Time
-	XPositionCm          pgtype.Numeric
-	BaselineTemperatureC pgtype.Numeric
-	MaxTemperatureC      pgtype.Numeric
-	HotspotDetected      bool
-	HotspotConfirmed     bool
-	VoltageV             pgtype.Numeric
-	CurrentA             pgtype.Numeric
-	PowerW               pgtype.Numeric
-	ThermalFrame         []byte
+	ModuleID        pgtype.UUID
+	InspectionID    pgtype.UUID
+	SourceEventID   pgtype.UUID
+	MeasuredAt      time.Time
+	XPositionCm     pgtype.Numeric
+	MaxTemperatureC pgtype.Numeric
+	HotspotDetected bool
+	VoltageV        pgtype.Numeric
+	CurrentA        pgtype.Numeric
+	PowerW          pgtype.Numeric
+	ThermalFrame    []byte
 }
 
 type CreateMeasurementRow struct {
-	ID                   pgtype.UUID
-	ModuleID             pgtype.UUID
-	InspectionID         pgtype.UUID
-	SourceEventID        pgtype.UUID
-	MeasuredAt           time.Time
-	XPositionCm          string
-	BaselineTemperatureC string
-	MaxTemperatureC      string
-	HotspotDetected      bool
-	HotspotConfirmed     bool
-	VoltageV             string
-	CurrentA             string
-	PowerW               string
-	ThermalFrame         []byte
-	ReceivedAt           time.Time
+	ID              pgtype.UUID
+	ModuleID        pgtype.UUID
+	InspectionID    pgtype.UUID
+	SourceEventID   pgtype.UUID
+	MeasuredAt      time.Time
+	XPositionCm     string
+	MaxTemperatureC string
+	HotspotDetected bool
+	VoltageV        string
+	CurrentA        string
+	PowerW          string
+	ThermalFrame    []byte
+	ReceivedAt      time.Time
 }
 
 func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementParams) (CreateMeasurementRow, error) {
@@ -390,10 +370,8 @@ func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementPa
 		arg.SourceEventID,
 		arg.MeasuredAt,
 		arg.XPositionCm,
-		arg.BaselineTemperatureC,
 		arg.MaxTemperatureC,
 		arg.HotspotDetected,
-		arg.HotspotConfirmed,
 		arg.VoltageV,
 		arg.CurrentA,
 		arg.PowerW,
@@ -407,10 +385,8 @@ func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementPa
 		&i.SourceEventID,
 		&i.MeasuredAt,
 		&i.XPositionCm,
-		&i.BaselineTemperatureC,
 		&i.MaxTemperatureC,
 		&i.HotspotDetected,
-		&i.HotspotConfirmed,
 		&i.VoltageV,
 		&i.CurrentA,
 		&i.PowerW,
@@ -420,8 +396,70 @@ func (q *Queries) CreateMeasurement(ctx context.Context, arg CreateMeasurementPa
 	return i, err
 }
 
+const finalizeInspection = `-- name: FinalizeInspection :one
+UPDATE inspections
+SET
+    status = $1,
+    finished_at = $2,
+    baseline_temperature_c = $3,
+    updated_at = now()
+WHERE id = $4 AND module_id = $5
+RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at
+`
+
+type FinalizeInspectionParams struct {
+	Status               string
+	FinishedAt           *time.Time
+	BaselineTemperatureC pgtype.Numeric
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+}
+
+type FinalizeInspectionRow struct {
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+	SourceEventID        pgtype.UUID
+	Type                 string
+	CleaningOperationID  pgtype.UUID
+	BaselineTemperatureC string
+	ScheduledFor         time.Time
+	StartedAt            *time.Time
+	FinishedAt           *time.Time
+	Status               string
+	VerificationResult   pgtype.Text
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+func (q *Queries) FinalizeInspection(ctx context.Context, arg FinalizeInspectionParams) (FinalizeInspectionRow, error) {
+	row := q.db.QueryRow(ctx, finalizeInspection,
+		arg.Status,
+		arg.FinishedAt,
+		arg.BaselineTemperatureC,
+		arg.ID,
+		arg.ModuleID,
+	)
+	var i FinalizeInspectionRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.SourceEventID,
+		&i.Type,
+		&i.CleaningOperationID,
+		&i.BaselineTemperatureC,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.VerificationResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getAnomalyEventByID = `-- name: GetAnomalyEventByID :one
-SELECT id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 FROM anomaly_events
 WHERE id = $1 AND module_id = $2
 `
@@ -432,18 +470,19 @@ type GetAnomalyEventByIDParams struct {
 }
 
 type GetAnomalyEventByIDRow struct {
-	ID                    pgtype.UUID
-	ModuleID              pgtype.UUID
-	OriginMeasurementID   pgtype.UUID
-	SourceEventID         pgtype.UUID
-	XPositionCm           string
-	DetectedAt            time.Time
-	Status                string
-	ActuatedAttemptsCount int32
-	RetryPending          bool
-	ClosedAt              *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 func (q *Queries) GetAnomalyEventByID(ctx context.Context, arg GetAnomalyEventByIDParams) (GetAnomalyEventByIDRow, error) {
@@ -453,6 +492,7 @@ func (q *Queries) GetAnomalyEventByID(ctx context.Context, arg GetAnomalyEventBy
 		&i.ID,
 		&i.ModuleID,
 		&i.OriginMeasurementID,
+		&i.ConfirmingMeasurementIds,
 		&i.SourceEventID,
 		&i.XPositionCm,
 		&i.DetectedAt,
@@ -466,8 +506,188 @@ func (q *Queries) GetAnomalyEventByID(ctx context.Context, arg GetAnomalyEventBy
 	return i, err
 }
 
+const getInspectionByID = `-- name: GetInspectionByID :one
+SELECT
+    i.id,
+    i.module_id,
+    i.source_event_id,
+    i.type,
+    i.cleaning_operation_id,
+    COALESCE(i.baseline_temperature_c::text, '')::text AS baseline_temperature_c,
+    i.scheduled_for,
+    i.started_at,
+    i.finished_at,
+    i.status,
+    i.verification_result,
+    i.created_at,
+    i.updated_at
+FROM inspections i
+WHERE i.id = $1 AND i.module_id = $2
+`
+
+type GetInspectionByIDParams struct {
+	ID       pgtype.UUID
+	ModuleID pgtype.UUID
+}
+
+type GetInspectionByIDRow struct {
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+	SourceEventID        pgtype.UUID
+	Type                 string
+	CleaningOperationID  pgtype.UUID
+	BaselineTemperatureC string
+	ScheduledFor         time.Time
+	StartedAt            *time.Time
+	FinishedAt           *time.Time
+	Status               string
+	VerificationResult   pgtype.Text
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+func (q *Queries) GetInspectionByID(ctx context.Context, arg GetInspectionByIDParams) (GetInspectionByIDRow, error) {
+	row := q.db.QueryRow(ctx, getInspectionByID, arg.ID, arg.ModuleID)
+	var i GetInspectionByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.SourceEventID,
+		&i.Type,
+		&i.CleaningOperationID,
+		&i.BaselineTemperatureC,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.VerificationResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getInspectionBySourceEventID = `-- name: GetInspectionBySourceEventID :one
+SELECT
+    i.id,
+    i.module_id,
+    i.source_event_id,
+    i.type,
+    i.cleaning_operation_id,
+    COALESCE(i.baseline_temperature_c::text, '')::text AS baseline_temperature_c,
+    i.scheduled_for,
+    i.started_at,
+    i.finished_at,
+    i.status,
+    i.verification_result,
+    i.created_at,
+    i.updated_at
+FROM inspections i
+WHERE i.module_id = $1 AND i.source_event_id = $2
+`
+
+type GetInspectionBySourceEventIDParams struct {
+	ModuleID      pgtype.UUID
+	SourceEventID pgtype.UUID
+}
+
+type GetInspectionBySourceEventIDRow struct {
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+	SourceEventID        pgtype.UUID
+	Type                 string
+	CleaningOperationID  pgtype.UUID
+	BaselineTemperatureC string
+	ScheduledFor         time.Time
+	StartedAt            *time.Time
+	FinishedAt           *time.Time
+	Status               string
+	VerificationResult   pgtype.Text
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+func (q *Queries) GetInspectionBySourceEventID(ctx context.Context, arg GetInspectionBySourceEventIDParams) (GetInspectionBySourceEventIDRow, error) {
+	row := q.db.QueryRow(ctx, getInspectionBySourceEventID, arg.ModuleID, arg.SourceEventID)
+	var i GetInspectionBySourceEventIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.SourceEventID,
+		&i.Type,
+		&i.CleaningOperationID,
+		&i.BaselineTemperatureC,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.VerificationResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getLatestInspectionByModule = `-- name: GetLatestInspectionByModule :one
+SELECT
+    i.id,
+    i.module_id,
+    i.source_event_id,
+    i.type,
+    i.cleaning_operation_id,
+    COALESCE(i.baseline_temperature_c::text, '')::text AS baseline_temperature_c,
+    i.scheduled_for,
+    i.started_at,
+    i.finished_at,
+    i.status,
+    i.verification_result,
+    i.created_at,
+    i.updated_at
+FROM inspections i
+WHERE i.module_id = $1
+ORDER BY i.scheduled_for DESC, i.created_at DESC
+LIMIT 1
+`
+
+type GetLatestInspectionByModuleRow struct {
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+	SourceEventID        pgtype.UUID
+	Type                 string
+	CleaningOperationID  pgtype.UUID
+	BaselineTemperatureC string
+	ScheduledFor         time.Time
+	StartedAt            *time.Time
+	FinishedAt           *time.Time
+	Status               string
+	VerificationResult   pgtype.Text
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+func (q *Queries) GetLatestInspectionByModule(ctx context.Context, moduleID pgtype.UUID) (GetLatestInspectionByModuleRow, error) {
+	row := q.db.QueryRow(ctx, getLatestInspectionByModule, moduleID)
+	var i GetLatestInspectionByModuleRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.SourceEventID,
+		&i.Type,
+		&i.CleaningOperationID,
+		&i.BaselineTemperatureC,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.VerificationResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getLatestOpenAnomalyEventByModule = `-- name: GetLatestOpenAnomalyEventByModule :one
-SELECT id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 FROM anomaly_events
 WHERE module_id = $1 AND status = 'open'
 ORDER BY detected_at DESC
@@ -475,18 +695,19 @@ LIMIT 1
 `
 
 type GetLatestOpenAnomalyEventByModuleRow struct {
-	ID                    pgtype.UUID
-	ModuleID              pgtype.UUID
-	OriginMeasurementID   pgtype.UUID
-	SourceEventID         pgtype.UUID
-	XPositionCm           string
-	DetectedAt            time.Time
-	Status                string
-	ActuatedAttemptsCount int32
-	RetryPending          bool
-	ClosedAt              *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 func (q *Queries) GetLatestOpenAnomalyEventByModule(ctx context.Context, moduleID pgtype.UUID) (GetLatestOpenAnomalyEventByModuleRow, error) {
@@ -496,6 +717,7 @@ func (q *Queries) GetLatestOpenAnomalyEventByModule(ctx context.Context, moduleI
 		&i.ID,
 		&i.ModuleID,
 		&i.OriginMeasurementID,
+		&i.ConfirmingMeasurementIds,
 		&i.SourceEventID,
 		&i.XPositionCm,
 		&i.DetectedAt,
@@ -552,33 +774,50 @@ func (q *Queries) GetLatestReservoirReadingByModule(ctx context.Context, moduleI
 	return i, err
 }
 
-const getLatestThermalMapByModule = `-- name: GetLatestThermalMapByModule :one
-SELECT
-    tm.id,
-    tm.inspection_id,
-    tm.width_pixels,
-    tm.height_pixels,
-    tm.temperatures_c,
-    tm.algorithm_version,
-    tm.generated_at
-FROM inspection_thermal_maps tm
-JOIN inspections i ON i.id = tm.inspection_id
-WHERE i.module_id = $1
-ORDER BY i.started_at DESC, tm.generated_at DESC
-LIMIT 1
+const getMeasurementBySourceEventID = `-- name: GetMeasurementBySourceEventID :one
+SELECT id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, hotspot_detected, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at
+FROM measurements
+WHERE module_id = $1 AND source_event_id = $2
 `
 
-func (q *Queries) GetLatestThermalMapByModule(ctx context.Context, moduleID pgtype.UUID) (InspectionThermalMap, error) {
-	row := q.db.QueryRow(ctx, getLatestThermalMapByModule, moduleID)
-	var i InspectionThermalMap
+type GetMeasurementBySourceEventIDParams struct {
+	ModuleID      pgtype.UUID
+	SourceEventID pgtype.UUID
+}
+
+type GetMeasurementBySourceEventIDRow struct {
+	ID              pgtype.UUID
+	ModuleID        pgtype.UUID
+	InspectionID    pgtype.UUID
+	SourceEventID   pgtype.UUID
+	MeasuredAt      time.Time
+	XPositionCm     string
+	MaxTemperatureC string
+	HotspotDetected bool
+	VoltageV        string
+	CurrentA        string
+	PowerW          string
+	ThermalFrame    []byte
+	ReceivedAt      time.Time
+}
+
+func (q *Queries) GetMeasurementBySourceEventID(ctx context.Context, arg GetMeasurementBySourceEventIDParams) (GetMeasurementBySourceEventIDRow, error) {
+	row := q.db.QueryRow(ctx, getMeasurementBySourceEventID, arg.ModuleID, arg.SourceEventID)
+	var i GetMeasurementBySourceEventIDRow
 	err := row.Scan(
 		&i.ID,
+		&i.ModuleID,
 		&i.InspectionID,
-		&i.WidthPixels,
-		&i.HeightPixels,
-		&i.TemperaturesC,
-		&i.AlgorithmVersion,
-		&i.GeneratedAt,
+		&i.SourceEventID,
+		&i.MeasuredAt,
+		&i.XPositionCm,
+		&i.MaxTemperatureC,
+		&i.HotspotDetected,
+		&i.VoltageV,
+		&i.CurrentA,
+		&i.PowerW,
+		&i.ThermalFrame,
+		&i.ReceivedAt,
 	)
 	return i, err
 }
@@ -587,10 +826,11 @@ const listActiveAnomaliesForCompany = `-- name: ListActiveAnomaliesForCompany :m
 SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.x_position_cm::text AS x_position_cm,
        a.detected_at, a.status, a.actuated_attempts_count,
        meas.max_temperature_c::text AS max_temperature_c,
-       meas.baseline_temperature_c::text AS baseline_temperature_c
+       COALESCE(insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c
 FROM anomaly_events a
 JOIN modules m ON m.id = a.module_id
 JOIN measurements meas ON meas.id = a.origin_measurement_id
+JOIN inspections insp ON insp.id = meas.inspection_id
 WHERE m.company_id = $1 AND a.status IN ('open', 'unresolved')
 ORDER BY a.detected_at DESC
 `
@@ -676,6 +916,69 @@ func (q *Queries) ListActiveWaterWarningsForCompany(ctx context.Context, company
 			&i.InstallerTechnicianID,
 			&i.MeasuredAt,
 			&i.WaterAvailable,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAnomaliesByInspection = `-- name: ListAnomaliesByInspection :many
+SELECT a.id, a.module_id, a.origin_measurement_id, a.confirming_measurement_ids, a.source_event_id, a.x_position_cm::text AS x_position_cm, a.detected_at, a.status, a.actuated_attempts_count, a.retry_pending, a.closed_at, a.created_at, a.updated_at
+FROM anomaly_events a
+JOIN measurements m ON m.id = a.origin_measurement_id
+WHERE m.inspection_id = $1 AND a.module_id = $2
+ORDER BY a.detected_at ASC
+`
+
+type ListAnomaliesByInspectionParams struct {
+	InspectionID pgtype.UUID
+	ModuleID     pgtype.UUID
+}
+
+type ListAnomaliesByInspectionRow struct {
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+func (q *Queries) ListAnomaliesByInspection(ctx context.Context, arg ListAnomaliesByInspectionParams) ([]ListAnomaliesByInspectionRow, error) {
+	rows, err := q.db.Query(ctx, listAnomaliesByInspection, arg.InspectionID, arg.ModuleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAnomaliesByInspectionRow{}
+	for rows.Next() {
+		var i ListAnomaliesByInspectionRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModuleID,
+			&i.OriginMeasurementID,
+			&i.ConfirmingMeasurementIds,
+			&i.SourceEventID,
+			&i.XPositionCm,
+			&i.DetectedAt,
+			&i.Status,
+			&i.ActuatedAttemptsCount,
+			&i.RetryPending,
+			&i.ClosedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -773,6 +1076,89 @@ func (q *Queries) ListCleaningOperationsByModule(ctx context.Context, arg ListCl
 	return items, nil
 }
 
+const listMeasurementsByInspectionPaged = `-- name: ListMeasurementsByInspectionPaged :many
+SELECT
+    m.id,
+    m.module_id,
+    m.inspection_id,
+    m.source_event_id,
+    m.measured_at,
+    m.x_position_cm::text AS x_position_cm,
+    m.max_temperature_c::text AS max_temperature_c,
+    m.hotspot_detected,
+    m.voltage_v::text AS voltage_v,
+    m.current_a::text AS current_a,
+    m.power_w::text AS power_w,
+    m.thermal_frame,
+    m.received_at
+FROM measurements m
+WHERE m.inspection_id = $1 AND m.module_id = $2
+ORDER BY m.x_position_cm ASC, m.measured_at ASC
+LIMIT $3 OFFSET $4
+`
+
+type ListMeasurementsByInspectionPagedParams struct {
+	InspectionID pgtype.UUID
+	ModuleID     pgtype.UUID
+	Limit        int32
+	Offset       int32
+}
+
+type ListMeasurementsByInspectionPagedRow struct {
+	ID              pgtype.UUID
+	ModuleID        pgtype.UUID
+	InspectionID    pgtype.UUID
+	SourceEventID   pgtype.UUID
+	MeasuredAt      time.Time
+	XPositionCm     string
+	MaxTemperatureC string
+	HotspotDetected bool
+	VoltageV        string
+	CurrentA        string
+	PowerW          string
+	ThermalFrame    []byte
+	ReceivedAt      time.Time
+}
+
+func (q *Queries) ListMeasurementsByInspectionPaged(ctx context.Context, arg ListMeasurementsByInspectionPagedParams) ([]ListMeasurementsByInspectionPagedRow, error) {
+	rows, err := q.db.Query(ctx, listMeasurementsByInspectionPaged,
+		arg.InspectionID,
+		arg.ModuleID,
+		arg.Limit,
+		arg.Offset,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListMeasurementsByInspectionPagedRow{}
+	for rows.Next() {
+		var i ListMeasurementsByInspectionPagedRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModuleID,
+			&i.InspectionID,
+			&i.SourceEventID,
+			&i.MeasuredAt,
+			&i.XPositionCm,
+			&i.MaxTemperatureC,
+			&i.HotspotDetected,
+			&i.VoltageV,
+			&i.CurrentA,
+			&i.PowerW,
+			&i.ThermalFrame,
+			&i.ReceivedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listMeasurementsByModule = `-- name: ListMeasurementsByModule :many
 SELECT
     m.id,
@@ -781,10 +1167,8 @@ SELECT
     m.source_event_id,
     m.measured_at,
     m.x_position_cm::text AS x_position_cm,
-    m.baseline_temperature_c::text AS baseline_temperature_c,
     m.max_temperature_c::text AS max_temperature_c,
     m.hotspot_detected,
-    m.hotspot_confirmed,
     m.voltage_v::text AS voltage_v,
     m.current_a::text AS current_a,
     m.power_w::text AS power_w,
@@ -803,21 +1187,19 @@ type ListMeasurementsByModuleParams struct {
 }
 
 type ListMeasurementsByModuleRow struct {
-	ID                   pgtype.UUID
-	ModuleID             pgtype.UUID
-	InspectionID         pgtype.UUID
-	SourceEventID        pgtype.UUID
-	MeasuredAt           time.Time
-	XPositionCm          string
-	BaselineTemperatureC string
-	MaxTemperatureC      string
-	HotspotDetected      bool
-	HotspotConfirmed     bool
-	VoltageV             string
-	CurrentA             string
-	PowerW               string
-	ThermalFrame         []byte
-	ReceivedAt           time.Time
+	ID              pgtype.UUID
+	ModuleID        pgtype.UUID
+	InspectionID    pgtype.UUID
+	SourceEventID   pgtype.UUID
+	MeasuredAt      time.Time
+	XPositionCm     string
+	MaxTemperatureC string
+	HotspotDetected bool
+	VoltageV        string
+	CurrentA        string
+	PowerW          string
+	ThermalFrame    []byte
+	ReceivedAt      time.Time
 }
 
 func (q *Queries) ListMeasurementsByModule(ctx context.Context, arg ListMeasurementsByModuleParams) ([]ListMeasurementsByModuleRow, error) {
@@ -836,10 +1218,8 @@ func (q *Queries) ListMeasurementsByModule(ctx context.Context, arg ListMeasurem
 			&i.SourceEventID,
 			&i.MeasuredAt,
 			&i.XPositionCm,
-			&i.BaselineTemperatureC,
 			&i.MaxTemperatureC,
 			&i.HotspotDetected,
-			&i.HotspotConfirmed,
 			&i.VoltageV,
 			&i.CurrentA,
 			&i.PowerW,
@@ -913,7 +1293,7 @@ SET status = $1,
     closed_at = $3,
     updated_at = now()
 WHERE id = $4 AND module_id = $5
-RETURNING id, module_id, origin_measurement_id, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 `
 
 type UpdateAnomalyEventStatusParams struct {
@@ -925,18 +1305,19 @@ type UpdateAnomalyEventStatusParams struct {
 }
 
 type UpdateAnomalyEventStatusRow struct {
-	ID                    pgtype.UUID
-	ModuleID              pgtype.UUID
-	OriginMeasurementID   pgtype.UUID
-	SourceEventID         pgtype.UUID
-	XPositionCm           string
-	DetectedAt            time.Time
-	Status                string
-	ActuatedAttemptsCount int32
-	RetryPending          bool
-	ClosedAt              *time.Time
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
 }
 
 func (q *Queries) UpdateAnomalyEventStatus(ctx context.Context, arg UpdateAnomalyEventStatusParams) (UpdateAnomalyEventStatusRow, error) {
@@ -952,6 +1333,7 @@ func (q *Queries) UpdateAnomalyEventStatus(ctx context.Context, arg UpdateAnomal
 		&i.ID,
 		&i.ModuleID,
 		&i.OriginMeasurementID,
+		&i.ConfirmingMeasurementIds,
 		&i.SourceEventID,
 		&i.XPositionCm,
 		&i.DetectedAt,

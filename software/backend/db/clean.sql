@@ -11,9 +11,8 @@ DELETE FROM user_devices WHERE user_id NOT IN (SELECT id FROM users WHERE role =
 -- 2. Wipe operational notifications
 DELETE FROM notifications;
 
--- 3. Wipe inspections, thermal maps, measurements, operations and anomalies
+-- 3. Wipe inspections, measurements, operations and anomalies
 DELETE FROM reservoir_readings;
-DELETE FROM inspection_thermal_maps;
 DELETE FROM measurements;
 DELETE FROM inspections;
 DELETE FROM cleaning_operations;

@@ -188,7 +188,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
                       AppTextField(
                         label: 'Company Address (Optional)',
                         controller: _companyAddressController,
-                        hintText: 'e.g. Av. Paulista 1000, São Paulo',
+                        hintText: 'e.g. 1000 Solar Way, Suite 400',
                         textInputAction: TextInputAction.next,
                         prefixIcon: Icons.location_on_outlined,
                       ),

@@ -276,19 +276,42 @@ class ModuleRepository {
     }
   }
 
-  Future<ModuleThermalMap?> getLatestThermalMap({
+  Future<LatestInspection?> getLatestInspection({
     required String moduleId,
   }) async {
     try {
       final response = await dio.get<Map<String, dynamic>>(
-        '/modules/$moduleId/thermal-map',
+        '/modules/$moduleId/latest-inspection',
       );
-      final rawMap = response.data?['thermal_map'] as Map<String, dynamic>?;
-      if (rawMap == null) return null;
-      return ModuleThermalMap.fromJson(rawMap);
+      final raw = response.data?['latest_inspection'] as Map<String, dynamic>?;
+      if (raw == null) return null;
+      return LatestInspection.fromJson(raw);
     } on DioException catch (err) {
       throw ApiException.fromDioException(err);
     }
+  }
+
+  Future<PagedMeasurements> listInspectionMeasurements({
+    required String moduleId,
+    required String inspectionId,
+    int page = 1,
+    int limit = 10,
+  }) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/inspections/$inspectionId/measurements',
+        queryParameters: {'page': page, 'limit': limit},
+      );
+      return PagedMeasurements.fromJson(response.data ?? {});
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
+  Future<ModuleThermalMap?> getLatestThermalMap({
+    required String moduleId,
+  }) async {
+    return null;
   }
 
   Future<DeviceStatus> getDeviceStatus({required String moduleId}) async {

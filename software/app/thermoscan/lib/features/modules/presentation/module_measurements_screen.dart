@@ -44,6 +44,35 @@ class ModuleMeasurementsView extends StatelessWidget {
 class _ModuleMeasurementsScreenState
     extends ConsumerState<ModuleMeasurementsScreen> {
   String _filter = 'all'; // 'all', 'hotspots', 'normal'
+  final Set<String> _expandedSessions = {};
+
+  List<_InspectionSession> _groupIntoSessions(List<ModuleMeasurement> list) {
+    final Map<String, List<ModuleMeasurement>> groups = {};
+    for (final m in list) {
+      final parsed = DateTime.tryParse(m.measuredAt);
+      final key = m.inspectionId.isNotEmpty
+          ? m.inspectionId
+          : (parsed != null
+              ? '${parsed.year}-${parsed.month}-${parsed.day} ${parsed.hour}:${parsed.minute ~/ 10}'
+              : m.measuredAt);
+      groups.putIfAbsent(key, () => []).add(m);
+    }
+
+    return groups.entries.map((entry) {
+      final items = entry.value;
+      items.sort((a, b) => a.xPositionCm.compareTo(b.xPositionCm));
+      return _InspectionSession(
+        id: entry.key,
+        measuredAt: items.first.measuredAt,
+        measurements: items,
+      );
+    }).toList()
+      ..sort((a, b) {
+        final da = DateTime.tryParse(a.measuredAt) ?? DateTime(1970);
+        final db = DateTime.tryParse(b.measuredAt) ?? DateTime(1970);
+        return db.compareTo(da);
+      });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -146,14 +175,15 @@ class _ModuleMeasurementsScreenState
                   return _buildEmptyState();
                 }
 
+                final sessions = _groupIntoSessions(filtered);
+
                 return ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, _) =>
-                      const SizedBox(height: 10),
+                  itemCount: sessions.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    return _buildMeasurementCard(filtered[index]);
+                    return _buildInspectionSessionCard(sessions[index]);
                   },
                 );
               },
@@ -219,11 +249,12 @@ class _ModuleMeasurementsScreenState
     );
   }
 
-  Widget _buildMeasurementCard(ModuleMeasurement m) {
-    final isHotspot = m.hotspotDetected;
+  Widget _buildInspectionSessionCard(_InspectionSession session) {
+    final isHotspot = session.hasHotspot;
+    final isExpanded = _expandedSessions.contains(session.id);
+    final count = session.measurements.length;
 
     return Container(
-      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
@@ -231,104 +262,225 @@ class _ModuleMeasurementsScreenState
           color: isHotspot ? AppColors.errorBorder : AppColors.border,
         ),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: isHotspot
-                  ? AppColors.errorBackground
-                  : AppColors.primarySoft.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              isHotspot ? Icons.warning_rounded : Icons.grid_on_rounded,
-              color: isHotspot ? AppColors.error : AppColors.primary,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      _formatDate(m.measuredAt),
-                      style: AppTypography.bodySmall.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isHotspot
-                            ? AppColors.errorBackground
-                            : AppColors.successBackground,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: isHotspot
-                              ? AppColors.errorBorder
-                              : AppColors.successBorder,
-                        ),
-                      ),
-                      child: Text(
-                        isHotspot ? 'HOTSPOT' : 'NORMAL',
-                        style: AppTypography.caption.copyWith(
-                          color: isHotspot
-                              ? AppColors.error
-                              : AppColors.success,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Position X=${m.xPositionCm.toStringAsFixed(1)} cm • Baseline: ${m.baselineTemperatureC.toStringAsFixed(1)}°C',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: isHotspot
+                        ? AppColors.errorBackground
+                        : AppColors.primarySoft.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    isHotspot ? Icons.warning_rounded : Icons.grid_on_rounded,
+                    color: isHotspot ? AppColors.error : AppColors.primary,
+                    size: 20,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    _buildMetricChip(
-                      'T_max',
-                      '${m.maxTemperatureC.toStringAsFixed(1)}°C',
-                      isHotspot ? AppColors.error : AppColors.textPrimary,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMetricChip(
-                      'Volt',
-                      '${m.voltageV.toStringAsFixed(1)} V',
-                      AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMetricChip(
-                      'Curr',
-                      '${m.currentA.toStringAsFixed(2)} A',
-                      AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: 8),
-                    _buildMetricChip(
-                      'Power',
-                      '${m.powerW.toStringAsFixed(1)} W',
-                      AppColors.primary,
-                    ),
-                  ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _formatDate(session.measuredAt),
+                              style: AppTypography.bodySmall.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isHotspot
+                                  ? AppColors.errorBackground
+                                  : AppColors.successBackground,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: isHotspot
+                                    ? AppColors.errorBorder
+                                    : AppColors.successBorder,
+                              ),
+                            ),
+                            child: Text(
+                              isHotspot ? 'HOTSPOT' : 'NORMAL',
+                              style: AppTypography.caption.copyWith(
+                                color: isHotspot
+                                    ? AppColors.error
+                                    : AppColors.success,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 10,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Inspection Session • $count scan ${count == 1 ? "step" : "steps"}',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      // Responsive Wrap so Power chip never overflows card
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          _buildMetricChip(
+                            'Peak',
+                            '${session.maxTemp.toStringAsFixed(1)}°C',
+                            isHotspot ? AppColors.error : AppColors.textPrimary,
+                          ),
+                          _buildMetricChip(
+                            'Base',
+                            '${session.avgBaseline.toStringAsFixed(1)}°C',
+                            AppColors.textSecondary,
+                          ),
+                          _buildMetricChip(
+                            'Volt',
+                            '${session.avgVoltage.toStringAsFixed(1)} V',
+                            AppColors.textSecondary,
+                          ),
+                          _buildMetricChip(
+                            'Curr',
+                            '${session.avgCurrent.toStringAsFixed(2)} A',
+                            AppColors.textSecondary,
+                          ),
+                          _buildMetricChip(
+                            'Power',
+                            '${session.avgPower.toStringAsFixed(1)} W',
+                            AppColors.primary,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
+          ),
+          if (count > 1) ...[
+            const Divider(height: 1),
+            InkWell(
+              onTap: () {
+                setState(() {
+                  if (isExpanded) {
+                    _expandedSessions.remove(session.id);
+                  } else {
+                    _expandedSessions.add(session.id);
+                  }
+                });
+              },
+              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      isExpanded
+                          ? 'Hide step breakdown'
+                          : 'View $count steps breakdown',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Icon(
+                      isExpanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 18,
+                      color: AppColors.primary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (isExpanded)
+              Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.vertical(bottom: Radius.circular(16)),
+                ),
+                padding: const EdgeInsets.all(12),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: session.measurements.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (ctx, idx) =>
+                      _buildStepTile(session.measurements[idx]),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepTile(ModuleMeasurement m) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: m.hotspotDetected ? AppColors.errorBorder : AppColors.border,
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
+            style: AppTypography.caption.copyWith(
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          Wrap(
+            spacing: 6,
+            runSpacing: 4,
+            children: [
+              Text(
+                'T_max: ${m.maxTemperatureC.toStringAsFixed(1)}°C',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: m.hotspotDetected ? AppColors.error : AppColors.textSecondary,
+                ),
+              ),
+              Text(
+                '• ${m.voltageV.toStringAsFixed(1)}V',
+                style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+              ),
+              Text(
+                '• ${m.powerW.toStringAsFixed(1)}W',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -410,4 +562,43 @@ class _ModuleMeasurementsScreenState
     final ss = local.second.toString().padLeft(2, '0');
     return '$y-$m-$d $hh:$mm:$ss';
   }
+}
+
+class _InspectionSession {
+  final String id;
+  final String measuredAt;
+  final List<ModuleMeasurement> measurements;
+
+  _InspectionSession({
+    required this.id,
+    required this.measuredAt,
+    required this.measurements,
+  });
+
+  bool get hasHotspot => measurements.any((m) => m.hotspotDetected);
+
+  double get maxTemp => measurements.fold(
+        0.0,
+        (prev, m) => m.maxTemperatureC > prev ? m.maxTemperatureC : prev,
+      );
+
+  double get avgBaseline => measurements.isEmpty
+      ? 0.0
+      : measurements.map((m) => m.baselineTemperatureC).reduce((a, b) => a + b) /
+          measurements.length;
+
+  double get avgVoltage => measurements.isEmpty
+      ? 0.0
+      : measurements.map((m) => m.voltageV).reduce((a, b) => a + b) /
+          measurements.length;
+
+  double get avgCurrent => measurements.isEmpty
+      ? 0.0
+      : measurements.map((m) => m.currentA).reduce((a, b) => a + b) /
+          measurements.length;
+
+  double get avgPower => measurements.isEmpty
+      ? 0.0
+      : measurements.map((m) => m.powerW).reduce((a, b) => a + b) /
+          measurements.length;
 }

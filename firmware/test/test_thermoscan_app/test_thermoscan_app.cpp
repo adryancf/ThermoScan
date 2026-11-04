@@ -626,6 +626,213 @@ void test_network_failure_in_get_config_retains_pending_and_returns_idle(void) {
     TEST_ASSERT_TRUE(app.isConfigUpdatePending()); // Pending retained for next ping!
 }
 
+void test_first_provisioning_with_interval_days_7_schedules_inspection_without_immediate_scan(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+    TEST_ASSERT_EQUAL_INT32(7, app.getConfig().interval_days);
+    TEST_ASSERT_EQUAL_UINT32(0, app.getNextInspectionTime());
+
+    // Provisioning with default interval_days = 7
+    cloud.config_json_payload =
+        "{\"config_version\":1,\"geometry\":{\"panel_length_cm\":100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":30.0,\"interval_days\":7,\"ping_interval_seconds\":300}";
+    cloud.config_pending = true;
+    time.epoch = 1730000100;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING -> applies -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_INT32(7, app.getConfig().interval_days);
+
+    // Must schedule now + (7 * 86400) even though interval_days was already 7
+    uint32_t expected_next = 1730000100 + (7 * 86400);
+    TEST_ASSERT_EQUAL_UINT32(expected_next, app.getNextInspectionTime());
+    TEST_ASSERT_EQUAL_UINT32(expected_next, storage.state.next_inspection_timestamp);
+
+    // CRITICAL: No immediate scan must be triggered
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+}
+
+void test_interval_days_change_from_7_to_3_recalculates_schedule(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+    app.setNextInspectionTime(1730000000 + (7 * 86400));
+
+    // Change interval from 7 to 3 days
+    cloud.config_json_payload =
+        "{\"config_version\":2,\"geometry\":{\"panel_length_cm\":100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":30.0,\"interval_days\":3,\"ping_interval_seconds\":300}";
+    cloud.config_pending = true;
+    time.epoch = 1730000200;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING -> applies -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_INT32(3, app.getConfig().interval_days);
+
+    uint32_t expected_next = 1730000200 + (3 * 86400);
+    TEST_ASSERT_EQUAL_UINT32(expected_next, app.getNextInspectionTime());
+    TEST_ASSERT_EQUAL_UINT32(expected_next, storage.state.next_inspection_timestamp);
+}
+
+void test_config_sync_with_same_interval_and_future_schedule_preserves_current_timestamp(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Established future schedule
+    const uint32_t future_target = 1730000500 + (5 * 86400);
+    app.setNextInspectionTime(future_target);
+    storage.state.next_inspection_timestamp = future_target;
+
+    // Config update with config_version 2, but SAME interval_days = 7
+    cloud.config_json_payload =
+        "{\"config_version\":2,\"geometry\":{\"panel_length_cm\":120.0,\"panel_width_cm\":60.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":35.0,\"interval_days\":7,\"ping_interval_seconds\":300}";
+    cloud.config_pending = true;
+    time.epoch = 1730000500;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING -> applies -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    // Schedule must be strictly preserved
+    TEST_ASSERT_EQUAL_UINT32(future_target, app.getNextInspectionTime());
+    TEST_ASSERT_EQUAL_UINT32(future_target, storage.state.next_inspection_timestamp);
+}
+
+void test_invalid_config_does_not_modify_next_inspection_time(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    const uint32_t existing_schedule = 1730000000 + (7 * 86400);
+    app.setNextInspectionTime(existing_schedule);
+    storage.state.next_inspection_timestamp = existing_schedule;
+
+    // Invalid config (interval_days = 0, invalid angle = 150)
+    cloud.config_json_payload =
+        "{\"config_version\":3,\"geometry\":{\"panel_length_cm\":-100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":150.0,\"interval_days\":0,\"ping_interval_seconds\":5}";
+    cloud.config_pending = true;
+    time.epoch = 1730000305;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING: rejected -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    // Schedule must remain unchanged
+    TEST_ASSERT_EQUAL_UINT32(existing_schedule, app.getNextInspectionTime());
+    TEST_ASSERT_EQUAL_UINT32(existing_schedule, storage.state.next_inspection_timestamp);
+}
+
+void test_network_failure_in_get_config_does_not_modify_next_inspection_time(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    const uint32_t existing_schedule = 1730000000 + (7 * 86400);
+    app.setNextInspectionTime(existing_schedule);
+    storage.state.next_inspection_timestamp = existing_schedule;
+
+    cloud.config_pending = true;
+    cloud.get_config_success = false; // Network failure
+    time.epoch = 1730000305;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING: fails download -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    // Schedule must remain unchanged
+    TEST_ASSERT_EQUAL_UINT32(existing_schedule, app.getNextInspectionTime());
+    TEST_ASSERT_EQUAL_UINT32(existing_schedule, storage.state.next_inspection_timestamp);
+}
+
+void test_clock_not_synchronized_does_not_erase_existing_schedule(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    const uint32_t future_target = 1730000000 + (7 * 86400);
+    app.setNextInspectionTime(future_target);
+    storage.state.next_inspection_timestamp = future_target;
+
+    // Interval changes from 7 to 3, but clock is NOT synchronized (now == 0)
+    cloud.config_json_payload =
+        "{\"config_version\":2,\"geometry\":{\"panel_length_cm\":100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":30.0,\"interval_days\":3,\"ping_interval_seconds\":300}";
+    app.setConfigUpdatePending(true);
+    time.sync = false;
+    time.epoch = 0; // now == 0
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING -> applies config to RAM/NVS -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_INT32(3, app.getConfig().interval_days);
+
+    // next_inspection_time_ must NOT be erased or zeroed out
+    TEST_ASSERT_EQUAL_UINT32(future_target, app.getNextInspectionTime());
+    TEST_ASSERT_EQUAL_UINT32(future_target, storage.state.next_inspection_timestamp);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -639,6 +846,12 @@ int main(int argc, char **argv) {
     RUN_TEST(test_ack_configuration_called_in_syncing);
     RUN_TEST(test_ping_in_idle_with_pending_config_syncs_and_acks);
     RUN_TEST(test_interval_days_change_recalculates_next_inspection_time_without_immediate_scan);
+    RUN_TEST(test_first_provisioning_with_interval_days_7_schedules_inspection_without_immediate_scan);
+    RUN_TEST(test_interval_days_change_from_7_to_3_recalculates_schedule);
+    RUN_TEST(test_config_sync_with_same_interval_and_future_schedule_preserves_current_timestamp);
+    RUN_TEST(test_invalid_config_does_not_modify_next_inspection_time);
+    RUN_TEST(test_network_failure_in_get_config_does_not_modify_next_inspection_time);
+    RUN_TEST(test_clock_not_synchronized_does_not_erase_existing_schedule);
     RUN_TEST(test_ping_in_waiting_verification_marks_pending_without_cooldown_interruption);
     RUN_TEST(test_return_to_idle_after_verification_triggers_pending_sync);
     RUN_TEST(test_invalid_config_retains_previous_and_does_not_ack);

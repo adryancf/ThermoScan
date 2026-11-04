@@ -827,16 +827,14 @@ void ThermoscanApp::handleSyncing() {
         storage_->savePingIntervalSeconds(ping_s);
     }
 
-    // Recalculate scheduled inspection timestamp only if interval changed
-    if (interval_changed) {
+    // Recalculate scheduled inspection timestamp if interval changed or if first provisioned
+    if (interval_changed || next_inspection_time_ == 0) {
         const uint32_t now = getCurrentTime();
         if (now > 0) {
             next_inspection_time_ = now + static_cast<uint32_t>(config_.interval_days * 86400);
-        } else {
-            next_inspection_time_ = 0;
-        }
-        if (storage_ != nullptr) {
-            storage_->saveNextInspectionTimestamp(next_inspection_time_);
+            if (storage_ != nullptr) {
+                storage_->saveNextInspectionTimestamp(next_inspection_time_);
+            }
         }
     }
 

@@ -91,13 +91,23 @@ constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;
 #define PIN_SERVO_PWM 26     // Nozzle tilt angle adjustment servo PWM
 #endif
 
+#ifndef PIN_CAMERA_SERVO_PWM
+#define PIN_CAMERA_SERVO_PWM 27 // Thermal camera orientation / tilt servo PWM
+#endif
+
+#ifndef CAMERA_SERVO_DEFAULT_ANGLE_DEG
+#define CAMERA_SERVO_DEFAULT_ANGLE_DEG 90.0f // Configurable fixed angle for camera servo
+#endif
+
 #ifndef PIN_STATUS_LED
 #define PIN_STATUS_LED 2     // Diagnostic / system status LED (onboard GPIO 2)
 #endif
 
-constexpr uint8_t PUMP_MOSFET_PIN = PIN_PUMP_MOSFET;
-constexpr uint8_t SERVO_PWM_PIN   = PIN_SERVO_PWM;
-constexpr uint8_t STATUS_LED_PIN  = PIN_STATUS_LED;
+constexpr uint8_t PUMP_MOSFET_PIN         = PIN_PUMP_MOSFET;
+constexpr uint8_t SERVO_PWM_PIN           = PIN_SERVO_PWM;
+constexpr uint8_t CAMERA_SERVO_PWM_PIN    = PIN_CAMERA_SERVO_PWM;
+constexpr float   CAMERA_DEFAULT_ANGLE    = CAMERA_SERVO_DEFAULT_ANGLE_DEG;
+constexpr uint8_t STATUS_LED_PIN          = PIN_STATUS_LED;
 
 // ============================================================================
 // Kinematic, Geometric & Calibration System Constants

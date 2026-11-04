@@ -123,11 +123,15 @@ void test_pinout_constants(void) {
     TEST_ASSERT_EQUAL_FLOAT(10.0f, HOTSPOT_THRESHOLD_DELTA_C);
     TEST_ASSERT_EQUAL_UINT32(3, MAX_CLEANING_ATTEMPTS);
     TEST_ASSERT_EQUAL_UINT32(1800, POST_CLEANING_WAIT_SECONDS);
+    TEST_ASSERT_EQUAL_UINT8(27, CAMERA_SERVO_PWM_PIN);
+    TEST_ASSERT_EQUAL_FLOAT(90.0f, CAMERA_DEFAULT_ANGLE);
 }
 
 void test_hal_interfaces_instantiation(void) {
     MockThermalCamera cam;
     TEST_ASSERT_TRUE(cam.init());
+    TEST_ASSERT_TRUE(cam.setTiltAngle(45.0f));
+    TEST_ASSERT_EQUAL_FLOAT(90.0f, cam.getTiltAngle());
     ThermalFrame frame;
     TEST_ASSERT_TRUE(cam.captureFrame(frame));
     TEST_ASSERT_TRUE(frame.valid);

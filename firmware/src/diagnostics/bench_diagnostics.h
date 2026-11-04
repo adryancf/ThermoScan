@@ -139,6 +139,7 @@ public:
     TestResult testMotor(bool require_confirmation = true);
     TestResult testHoming();
     TestResult testPump(bool require_confirmation = true);
+    TestResult testCameraServo();
     TestResult testSafety();
 
     // Sequence & List

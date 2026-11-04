@@ -512,6 +512,31 @@ void test_bench_diag_safety_emergency_stop() {
     TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
 }
 
+void test_bench_diag_camera_servo() {
+    FakeDiagStorage storage;
+    FakeDiagTimeProvider time_p;
+    FakeDiagCloudClient cloud;
+    FakeDiagThermalCamera camera;
+    FakeDiagMotionController motion;
+    FakeDiagPowerMeter power;
+    FakeDiagWaterSensor water;
+    FakeDiagSprayActuator spray;
+    app::ThermoscanApp app(&camera, &power, &motion, &spray, &water, &storage, &cloud, &time_p);
+    MockConsole console;
+
+    BenchDiagnostics diag(&storage, &time_p, &cloud, &camera, &motion, &power, &water, &spray, &app, &console);
+
+    TestResult r = diag.testCameraServo();
+    TEST_ASSERT_EQUAL(TestStatus::PASS, r.status);
+    TEST_ASSERT_TRUE(r.details.find("articulado para 45 e 90 graus") != std::string::npos);
+
+    // Test command dispatch
+    console.clear();
+    bool handled = diag.handleCommand("diag camera-servo");
+    TEST_ASSERT_TRUE(handled);
+    TEST_ASSERT_TRUE(console.output.find("camera-servo") != std::string::npos);
+}
+
 void test_bench_diag_command_dispatch_and_run_all() {
     FakeDiagStorage storage;
     FakeDiagTimeProvider time_p;
@@ -554,6 +579,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_bench_diag_motor_confirmation);
     RUN_TEST(test_bench_diag_homing);
     RUN_TEST(test_bench_diag_pump_safety_interlock);
+    RUN_TEST(test_bench_diag_camera_servo);
     RUN_TEST(test_bench_diag_safety_emergency_stop);
     RUN_TEST(test_bench_diag_command_dispatch_and_run_all);
     return UNITY_END();

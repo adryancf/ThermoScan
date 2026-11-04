@@ -17,6 +17,8 @@ public:
     virtual bool init() = 0;
     virtual bool captureFrame(ThermalFrame& out) = 0;
     virtual bool isHealthy() = 0;
+    virtual bool setTiltAngle(float angle_deg) { (void)angle_deg; return true; }
+    virtual float getTiltAngle() const { return 90.0f; }
 };
 
 #endif // THERMOSCAN_HAL_I_THERMAL_CAMERA_H

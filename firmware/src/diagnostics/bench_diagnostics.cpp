@@ -87,6 +87,7 @@ void BenchDiagnostics::printList() {
     console_->println("  diag motor        - Movimenta carro +2cm/-2cm (requer confirmacao)");
     console_->println("  diag homing       - Referencia carro ate batente NC (requer confirmacao)");
     console_->println("  diag pump         - Aciona bomba por 500ms (requer confirmacao)");
+    console_->println("  diag camera-servo - Articula servo da camera (GPIO 27) para teste de angulo");
     console_->println("  diag safety       - Testa intertravamentos e parada de emergencia");
     console_->println("==================================================");
 }
@@ -148,6 +149,8 @@ bool BenchDiagnostics::handleCommand(const std::string& cmd_line) {
         printTestResult(testHoming());
     } else if (arg == "pump") {
         printTestResult(testPump(true));
+    } else if (arg == "camera-servo" || arg == "cam-servo") {
+        printTestResult(testCameraServo());
     } else if (arg == "safety") {
         printTestResult(testSafety());
     } else {
@@ -692,7 +695,41 @@ TestResult BenchDiagnostics::testPump(bool require_confirmation) {
     return r;
 }
 
-// 11. diag safety
+// 11. diag camera-servo
+TestResult BenchDiagnostics::testCameraServo() {
+    uint32_t t0 = nowMs();
+    TestResult r;
+    r.name = "camera-servo";
+
+    if (!camera_) {
+        r.status = TestStatus::FAIL;
+        r.details = "Driver de camera nulo.";
+        r.failure_cause = "Ponteiro IThermalCamera invalido.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    float initial_angle = camera_->getTiltAngle();
+    if (console_) {
+        console_->printf("[CAM SERVO] Angulo atual: %.1f graus. Articulando para 45.0 e 90.0 graus...\n", initial_angle);
+    }
+
+    camera_->setTiltAngle(45.0f);
+    delayMs(300);
+
+    camera_->setTiltAngle(90.0f);
+    delayMs(300);
+
+    camera_->setTiltAngle(CAMERA_DEFAULT_ANGLE);
+
+    r.status = TestStatus::PASS;
+    r.details = "Servo da camera articulado para 45 e 90 graus com sucesso. Retornado ao angulo padrao: " +
+                std::to_string(static_cast<int>(CAMERA_DEFAULT_ANGLE)) + " graus.";
+    r.duration_ms = getElapsedMs(t0);
+    return r;
+}
+
+// 12. diag safety
 TestResult BenchDiagnostics::testSafety() {
     uint32_t t0 = nowMs();
     TestResult r;
@@ -764,6 +801,9 @@ void BenchDiagnostics::runAll() {
     printTestResult(results.back());
 
     results.push_back(testPump(true));
+    printTestResult(results.back());
+
+    results.push_back(testCameraServo());
     printTestResult(results.back());
 
     results.push_back(testSafety());

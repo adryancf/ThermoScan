@@ -2,11 +2,13 @@
 
 #include <chrono>
 #include <thread>
-#include <sstream>
 #include <algorithm>
-#include <iomanip>
+#include <cstdio>
 
 namespace diagnostics {
+
+static const char DIVIDER_HEAVY[] = "==================================================";
+static const char DIVIDER_LIGHT[] = "--------------------------------------------------";
 
 BenchDiagnostics::BenchDiagnostics(IStorage* storage,
                                    ITimeProvider* time_provider,
@@ -54,7 +56,7 @@ void BenchDiagnostics::delayMs(uint32_t ms) const {
 void BenchDiagnostics::printTestResult(const TestResult& res) {
     if (!console_) return;
 
-    console_->println("--------------------------------------------------");
+    console_->println(DIVIDER_LIGHT);
     console_->printf("[DIAG] TESTE: %s\n", res.name.c_str());
     console_->printf("STATUS:       %s\n", testStatusToString(res.status));
     console_->printf("DETALHES:     %s\n", res.details.c_str());
@@ -62,15 +64,15 @@ void BenchDiagnostics::printTestResult(const TestResult& res) {
     if (!res.failure_cause.empty()) {
         console_->printf("FALHA:        %s\n", res.failure_cause.c_str());
     }
-    console_->println("--------------------------------------------------");
+    console_->println(DIVIDER_LIGHT);
 }
 
 void BenchDiagnostics::printList() {
     if (!console_) return;
 
-    console_->println("==================================================");
+    console_->println(DIVIDER_HEAVY);
     console_->println("     ThermoScan - Catalogo de Testes de Bancada   ");
-    console_->println("==================================================");
+    console_->println(DIVIDER_HEAVY);
     console_->println("Comandos disponiveis:");
     console_->println("  diag list         - Lista todos os testes disponiveis");
     console_->println("  diag all          - Executa a bateria completa na sequencia segura");
@@ -415,18 +417,18 @@ TestResult BenchDiagnostics::testMlx(bool watch) {
     float valid_pixels = static_cast<float>(ThermalFrame::PIXEL_COUNT - invalid_count);
     float avg_t = (valid_pixels > 0) ? (sum_t / valid_pixels) : 0.0f;
 
-    std::ostringstream ss;
-    ss << std::fixed << std::setprecision(1);
-    ss << "768 pixels lidos. Min: " << min_t << " C, Max: " << max_t << " C, Med: " << avg_t
-       << " C, Invalidos: " << invalid_count;
+    char details_buf[160];
+    std::snprintf(details_buf, sizeof(details_buf),
+                  "768 pixels lidos. Min: %.1f C, Max: %.1f C, Med: %.1f C, Invalidos: %zu",
+                  min_t, max_t, avg_t, invalid_count);
 
     if (invalid_count > 38) { // Mais de 5% de pixels corrompidos
         r.status = TestStatus::FAIL;
-        r.details = ss.str();
+        r.details = details_buf;
         r.failure_cause = "Numero excessivo de pixels termicos invalidos (" + std::to_string(invalid_count) + ").";
     } else {
         r.status = TestStatus::PASS;
-        r.details = ss.str();
+        r.details = details_buf;
     }
 
     r.duration_ms = getElapsedMs(t0);
@@ -466,13 +468,13 @@ TestResult BenchDiagnostics::testIna() {
         return r;
     }
 
-    std::ostringstream ss;
-    ss << std::fixed << std::setprecision(2);
-    ss << "Tensao: " << snap.voltage_v << " V, Corrente: " << snap.current_a
-       << " A, Potencia: " << snap.power_w << " W (valid=true)";
+    char details_buf[160];
+    std::snprintf(details_buf, sizeof(details_buf),
+                  "Tensao: %.2f V, Corrente: %.2f A, Potencia: %.2f W (valid=true)",
+                  snap.voltage_v, snap.current_a, snap.power_w);
 
     r.status = TestStatus::PASS;
-    r.details = ss.str();
+    r.details = details_buf;
     r.duration_ms = getElapsedMs(t0);
     return r;
 }
@@ -726,9 +728,9 @@ TestResult BenchDiagnostics::testSafety() {
 // diag all
 void BenchDiagnostics::runAll() {
     if (console_) {
-        console_->println("==================================================");
+        console_->println(DIVIDER_HEAVY);
         console_->println("  INICIANDO BATERIA COMPLETA DE TESTES DE BANCADA ");
-        console_->println("==================================================");
+        console_->println(DIVIDER_HEAVY);
     }
 
     std::vector<TestResult> results;
@@ -790,14 +792,14 @@ void BenchDiagnostics::runAll() {
     }
 
     if (console_) {
-        console_->println("==================================================");
+        console_->println(DIVIDER_HEAVY);
         console_->println("         RESUMO DO DIAGNOSTICO DE BANCADA         ");
-        console_->println("==================================================");
+        console_->println(DIVIDER_HEAVY);
         console_->printf("Total de testes executados: %zu\n", results.size());
         console_->printf("  [PASS]   Aprovados automaticamente:   %d\n", pass_count);
         console_->printf("  [FAIL]   Falhas detectadas:          %d\n", fail_count);
         console_->printf("  [MANUAL] Requerem confirmacao visual: %d\n", manual_count);
-        console_->println("--------------------------------------------------");
+        console_->println(DIVIDER_LIGHT);
 
         if (fail_count > 0) {
             console_->printf("RECOMENDACAO: FALHA CRITICA em [%s]! Nao inicie varredura ou operacao em campo antes de reparar os componentes indicados.\n",
@@ -807,7 +809,7 @@ void BenchDiagnostics::runAll() {
         } else {
             console_->println("RECOMENDACAO: Bancada 100% aprovada e operacional. O sistema esta pronto para ser instalado no painel.");
         }
-        console_->println("==================================================");
+        console_->println(DIVIDER_HEAVY);
     }
 }
 

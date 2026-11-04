@@ -5,7 +5,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
-#include <WiFiClientSecure.h>
 #else
 #include "hal/native_net_compat.h"
 #endif
@@ -42,8 +41,8 @@ public:
                             const FinalizeInspectionInput& input) override;
     bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) override;
     std::string getLastConfirmedAnomalyId() const override { return last_confirmed_anomaly_id_; }
-    bool ingestTelemetry(const TelemetryPayload& telemetry) override;
-    bool ingestCleaning(const CleaningPayload& cleaning) override;
+    bool ingestTelemetry(const TelemetryPayload& /*telemetry*/) override { return false; }
+    bool ingestCleaning(const CleaningPayload& /*cleaning*/) override { return false; }
     bool isConnected() const override;
 
     bool hadAuthError() const { return auth_error_; }
@@ -60,15 +59,6 @@ public:
     bool claimWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok);
     bool sendPingWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok);
     bool ackConfigurationAdvanced(uint32_t config_version, bool applied, const std::string& checksum, const std::string& error = "");
-    bool ingestTelemetryDetailed(float x_pos_cm,
-                                 float base_temp_c,
-                                 float max_temp_c,
-                                 bool hotspot_detected,
-                                 bool hotspot_confirmed,
-                                 float voltage_v,
-                                 float current_a,
-                                 float power_w,
-                                 const float* thermal_frame = nullptr);
 
     void setBaseUrl(const std::string& base_url);
     void setCredentials(const std::string& module_id, const std::string& device_token);

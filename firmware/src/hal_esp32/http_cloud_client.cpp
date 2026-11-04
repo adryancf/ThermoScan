@@ -84,7 +84,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
     doc["limits_check_passed"] = limits_ok;
     doc["thermal_sensor_active"] = thermal_ok;
 
-    String requestBody;
+    std::string requestBody;
     serializeJson(doc, requestBody);
 
     int httpCode = http.POST(String(requestBody.c_str()));
@@ -97,7 +97,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
     http.end();
 
     JsonDocument respDoc;
-    DeserializationError error = deserializeJson(respDoc, response);
+    DeserializationError error = deserializeJson(respDoc, response.c_str());
     if (error) {
         return false;
     }
@@ -144,7 +144,7 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     doc["limits_check_passed"] = limits_ok;
     doc["thermal_sensor_active"] = thermal_ok;
 
-    String requestBody;
+    std::string requestBody;
     serializeJson(doc, requestBody);
 
     int httpCode = http.POST(String(requestBody.c_str()));
@@ -182,7 +182,7 @@ bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
     // Parse and cache in NVS if available
     if (storage_ != nullptr) {
         JsonDocument doc;
-        if (!deserializeJson(doc, response)) {
+        if (!deserializeJson(doc, response.c_str())) {
             uint32_t ver = doc["config_version"] | 0;
             if (ver > 0) {
                 storage_->saveConfigVersion(ver);
@@ -232,7 +232,7 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
         doc["error"] = error.c_str();
     }
 
-    String requestBody;
+    std::string requestBody;
     serializeJson(doc, requestBody);
 
     int httpCode = http.POST(String(requestBody.c_str()));
@@ -394,7 +394,7 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
         http.end();
 
         JsonDocument resDoc;
-        if (!deserializeJson(resDoc, response)) {
+        if (!deserializeJson(resDoc, response.c_str())) {
             if (resDoc["confirmed_anomalies"].is<JsonArray>() && resDoc["confirmed_anomalies"].size() > 0) {
                 if (resDoc["confirmed_anomalies"][0]["id"].is<const char*>()) {
                     last_confirmed_anomaly_id_ = resDoc["confirmed_anomalies"][0]["id"].as<std::string>();
@@ -452,7 +452,7 @@ bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std
         http.end();
 
         JsonDocument resDoc;
-        if (!deserializeJson(resDoc, response)) {
+        if (!deserializeJson(resDoc, response.c_str())) {
             if (resDoc["cleaning"]["id"].is<const char*>()) {
                 out_cleaning_id = resDoc["cleaning"]["id"].as<std::string>();
             }
@@ -465,88 +465,6 @@ bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std
     }
     http.end();
     return false;
-}
-
-bool HttpCloudClient::ingestTelemetry(const TelemetryPayload& telemetry) {
-    return ingestTelemetryDetailed(telemetry.x_position_cm,
-                                   telemetry.ambient_temp_c,
-                                   telemetry.max_temp_c,
-                                   (telemetry.delta_temp_c >= 10.0f),
-                                   false,
-                                   telemetry.bus_voltage_v,
-                                   telemetry.current_a,
-                                   telemetry.power_w,
-                                   nullptr);
-}
-
-bool HttpCloudClient::ingestTelemetryDetailed(float x_pos_cm,
-                                             float base_temp_c,
-                                             float max_temp_c,
-                                             bool hotspot_detected,
-                                             bool hotspot_confirmed,
-                                             float voltage_v,
-                                             float current_a,
-                                             float power_w,
-                                             const float* /*thermal_frame*/) {
-    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        return false;
-    }
-
-    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/telemetry";
-    HTTPClient http;
-    http.begin(url.c_str());
-    appendAuthHeader(http);
-
-    JsonDocument doc;
-    doc["x_position_cm"] = x_pos_cm;
-    doc["baseline_temperature_c"] = base_temp_c;
-    doc["max_temperature_c"] = max_temp_c;
-    doc["hotspot_detected"] = hotspot_detected;
-    doc["hotspot_confirmed"] = hotspot_confirmed;
-    doc["voltage_v"] = voltage_v;
-    doc["current_a"] = current_a;
-    doc["power_w"] = power_w;
-
-    String requestBody;
-    serializeJson(doc, requestBody);
-
-    int httpCode = http.POST(String(requestBody.c_str()));
-    http.end();
-
-    return (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK);
-}
-
-bool HttpCloudClient::ingestCleaning(const CleaningPayload& cleaning) {
-    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        return false;
-    }
-
-    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/cleanings";
-    HTTPClient http;
-    http.begin(url.c_str());
-    appendAuthHeader(http);
-
-    JsonDocument doc;
-    if (!cleaning.anomaly_event_id.empty()) {
-        doc["anomaly_event_id"] = cleaning.anomaly_event_id.c_str();
-    }
-    doc["target_x_position_cm"] = cleaning.x_position_cm;
-    doc["pump_actuated"] = true;
-    doc["attempt_number"] = cleaning.cleaning_attempts;
-    doc["duration_seconds"] = (cleaning.ended_timestamp >= cleaning.started_timestamp)
-                                  ? (cleaning.ended_timestamp - cleaning.started_timestamp)
-                                  : 3.5;
-    doc["estimated_water_volume_ml"] = 50.0;
-    doc["status"] = cleaning.success ? "completed" : "failed";
-    doc["post_cleaning_result"] = cleaning.success ? "resolved" : "unresolved";
-
-    String requestBody;
-    serializeJson(doc, requestBody);
-
-    int httpCode = http.POST(String(requestBody.c_str()));
-    http.end();
-
-    return (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK);
 }
 
 } // namespace hal_esp32

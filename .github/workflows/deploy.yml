@@ -14,7 +14,7 @@ jobs:
     runs-on: self-hosted
     env:
       APP_NAME: thermoscan-api
-      HOST: api.thermoscan.realan.space
+      HOST: api-thermoscan.realan.space
     steps:
       - uses: actions/checkout@v4
 

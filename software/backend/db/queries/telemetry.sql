@@ -128,8 +128,9 @@ SET
     status = $1,
     finished_at = $2,
     baseline_temperature_c = $3,
+    verification_result = $4,
     updated_at = now()
-WHERE id = $4 AND module_id = $5
+WHERE id = $5 AND module_id = $6
 RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at;
 
 -- name: GetLatestReservoirReadingByModule :one
@@ -213,8 +214,7 @@ INSERT INTO measurements (
     sqlc.arg('power_w'),
     sqlc.arg('thermal_frame')
 )
-ON CONFLICT (module_id, source_event_id) DO UPDATE
-SET received_at = now()
+ON CONFLICT (module_id, source_event_id) DO NOTHING
 RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, hotspot_detected, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at;
 
 -- name: GetMeasurementBySourceEventID :one
@@ -287,6 +287,34 @@ INSERT INTO cleaning_operations (
 )
 RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
 
+-- name: GetCleaningOperationByID :one
+SELECT
+    c.id,
+    c.module_id,
+    c.anomaly_event_id,
+    c.source_event_id,
+    c.target_x_position_cm::text AS target_x_position_cm,
+    c.pump_actuated,
+    c.attempt_number,
+    c.started_at,
+    c.ended_at,
+    c.duration_seconds::text AS duration_seconds,
+    c.estimated_water_volume_ml::text AS estimated_water_volume_ml,
+    c.status,
+    c.failure_reason,
+    c.post_cleaning_result,
+    c.created_at,
+    c.updated_at
+FROM cleaning_operations c
+WHERE c.id = $1 AND c.module_id = $2;
+
+-- name: UpdateCleaningOperationPostResult :one
+UPDATE cleaning_operations
+SET post_cleaning_result = $1,
+    updated_at = now()
+WHERE id = $2 AND module_id = $3
+RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
+
 -- name: GetAnomalyEventByID :one
 SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 FROM anomaly_events
@@ -306,6 +334,16 @@ SET status = $1,
     closed_at = $3,
     updated_at = now()
 WHERE id = $4 AND module_id = $5
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
+
+-- name: UpdateAnomalyEventVerification :one
+UPDATE anomaly_events
+SET status = $1,
+    retry_pending = $2,
+    retry_reason = $3,
+    closed_at = $4,
+    updated_at = now()
+WHERE id = $5 AND module_id = $6
 RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
 
 -- name: ListActiveAnomaliesForCompany :many

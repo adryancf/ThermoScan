@@ -3,28 +3,28 @@ import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 
-/// SCR-10: 2D Interpolated Thermal Matrix Canvas & Radiometric Telemetry Metrics
+/// SCR-10: Physical Thermal Frames & Radiometric Telemetry Metrics
 class RadiometricScanCard extends StatelessWidget {
   const RadiometricScanCard({
     super.key,
     required this.module,
     this.latestMeasurement,
     this.latestInspection,
-    this.thermalMap,
+    this.measurements,
   });
 
   final PvModule module;
   final ModuleMeasurement? latestMeasurement;
   final LatestInspection? latestInspection;
-  final ModuleThermalMap? thermalMap;
+  final List<ModuleMeasurement>? measurements;
 
   @override
   Widget build(BuildContext context) {
     final m = latestMeasurement;
     final insp = latestInspection;
-    final tm = thermalMap;
+    final allMeasurements = measurements ?? (m != null ? [m] : <ModuleMeasurement>[]);
 
-    if (m == null && insp == null && tm == null) {
+    if (m == null && insp == null && allMeasurements.isEmpty) {
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -56,7 +56,7 @@ class RadiometricScanCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'No thermal frames or electrical readings recorded yet by the ESP32. Real telemetry and 2D radiometric heatmap will appear here upon the first hardware inspection scan.',
+              'No thermal frames or electrical readings recorded yet by the ESP32. Real telemetry and physical frames will appear here upon the first hardware inspection scan.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textSecondary,
               ),
@@ -67,44 +67,28 @@ class RadiometricScanCard extends StatelessWidget {
       );
     }
 
-    final peakTemp = m?.maxTemperatureC ?? 0.0;
-    final baselineTemp = insp?.inspection.baselineTemperatureC ?? m?.baselineTemperatureC ?? 0.0;
-    final voltage = m?.voltageV ?? 0.0;
-    final current = m?.currentA ?? 0.0;
-    final power = m?.powerW ?? (voltage * current);
-    final xPos = m?.xPositionCm ?? 0.0;
-    final isHotspot = (insp?.confirmedAnomalies.isNotEmpty == true) || (m?.hotspotDetected ?? false);
-    final delta = (peakTemp > 0 && baselineTemp > 0) ? (peakTemp - baselineTemp) : 0.0;
+    final confirmedAnomalies = insp?.confirmedAnomalies ?? [];
+    final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
 
-    // Calculate 5 cm bands strictly based on module length (e.g. 10cm -> 2 bands, 20cm -> 4 bands)
+    // m.hotspotDetected is strictly treated as candidate in that measurement step
+    final hasCandidate = allMeasurements.any((item) => item.hotspotDetected) || (m?.hotspotDetected ?? false);
+
+    final peakTemp = allMeasurements.isNotEmpty
+        ? allMeasurements.map((e) => e.maxTemperatureC).reduce((a, b) => a > b ? a : b)
+        : (m?.maxTemperatureC ?? 0.0);
+    final baselineTemp = insp?.inspection.baselineTemperatureC;
+    final voltage = m?.voltageV ?? (allMeasurements.isNotEmpty ? allMeasurements.first.voltageV : 0.0);
+    final current = m?.currentA ?? (allMeasurements.isNotEmpty ? allMeasurements.first.currentA : 0.0);
+    final power = m?.powerW ?? (allMeasurements.isNotEmpty ? allMeasurements.first.powerW : (voltage * current));
+    final xPos = m?.xPositionCm ?? (allMeasurements.isNotEmpty ? allMeasurements.first.xPositionCm : 0.0);
+
+    final delta = (peakTemp > 0 && baselineTemp != null && baselineTemp > 0)
+        ? (peakTemp - baselineTemp)
+        : 0.0;
+
     final panelLength = (module.panelLengthCm != null && module.panelLengthCm! > 0)
         ? module.panelLengthCm!
         : 20.0;
-    final totalExpectedBands = (panelLength / 5.0).ceil().clamp(1, 40);
-
-    List<ThermalBand> bands = [];
-    for (int i = 0; i < totalExpectedBands; i++) {
-      final startX = i * 5.0;
-      final endX = ((i + 1) * 5.0 > panelLength) ? panelLength : (i + 1) * 5.0;
-      final hasMeasurementInBand = (m != null && xPos >= startX && xPos <= endX);
-      final hasAnomalyInBand = insp?.confirmedAnomalies.any(
-            (a) => a.xPositionCm >= startX && a.xPositionCm <= endX,
-          ) ?? false;
-      final bandHasHotspot = hasAnomalyInBand || (hasMeasurementInBand && isHotspot);
-      final bandMaxTemp = hasMeasurementInBand ? peakTemp : 0.0;
-      final bandAvgTemp = hasMeasurementInBand ? baselineTemp : 0.0;
-
-      bands.add(
-        ThermalBand(
-          bandIndex: i + 1,
-          startXCm: startX,
-          endXCm: endX,
-          maxTemperatureC: bandMaxTemp,
-          avgTemperatureC: bandAvgTemp,
-          hasHotspot: bandHasHotspot,
-        ),
-      );
-    }
 
     return Container(
       width: double.infinity,
@@ -147,22 +131,30 @@ class RadiometricScanCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: isHotspot
+                  color: hasConfirmedHotspots
                       ? AppColors.errorBackground
-                      : AppColors.successBackground,
+                      : (hasCandidate
+                          ? AppColors.warningBackground
+                          : AppColors.successBackground),
                   borderRadius: BorderRadius.circular(6),
                   border: Border.all(
-                    color: isHotspot
+                    color: hasConfirmedHotspots
                         ? AppColors.errorBorder
-                        : AppColors.successBorder,
+                        : (hasCandidate
+                            ? AppColors.warningBorder
+                            : AppColors.successBorder),
                   ),
                 ),
                 child: Text(
-                  isHotspot
+                  hasConfirmedHotspots
                       ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
-                      : 'Delta: ${delta.toStringAsFixed(1)}°C (Normal)',
+                      : (hasCandidate
+                          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Candidate)'
+                          : 'Delta: ${delta.toStringAsFixed(1)}°C (Normal)'),
                   style: AppTypography.caption.copyWith(
-                    color: isHotspot ? AppColors.error : AppColors.success,
+                    color: hasConfirmedHotspots
+                        ? AppColors.error
+                        : (hasCandidate ? AppColors.warning : AppColors.success),
                     fontWeight: FontWeight.w800,
                     fontSize: 10,
                   ),
@@ -172,9 +164,9 @@ class RadiometricScanCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
 
-          // 2D Thermal Viewport Canvas with Prominent 5 cm Bands Overlay
+          // 2D Thermal Viewport with Physical Frames on X-Ruler
           Container(
-            height: 190,
+            height: 200,
             width: double.infinity,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(12),
@@ -182,7 +174,7 @@ class RadiometricScanCard extends StatelessWidget {
               gradient: RadialGradient(
                 center: const Alignment(0.3, -0.2),
                 radius: 0.85,
-                colors: isHotspot
+                colors: hasConfirmedHotspots
                     ? const [
                         AppColors.thermalHot,
                         AppColors.thermalWarm,
@@ -200,137 +192,213 @@ class RadiometricScanCard extends StatelessWidget {
                 stops: const [0.0, 0.28, 0.50, 0.75, 1.0],
               ),
             ),
-            child: Stack(
-              children: [
-                // Prominent 5 cm Band Vertical Divider Lines
-                Row(
-                  children: List.generate(bands.length, (idx) {
-                    final b = bands[idx];
-                    return Expanded(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border(
-                            right: idx < bands.length - 1
-                                ? BorderSide(
-                                    color: Colors.white.withValues(alpha: 0.45),
-                                    width: 1.5,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Stack(
+                children: [
+                  // Physical Ruler & Frames Layer
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final w = constraints.maxWidth;
+                      const padLeft = 12.0;
+                      final usableW = (w - (padLeft * 2)).clamp(10.0, double.infinity);
+                      final pxPerCm = usableW / panelLength;
+                      final framePxWidth = (5.0 * pxPerCm).clamp(28.0, usableW);
+
+                      return Stack(
+                        children: [
+                          // Ruler Rail at the top
+                          Positioned(
+                            top: 8,
+                            left: padLeft,
+                            right: padLeft,
+                            child: SizedBox(
+                              height: 24,
+                              child: Stack(
+                                children: [
+                                  Positioned(
+                                    top: 14,
+                                    left: 0,
+                                    right: 0,
+                                    child: Container(
+                                      height: 1.5,
+                                      color: Colors.white.withValues(alpha: 0.4),
+                                    ),
+                                  ),
+                                  // Ruler cm tick marks
+                                  ..._buildRulerTicks(panelLength, usableW),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          // Physical Frames (each covering 5 cm at xPositionCm, overlapping by advance step)
+                          Positioned(
+                            top: 36,
+                            left: 0,
+                            right: 0,
+                            bottom: 34,
+                            child: allMeasurements.isEmpty
+                                ? Center(
+                                    child: Text(
+                                      'Awaiting physical frames from carriage scan',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(alpha: 0.7),
+                                        fontSize: 10,
+                                      ),
+                                    ),
                                   )
-                                : BorderSide.none,
-                            top: b.hasHotspot
-                                ? const BorderSide(color: AppColors.error, width: 3)
-                                : BorderSide.none,
-                            bottom: b.hasHotspot
-                                ? const BorderSide(color: AppColors.error, width: 3)
-                                : BorderSide.none,
-                          ),
-                          color: b.hasHotspot
-                              ? AppColors.error.withValues(alpha: 0.18)
-                              : Colors.transparent,
-                        ),
-                        child: Align(
-                          alignment: Alignment.topCenter,
-                          child: Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: b.hasHotspot
-                                    ? AppColors.error.withValues(alpha: 0.85)
-                                    : Colors.black.withValues(alpha: 0.60),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                b.label,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 9.0,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
+                                : Stack(
+                                    children: allMeasurements.asMap().entries.map((entry) {
+                                      final idx = entry.key;
+                                      final meas = entry.value;
+                                      final leftPx = padLeft + (meas.xPositionCm * pxPerCm);
+                                      final isFrameCandidate = meas.hotspotDetected;
+                                      final isFrameConfirmed = confirmedAnomalies.any(
+                                        (a) => (a.xPositionCm >= meas.xPositionCm &&
+                                                a.xPositionCm <= meas.xPositionCm + 5.0),
+                                      );
 
-                // Live Metadata Badges
-                Positioned(
-                  bottom: 8,
-                  left: 8,
-                  child: _buildBadge('X: ${xPos.toStringAsFixed(1)} cm (Step 2cm)'),
-                ),
-                Positioned(
-                  bottom: 8,
-                  right: 8,
-                  child: _buildBadge(
-                    'T_max: ${peakTemp.toStringAsFixed(1)}°C',
-                    highlight: isHotspot,
+                                      return Positioned(
+                                        left: leftPx.clamp(0.0, w - framePxWidth),
+                                        width: framePxWidth,
+                                        top: 0,
+                                        bottom: 0,
+                                        child: Container(
+                                          margin: const EdgeInsets.symmetric(vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: isFrameConfirmed
+                                                ? AppColors.error.withValues(alpha: 0.28)
+                                                : (isFrameCandidate
+                                                    ? AppColors.warning.withValues(alpha: 0.22)
+                                                    : Colors.white.withValues(alpha: 0.10)),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: isFrameConfirmed
+                                                  ? AppColors.error
+                                                  : (isFrameCandidate
+                                                      ? AppColors.warning
+                                                      : Colors.white.withValues(alpha: 0.5)),
+                                              width: (isFrameConfirmed || isFrameCandidate) ? 1.5 : 1,
+                                            ),
+                                          ),
+                                          child: Column(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+                                                decoration: BoxDecoration(
+                                                  color: isFrameConfirmed
+                                                      ? AppColors.error.withValues(alpha: 0.85)
+                                                      : (isFrameCandidate
+                                                          ? AppColors.warning.withValues(alpha: 0.85)
+                                                          : Colors.black.withValues(alpha: 0.55)),
+                                                  borderRadius: BorderRadius.circular(3),
+                                                ),
+                                                child: Text(
+                                                  'F${idx + 1} (${meas.xPositionCm.toStringAsFixed(0)}cm)',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 8,
+                                                    fontWeight: FontWeight.w700,
+                                                  ),
+                                                ),
+                                              ),
+                                              Text(
+                                                '${meas.maxTemperatureC.toStringAsFixed(1)}°C',
+                                                style: TextStyle(
+                                                  color: isFrameConfirmed
+                                                      ? AppColors.errorBackground
+                                                      : (isFrameCandidate
+                                                          ? AppColors.warningBackground
+                                                          : Colors.white),
+                                                  fontSize: 8.5,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                          ),
+
+                          // Confirmed Hotspot Target Markers (Strictly from latestInspection.confirmedAnomalies)
+                          ...confirmedAnomalies.map((anomaly) {
+                            final anomalyPx = (padLeft + (anomaly.xPositionCm * pxPerCm)).clamp(14.0, w - 24.0);
+                            return Positioned(
+                              top: 28,
+                              left: anomalyPx - 10,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 20,
+                                    height: 20,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: AppColors.error,
+                                      border: Border.all(color: Colors.white, width: 2),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: AppColors.error,
+                                          blurRadius: 8,
+                                          spreadRadius: 2,
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Center(
+                                      child: Icon(
+                                        Icons.priority_high_rounded,
+                                        color: Colors.white,
+                                        size: 12,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.75),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: AppColors.error, width: 1),
+                                    ),
+                                    child: Text(
+                                      'HOTSPOT ${anomaly.xPositionCm.toStringAsFixed(1)}cm',
+                                      style: const TextStyle(
+                                        fontFamily: 'monospace',
+                                        fontSize: 8,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      );
+                    },
                   ),
-                ),
 
-                // Hotspot Target Pin
-                if (isHotspot)
+                  // Live Metadata Badges
                   Positioned(
-                    top: 50,
-                    right: 60,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 14,
-                          height: 14,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: AppColors.error,
-                            border: Border.all(color: Colors.white, width: 2),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: AppColors.error,
-                                blurRadius: 8,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
-                          child: Center(
-                            child: Container(
-                              width: 4,
-                              height: 4,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.6),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Text(
-                            'Hotspot Detected',
-                            style: TextStyle(
-                              fontFamily: 'monospace',
-                              fontSize: 9,
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                      ],
+                    bottom: 8,
+                    left: 8,
+                    child: _buildBadge('X: ${xPos.toStringAsFixed(1)} cm (Step 2cm • Span 5cm)'),
+                  ),
+                  Positioned(
+                    bottom: 8,
+                    right: 8,
+                    child: _buildBadge(
+                      'T_max: ${peakTemp.toStringAsFixed(1)}°C',
+                      highlight: hasConfirmedHotspots,
                     ),
                   ),
-              ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -371,9 +439,9 @@ class RadiometricScanCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
 
-          // 5 cm Thermal Sectors Breakdown
+          // Physical Thermal Frames (5 cm Sectors • Step 2 cm)
           Text(
-            'Thermal Zones (5 cm Sectors)',
+            'Thermal Frames (5 cm Sectors)',
             style: AppTypography.caption.copyWith(
               fontWeight: FontWeight.w700,
               color: AppColors.textPrimary,
@@ -383,66 +451,133 @@ class RadiometricScanCard extends StatelessWidget {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: bands.map((b) {
-                return Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: b.hasHotspot
-                        ? AppColors.errorBackground
-                        : AppColors.background,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: b.hasHotspot
-                          ? AppColors.error
-                          : AppColors.border,
-                      width: b.hasHotspot ? 1.5 : 1,
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            b.hasHotspot
-                                ? Icons.warning_amber_rounded
-                                : Icons.check_circle_outline_rounded,
-                            size: 14,
-                            color: b.hasHotspot
-                                ? AppColors.error
-                                : AppColors.success,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            b.label,
-                            style: AppTypography.caption.copyWith(
-                              fontWeight: FontWeight.w700,
-                              color: b.hasHotspot
-                                  ? AppColors.error
-                                  : AppColors.textPrimary,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        (b.maxTemperatureC <= 0.0 && b.avgTemperatureC <= 0.0)
-                            ? 'No readings in sector'
-                            : 'Peak: ${b.maxTemperatureC.toStringAsFixed(1)}°C • Avg: ${b.avgTemperatureC.toStringAsFixed(1)}°C',
-                        style: AppTypography.caption.copyWith(
-                          fontSize: 9.5,
-                          color: AppColors.textSecondary,
+              children: allMeasurements.isEmpty
+                  ? [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.border),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
+                        child: Text(
+                          'No frames recorded yet',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      )
+                    ]
+                  : allMeasurements.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final f = entry.value;
+                      final isCandidate = f.hotspotDetected;
+                      final isConfirmed = confirmedAnomalies.any(
+                        (a) => (a.xPositionCm >= f.xPositionCm && a.xPositionCm <= f.xPositionCm + 5.0),
+                      );
+
+                      return Container(
+                        margin: const EdgeInsets.only(right: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isConfirmed
+                              ? AppColors.errorBackground
+                              : (isCandidate ? AppColors.warningBackground : AppColors.background),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isConfirmed
+                                ? AppColors.error
+                                : (isCandidate ? AppColors.warning : AppColors.border),
+                            width: (isConfirmed || isCandidate) ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  isConfirmed
+                                      ? Icons.warning_amber_rounded
+                                      : (isCandidate
+                                          ? Icons.info_outline_rounded
+                                          : Icons.check_circle_outline_rounded),
+                                  size: 14,
+                                  color: isConfirmed
+                                      ? AppColors.error
+                                      : (isCandidate ? AppColors.warning : AppColors.success),
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'F${idx + 1} (X=${f.xPositionCm.toStringAsFixed(1)} cm)',
+                                  style: AppTypography.caption.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: isConfirmed
+                                        ? AppColors.error
+                                        : (isCandidate ? AppColors.warning : AppColors.textPrimary),
+                                  ),
+                                ),
+                                if (isConfirmed) ...[
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.error,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: const Text(
+                                      'HOTSPOT',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ] else if (isCandidate) ...[
+                                  const SizedBox(width: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.warning,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: const Text(
+                                      'CANDIDATE',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Peak: ${f.maxTemperatureC.toStringAsFixed(1)}°C • Span: ${f.xPositionCm.toStringAsFixed(1)}-${(f.xPositionCm + 5.0).toStringAsFixed(1)} cm',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 9.5,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            Text(
+                              '${f.voltageV.toStringAsFixed(1)}V • ${f.currentA.toStringAsFixed(2)}A • ${f.powerW.toStringAsFixed(1)}W',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 9.0,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
             ),
           ),
           const SizedBox(height: 16),
@@ -454,18 +589,22 @@ class RadiometricScanCard extends StatelessWidget {
                 child: _buildMetricTile(
                   label: 'Peak Temperature',
                   value: '${peakTemp.toStringAsFixed(1)}°C',
-                  subtext: isHotspot
-                      ? 'Delta: +${delta.toStringAsFixed(1)}°C'
-                      : (peakTemp < 60.0 ? 'Normal curve' : 'Exceeds 60°C'),
-                  isWarning: isHotspot || peakTemp >= 60.0,
+                  subtext: hasConfirmedHotspots
+                      ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
+                      : (hasCandidate
+                          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Candidate)'
+                          : (peakTemp < 60.0 ? 'Normal curve' : 'Exceeds 60°C')),
+                  isWarning: hasConfirmedHotspots,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildMetricTile(
                   label: 'Baseline Temperature',
-                  value: baselineTemp > 0 ? '${baselineTemp.toStringAsFixed(1)}°C' : 'N/A',
-                  subtext: 'Inspection median reference',
+                  value: baselineTemp != null && baselineTemp > 0
+                      ? '${baselineTemp.toStringAsFixed(1)}°C'
+                      : 'N/A',
+                  subtext: 'Inspection reference baseline',
                   isWarning: false,
                   valueColor: AppColors.secondary,
                 ),
@@ -498,6 +637,40 @@ class RadiometricScanCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  List<Widget> _buildRulerTicks(double panelLength, double usableW) {
+    final widgets = <Widget>[];
+    // Place ticks every 5 cm (or every 2 cm if panel is short <= 20cm)
+    final step = panelLength <= 20.0 ? 5.0 : 10.0;
+    for (double x = 0; x <= panelLength; x += step) {
+      final leftPx = (x / panelLength) * usableW;
+      widgets.add(
+        Positioned(
+          left: leftPx.clamp(0.0, usableW - 14),
+          top: 0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${x.toInt()}cm',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.8),
+                  fontSize: 7.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Container(
+                width: 1,
+                height: 4,
+                color: Colors.white.withValues(alpha: 0.6),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return widgets;
   }
 
   Widget _buildBadge(String text, {bool highlight = false}) {

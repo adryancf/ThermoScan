@@ -708,32 +708,14 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	// Test telemetry ingestion with authentic 768-float matrix
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
 		"x_position_cm":          25.5,
-		"baseline_temperature_c": 35.0,
 		"max_temperature_c":      52.0,
 		"hotspot_detected":      true,
-		"hotspot_confirmed":     true,
 		"voltage_v":              18.4,
 		"current_a":              4.2,
-		"width_pixels":           32,
-		"height_pixels":          24,
 		"thermal_frame":          testFrame768(35.0, 52.0),
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 ingesting telemetry, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	// Test cleaning operation ingestion resolving the open anomaly
-	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/cleanings", tech1Auth.AccessToken, map[string]any{
-		"target_x_position_cm":      25.5,
-		"pump_actuated":             true,
-		"attempt_number":            1,
-		"duration_seconds":          42.0,
-		"estimated_water_volume_ml": 85.0,
-		"status":                    "completed",
-		"post_cleaning_result":      "resolved",
-	})
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("expected 201 ingesting cleaning, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// Test chunked batch upload (<= 10 frames) with inspection_source_event_id
@@ -814,6 +796,74 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	}
 	if pagedResp.Pagination.TotalCount != 4 || len(pagedResp.Measurements) != 2 || !pagedResp.Pagination.HasNextPage {
 		t.Fatalf("expected 4 total, 2 items, has_next_page=true, got %+v", pagedResp.Pagination)
+	}
+
+	// Test cleaning operation ingestion with pump actuated -> post_cleaning_result is pending and anomaly remains open!
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/cleanings", tech1Auth.AccessToken, map[string]any{
+		"target_x_position_cm":      4.5,
+		"pump_actuated":             true,
+		"attempt_number":            1,
+		"duration_seconds":          42.0,
+		"estimated_water_volume_ml": 85.0,
+		"status":                    "completed",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 ingesting cleaning, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var cleanCreatedResp struct {
+		Cleaning module.CleaningDTO `json:"cleaning"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &cleanCreatedResp); err != nil {
+		t.Fatalf("unmarshal cleaning: %v", err)
+	}
+	if cleanCreatedResp.Cleaning.PostCleaningResult != "pending" {
+		t.Fatalf("expected post_cleaning_result 'pending', got %q", cleanCreatedResp.Cleaning.PostCleaningResult)
+	}
+
+	// Test verification inspection referencing the cleaning operation
+	verifInspSourceID := "e5f39740-7659-5470-c5ef-c73b7cda3461"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/telemetry", tech1Auth.AccessToken, map[string]any{
+		"inspection_source_event_id": verifInspSourceID,
+		"inspection_type":           "verification",
+		"cleaning_operation_id":     cleanCreatedResp.Cleaning.ID,
+		"batch": []map[string]any{
+			{"source_event_id": "00000000-0000-0000-0000-000000000011", "x_position_cm": 3.0, "max_temperature_c": 36.0, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 36.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000012", "x_position_cm": 5.0, "max_temperature_c": 36.5, "hotspot_detected": false, "voltage_v": 18.5, "current_a": 4.2, "thermal_frame": testFrame768(35.0, 36.5)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 ingesting verification telemetry, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Finalize verification inspection with empty confirmed_hotspots (hotspot resolved!)
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modCreated.Module.ID+"/inspections/"+verifInspSourceID+"/finalize", tech1Auth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots":     []map[string]any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 finalizing verification inspection, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify verification inspection was completed with resolved result
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modCreated.Module.ID+"/latest-inspection", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting latest inspection, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var verifLatestResp struct {
+		LatestInspection struct {
+			Inspection struct {
+				ID                 string  `json:"id"`
+				Type               string  `json:"type"`
+				Status             string  `json:"status"`
+				VerificationResult *string `json:"verification_result"`
+			} `json:"inspection"`
+		} `json:"latest_inspection"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &verifLatestResp); err != nil {
+		t.Fatalf("decode verif latest inspection: %v", err)
+	}
+	if verifLatestResp.LatestInspection.Inspection.Type != "verification" || verifLatestResp.LatestInspection.Inspection.VerificationResult == nil || *verifLatestResp.LatestInspection.Inspection.VerificationResult != "resolved" {
+		t.Fatalf("expected verification resolved, got %+v", verifLatestResp.LatestInspection.Inspection)
 	}
 
 	// Test Opção B: ESP32 Hardware Claim and direct device_token authentication
@@ -1026,18 +1076,33 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected synced v%d, got %+v", expectedNextVer, successAckResp.ConfigurationSync)
 	}
 
-	// Test telemetry ingestion using ONLY device_token via dedicated /devices/{id}/telemetry
+	// Test telemetry and inspection finalizing an open anomaly using ONLY device_token via dedicated routes
+	insp2SourceID := "a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6"
 	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/telemetry", claimResp.DeviceToken, map[string]any{
-		"x_position_cm":          8.0,
-		"baseline_temperature_c": 36.0,
-		"max_temperature_c":      38.0,
-		"hotspot_detected":      false,
-		"voltage_v":              18.6,
-		"current_a":              4.3,
-		"thermal_frame":          testFrame768(36.0, 38.0),
+		"inspection_source_event_id": insp2SourceID,
+		"batch": []map[string]any{
+			{"source_event_id": "00000000-0000-0000-0000-000000000021", "x_position_cm": 10.0, "max_temperature_c": 50.0, "hotspot_detected": true, "voltage_v": 18.6, "current_a": 4.3, "thermal_frame": testFrame768(36.0, 50.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000022", "x_position_cm": 12.0, "max_temperature_c": 52.0, "hotspot_detected": true, "voltage_v": 18.6, "current_a": 4.3, "thermal_frame": testFrame768(36.0, 52.0)},
+		},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("expected 201 ingesting telemetry with device_token, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/inspections/"+insp2SourceID+"/finalize", claimResp.DeviceToken, map[string]any{
+		"baseline_temperature_c": 36.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":            "00000000-0000-0000-0000-000000000098",
+				"global_x_position_cm":        12.0,
+				"max_temperature_c":           52.0,
+				"origin_measurement_event_id": "00000000-0000-0000-0000-000000000021",
+				"confirming_event_ids":        []string{"00000000-0000-0000-0000-000000000021", "00000000-0000-0000-0000-000000000022"},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 finalizing inspection via device_token, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// Test cleaning ingestion using ONLY device_token via dedicated /devices/{id}/cleanings
@@ -1102,7 +1167,6 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 					DELETE FROM reservoir_readings WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
 					DELETE FROM cleaning_operations WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
 					DELETE FROM anomaly_events WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
-					DELETE FROM inspection_thermal_maps WHERE inspection_id IN (SELECT id FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id));
 					DELETE FROM measurements WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
 					DELETE FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE company_id = r.id);
 					DELETE FROM interval_change_logs WHERE company_id = r.id;
@@ -1397,18 +1461,33 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 	var claimMod2 struct{ DeviceToken string `json:"device_token"` }
 	_ = json.Unmarshal(rec.Body.Bytes(), &claimMod2)
 
-	// Ingest telemetry with hotspot -> creates completed inspection, measurement, anomaly, thermal map
+	// Ingest telemetry with batch and finalize inspection -> creates completed inspection, measurements, and confirmed anomaly
+	delModInspSourceID := "b1c2d3e4-f5a6-47b8-89c0-d1e2f3a4b5c7"
 	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/telemetry", claimMod2.DeviceToken, map[string]any{
-		"x_position_cm":          10.0,
-		"baseline_temperature_c": 35.0,
-		"max_temperature_c":      55.0,
-		"hotspot_detected":      true,
-		"voltage_v":              18.0,
-		"current_a":              4.0,
-		"thermal_frame":          testFrame768(35.0, 55.0),
+		"inspection_source_event_id": delModInspSourceID,
+		"batch": []map[string]any{
+			{"source_event_id": "00000000-0000-0000-0000-000000000051", "x_position_cm": 8.0, "max_temperature_c": 54.0, "hotspot_detected": true, "voltage_v": 18.0, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 54.0)},
+			{"source_event_id": "00000000-0000-0000-0000-000000000052", "x_position_cm": 10.0, "max_temperature_c": 55.0, "hotspot_detected": true, "voltage_v": 18.0, "current_a": 4.0, "thermal_frame": testFrame768(35.0, 55.0)},
+		},
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("ingest telemetry mod 2: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/inspections/"+delModInspSourceID+"/finalize", claimMod2.DeviceToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":            "00000000-0000-0000-0000-000000000097",
+				"global_x_position_cm":        10.0,
+				"max_temperature_c":           55.0,
+				"origin_measurement_event_id": "00000000-0000-0000-0000-000000000051",
+				"confirming_event_ids":        []string{"00000000-0000-0000-0000-000000000051", "00000000-0000-0000-0000-000000000052"},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("finalize inspection mod 2: %d: %s", rec.Code, rec.Body.String())
 	}
 
 	// Tech 1 (installer) attempts to delete -> must fail with 409 MODULE_HAS_HISTORY
@@ -1601,13 +1680,12 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 
 	// ESP32 with old deviceToken tries to send telemetry -> 401 UNAUTHORIZED
 	rec = doJSON(http.MethodPost, "/api/v1/devices/"+mod2.Module.ID+"/telemetry", claimMod2.DeviceToken, map[string]any{
-		"x_position_cm":          10.0,
-		"baseline_temperature_c": 35.0,
-		"max_temperature_c":      36.0,
-		"hotspot_detected":      false,
-		"voltage_v":              18.0,
-		"current_a":              4.0,
-		"thermal_frame":          testFrame768(35.0, 36.0),
+		"x_position_cm":     10.0,
+		"max_temperature_c": 36.0,
+		"hotspot_detected":  false,
+		"voltage_v":         18.0,
+		"current_a":         4.0,
+		"thermal_frame":     testFrame768(35.0, 36.0),
 	})
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401 for telemetry on deleted module, got %d: %s", rec.Code, rec.Body.String())
@@ -1641,13 +1719,12 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 
 	// Manager with JWT tries to send telemetry -> 404 NOT_FOUND
 	rec = doJSON(http.MethodPost, "/api/v1/modules/"+mod2.Module.ID+"/telemetry", mgrAAuth.AccessToken, map[string]any{
-		"x_position_cm":          10.0,
-		"baseline_temperature_c": 35.0,
-		"max_temperature_c":      36.0,
-		"hotspot_detected":      false,
-		"voltage_v":              18.0,
-		"current_a":              4.0,
-		"thermal_frame":          testFrame768(35.0, 36.0),
+		"x_position_cm":     10.0,
+		"max_temperature_c": 36.0,
+		"hotspot_detected":  false,
+		"voltage_v":         18.0,
+		"current_a":         4.0,
+		"thermal_frame":     testFrame768(35.0, 36.0),
 	})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for JWT telemetry on deleted module, got %d: %s", rec.Code, rec.Body.String())
@@ -1732,13 +1809,12 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 		defer wg.Done()
 		time.Sleep(20 * time.Millisecond)
 		telemetryRec := doJSON(http.MethodPost, "/api/v1/modules/"+mod4.Module.ID+"/telemetry", mgrAAuth.AccessToken, map[string]any{
-			"x_position_cm":          10.0,
-			"baseline_temperature_c": 35.0,
-			"max_temperature_c":      36.0,
-			"hotspot_detected":      false,
-			"voltage_v":              18.0,
-			"current_a":              4.0,
-			"thermal_frame":          testFrame768(35.0, 36.0),
+			"x_position_cm":     10.0,
+			"max_temperature_c": 36.0,
+			"hotspot_detected":  false,
+			"voltage_v":         18.0,
+			"current_a":         4.0,
+			"thermal_frame":     testFrame768(35.0, 36.0),
 		})
 		concurrentTelemetryCode = telemetryRec.Code
 	}()

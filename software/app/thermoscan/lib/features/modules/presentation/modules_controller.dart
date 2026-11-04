@@ -65,12 +65,6 @@ final latestInspectionProvider = FutureProvider.autoDispose
   return repo.getLatestInspection(moduleId: moduleId);
 });
 
-final moduleThermalMapProvider = FutureProvider.autoDispose
-    .family<ModuleThermalMap?, String>((ref, moduleId) {
-  final repo = ref.watch(moduleRepositoryProvider);
-  return repo.getLatestThermalMap(moduleId: moduleId);
-});
-
 final moduleDeviceStatusProvider = FutureProvider.autoDispose
     .family<DeviceStatus, String>((ref, moduleId) {
   final repo = ref.watch(moduleRepositoryProvider);

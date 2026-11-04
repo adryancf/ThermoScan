@@ -142,12 +142,11 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	if status == "" {
 		return nil, ErrInvalidInput
 	}
-	postRes := strings.TrimSpace(input.PostCleaningResult)
-	if postRes == "" {
-		if status == "completed" {
-			postRes = "resolved"
-		} else {
-			postRes = "unresolved"
+	postRes := "pending"
+	if !input.PumpActuated {
+		p := strings.TrimSpace(input.PostCleaningResult)
+		if p == "pending" || p == "resolved" || p == "unresolved" {
+			postRes = p
 		}
 	}
 
@@ -196,24 +195,15 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		return nil, err
 	}
 
-	// 3. Update anomaly event status based on authentic cleaning result
-	newAnomStatus := "open"
-	var closedAt *time.Time
-	if postRes == "resolved" {
-		newAnomStatus = "resolved"
-		closedAt = &now
-	} else if postRes == "unresolved" {
-		newAnomStatus = "unresolved"
-		closedAt = &now
-	}
+	// 3. Update anomaly event (do NOT close anomaly on cleaning ingestion; keep open pending verification inspection)
 	attemptsInc := int32(0)
 	if input.PumpActuated {
 		attemptsInc = 1
 	}
 	_, _ = qtx.UpdateAnomalyEventStatus(ctx, db.UpdateAnomalyEventStatusParams{
-		Status:                newAnomStatus,
+		Status:                "open",
 		ActuatedAttemptsCount: attemptsInc,
-		ClosedAt:              closedAt,
+		ClosedAt:              nil,
 		ID:                    anomID,
 		ModuleID:              moduleID,
 	})

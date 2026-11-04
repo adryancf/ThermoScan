@@ -235,16 +235,37 @@ class _FakeModuleRepository extends ModuleRepository {
         sourceEventId: 'evt-1',
         measuredAt: '2026-11-02T14:15:00Z',
         xPositionCm: 12.4,
-        baselineTemperatureC: 36.4,
         maxTemperatureC: 42.5,
         hotspotDetected: false,
-        hotspotConfirmed: false,
         voltageV: 18.2,
         currentA: 4.1,
         powerW: 74.6,
         receivedAt: '2026-11-02T14:15:05Z',
       ),
     ];
+  }
+
+  @override
+  Future<LatestInspection?> getLatestInspection({
+    required String moduleId,
+  }) async {
+    return const LatestInspection(
+      inspection: ModuleInspection(
+        id: 'insp-1',
+        moduleId: 'mod-1',
+        sourceEventId: 'evt-insp-1',
+        type: 'periodic',
+        scheduledFor: '2026-11-02T14:00:00Z',
+        startedAt: '2026-11-02T14:00:05Z',
+        finishedAt: '2026-11-02T14:15:10Z',
+        status: 'completed',
+        baselineTemperatureC: 36.4,
+        createdAt: '2026-11-02T14:00:05Z',
+        updatedAt: '2026-11-02T14:15:10Z',
+      ),
+      totalMeasurements: 1,
+      confirmedAnomalies: [],
+    );
   }
 
   @override
@@ -722,7 +743,7 @@ void main() {
 
     // Verify SCR-10 Radiometric Scan & Telemetry metrics
     expect(find.text('32×24 Sensor Interpolation'), findsOneWidget);
-    expect(find.text('Thermal Zones (5 cm Sectors)'), findsOneWidget);
+    expect(find.text('Thermal Frames (5 cm Sectors)'), findsOneWidget);
     expect(find.text('Peak Temperature'), findsOneWidget);
     expect(find.text('Baseline Temperature'), findsOneWidget);
     expect(find.text('Active Power'), findsOneWidget);

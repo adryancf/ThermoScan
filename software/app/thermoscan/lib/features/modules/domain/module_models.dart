@@ -539,10 +539,8 @@ class ModuleMeasurement {
     required this.sourceEventId,
     required this.measuredAt,
     required this.xPositionCm,
-    this.baselineTemperatureC = 0.0,
     required this.maxTemperatureC,
     required this.hotspotDetected,
-    this.hotspotConfirmed = false,
     required this.voltageV,
     required this.currentA,
     required this.powerW,
@@ -556,21 +554,19 @@ class ModuleMeasurement {
   final String sourceEventId;
   final String measuredAt;
   final double xPositionCm;
-  final double baselineTemperatureC;
   final double maxTemperatureC;
   final bool hotspotDetected;
-  final bool hotspotConfirmed;
   final double voltageV;
   final double currentA;
   final double powerW;
-  final List<double>? thermalFrame;
+  final List<double?>? thermalFrame;
   final String receivedAt;
 
   factory ModuleMeasurement.fromJson(Map<String, dynamic> json) {
-    List<double>? frame;
+    List<double?>? frame;
     if (json['thermal_frame'] is List) {
       frame = (json['thermal_frame'] as List)
-          .map((e) => (e as num).toDouble())
+          .map((e) => e == null ? null : (e as num).toDouble())
           .toList();
     }
 
@@ -581,10 +577,8 @@ class ModuleMeasurement {
       sourceEventId: json['source_event_id'] as String? ?? '',
       measuredAt: json['measured_at'] as String? ?? '',
       xPositionCm: double.tryParse(json['x_position_cm']?.toString() ?? '') ?? 0.0,
-      baselineTemperatureC: double.tryParse(json['baseline_temperature_c']?.toString() ?? '') ?? 0.0,
       maxTemperatureC: double.tryParse(json['max_temperature_c']?.toString() ?? '') ?? 0.0,
       hotspotDetected: json['hotspot_detected'] as bool? ?? false,
-      hotspotConfirmed: json['hotspot_confirmed'] as bool? ?? false,
       voltageV: double.tryParse(json['voltage_v']?.toString() ?? '') ?? 0.0,
       currentA: double.tryParse(json['current_a']?.toString() ?? '') ?? 0.0,
       powerW: double.tryParse(json['power_w']?.toString() ?? '') ?? 0.0,
@@ -802,78 +796,6 @@ class ModuleCleaning {
   }
 }
 
-class ThermalBand {
-  const ThermalBand({
-    required this.bandIndex,
-    required this.startXCm,
-    required this.endXCm,
-    required this.maxTemperatureC,
-    required this.avgTemperatureC,
-    required this.hasHotspot,
-  });
-
-  final int bandIndex;
-  final double startXCm;
-  final double endXCm;
-  final double maxTemperatureC;
-  final double avgTemperatureC;
-  final bool hasHotspot;
-
-  String get label => 'F$bandIndex (${startXCm.toStringAsFixed(0)}-${endXCm.toStringAsFixed(0)}cm)';
-
-  factory ThermalBand.fromJson(Map<String, dynamic> json) {
-    return ThermalBand(
-      bandIndex: (json['band_index'] as num?)?.toInt() ?? 1,
-      startXCm: (json['start_x_cm'] as num?)?.toDouble() ?? 0.0,
-      endXCm: (json['end_x_cm'] as num?)?.toDouble() ?? 5.0,
-      maxTemperatureC: (json['max_temperature_c'] as num?)?.toDouble() ?? 0.0,
-      avgTemperatureC: (json['avg_temperature_c'] as num?)?.toDouble() ?? 0.0,
-      hasHotspot: json['has_hotspot'] as bool? ?? false,
-    );
-  }
-}
-
-class ModuleThermalMap {
-  const ModuleThermalMap({
-    required this.id,
-    required this.inspectionId,
-    required this.widthPixels,
-    required this.heightPixels,
-    required this.algorithmVersion,
-    required this.generatedAt,
-    this.temperatures,
-    this.bands = const [],
-  });
-
-  final String id;
-  final String inspectionId;
-  final int widthPixels;
-  final int heightPixels;
-  final String algorithmVersion;
-  final String generatedAt;
-  final List<dynamic>? temperatures;
-  final List<ThermalBand> bands;
-
-  factory ModuleThermalMap.fromJson(Map<String, dynamic> json) {
-    final rawBands = json['bands'] as List<dynamic>?;
-    final parsedBands = rawBands != null
-        ? rawBands
-            .map((b) => ThermalBand.fromJson(b as Map<String, dynamic>))
-            .toList()
-        : <ThermalBand>[];
-
-    return ModuleThermalMap(
-      id: json['id'] as String? ?? '',
-      inspectionId: json['inspection_id'] as String? ?? '',
-      widthPixels: (json['width_pixels'] as num?)?.toInt() ?? 32,
-      heightPixels: (json['height_pixels'] as num?)?.toInt() ?? 24,
-      algorithmVersion: json['algorithm_version'] as String? ?? 'v1',
-      generatedAt: json['generated_at'] as String? ?? '',
-      temperatures: json['temperatures_c'] as List<dynamic>?,
-      bands: parsedBands,
-    );
-  }
-}
 
 class ConfigurationSyncInfo {
   const ConfigurationSyncInfo({

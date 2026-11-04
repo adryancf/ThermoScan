@@ -326,17 +326,15 @@ type AcknowledgeDeviceConfigurationInput struct {
 }
 
 type IngestMeasurementItemInput struct {
-	SourceEventID         string     `json:"source_event_id"`
-	MeasuredAt            *time.Time `json:"measured_at"`
-	XPositionCm           float64    `json:"x_position_cm"`
-	MaxTemperatureC       float64    `json:"max_temperature_c"`
-	BaselineTemperatureC *float64   `json:"baseline_temperature_c,omitempty"`
-	HotspotDetected       bool       `json:"hotspot_detected"`
-	HotspotConfirmed     *bool      `json:"hotspot_confirmed,omitempty"`
-	VoltageV              float64    `json:"voltage_v"`
-	CurrentA              float64    `json:"current_a"`
-	PowerW                *float64   `json:"power_w"`
-	ThermalFrame          []float64  `json:"thermal_frame"`
+	SourceEventID   string      `json:"source_event_id"`
+	MeasuredAt      *time.Time  `json:"measured_at"`
+	XPositionCm     float64     `json:"x_position_cm"`
+	MaxTemperatureC float64     `json:"max_temperature_c"`
+	HotspotDetected bool        `json:"hotspot_detected"`
+	VoltageV        float64     `json:"voltage_v"`
+	CurrentA        float64     `json:"current_a"`
+	PowerW          *float64    `json:"power_w"`
+	ThermalFrame    []*float64  `json:"thermal_frame"`
 }
 
 type IngestTelemetryInput struct {
@@ -350,15 +348,11 @@ type IngestTelemetryInput struct {
 	MeasuredAt              *time.Time                   `json:"measured_at"`
 	XPositionCm             float64                      `json:"x_position_cm"`
 	MaxTemperatureC         float64                      `json:"max_temperature_c"`
-	BaselineTemperatureC   *float64                     `json:"baseline_temperature_c,omitempty"`
 	HotspotDetected         bool                         `json:"hotspot_detected"`
-	HotspotConfirmed       *bool                        `json:"hotspot_confirmed,omitempty"`
-	WidthPixels            *int                         `json:"width_pixels,omitempty"`
-	HeightPixels           *int                         `json:"height_pixels,omitempty"`
 	VoltageV                float64                      `json:"voltage_v"`
 	CurrentA                float64                      `json:"current_a"`
 	PowerW                  *float64                     `json:"power_w"`
-	ThermalFrame            []float64                    `json:"thermal_frame"`
+	ThermalFrame            []*float64                   `json:"thermal_frame"`
 	// Chunked batch uploads (max 10 items per upload):
 	Measurements            []IngestMeasurementItemInput `json:"measurements"`
 	Batch                   []IngestMeasurementItemInput `json:"batch"`

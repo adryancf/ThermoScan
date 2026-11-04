@@ -356,9 +356,42 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		return nil, ErrBatchTooLarge
 	}
 
+	// Validate intra-batch uniqueness of source_event_id
+	seenSourceIDs := make(map[string]struct{}, len(items))
 	for _, f := range items {
+		if f.SourceEventID == "" && len(items) > 1 {
+			return nil, ErrInvalidInput
+		}
+		if f.SourceEventID != "" {
+			if _, exists := seenSourceIDs[f.SourceEventID]; exists {
+				return nil, ErrInvalidInput
+			}
+			seenSourceIDs[f.SourceEventID] = struct{}{}
+		}
+	}
+
+	// Validate bounds and finite values
+	panelLength := numericToFloatPtr(row.PanelLengthCm)
+	for _, f := range items {
+		if f.XPositionCm < 0 {
+			return nil, ErrInvalidInput
+		}
+		if panelLength != nil && f.XPositionCm > *panelLength {
+			return nil, ErrInvalidInput
+		}
+		if !isFinite(f.XPositionCm) || !isFinite(f.VoltageV) || !isFinite(f.CurrentA) || !isFinite(f.MaxTemperatureC) {
+			return nil, ErrInvalidInput
+		}
+		if f.PowerW != nil && !isFinite(*f.PowerW) {
+			return nil, ErrInvalidInput
+		}
 		if len(f.ThermalFrame) != 32*24 {
 			return nil, ErrInvalidInput
+		}
+		for _, v := range f.ThermalFrame {
+			if v != nil && !isFinite(*v) {
+				return nil, ErrInvalidInput
+			}
 		}
 	}
 
@@ -379,8 +412,20 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		}
 	}
 
-	if inspType == "verification" && !cleanOpUUID.Valid {
-		return nil, ErrInvalidInput
+	if inspType == "verification" {
+		if !cleanOpUUID.Valid {
+			return nil, ErrInvalidInput
+		}
+		cleanOp, err := qtx.GetCleaningOperationByID(ctx, db.GetCleaningOperationByIDParams{
+			ID:       cleanOpUUID,
+			ModuleID: moduleID,
+		})
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+		if !cleanOp.PumpActuated || cleanOp.PostCleaningResult != "pending" {
+			return nil, ErrInvalidInput
+		}
 	}
 
 	var inspSourceUUID pgtype.UUID
@@ -494,27 +539,22 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			ThermalFrame:    frameBytes,
 		})
 		if err != nil {
-			return nil, err
+			if errors.Is(err, pgx.ErrNoRows) {
+				existingMeas, getErr := qtx.GetMeasurementBySourceEventID(ctx, db.GetMeasurementBySourceEventIDParams{
+					ModuleID:      moduleID,
+					SourceEventID: measSourceUUID,
+				})
+				if getErr != nil {
+					return nil, getErr
+				}
+				meas = db.CreateMeasurementRow(existingMeas)
+			} else {
+				return nil, err
+			}
 		}
 
 		if primaryMeasRow == nil || f.HotspotDetected {
 			primaryMeasRow = &meas
-		}
-
-		// For standalone upload (no inspection_source_event_id), register anomaly immediately if hotspot detected
-		if input.InspectionSourceEventID == nil && f.HotspotDetected {
-			anomSourceUUID := newRandomUUID()
-			_, _ = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
-				ModuleID:                 moduleID,
-				OriginMeasurementID:      meas.ID,
-				ConfirmingMeasurementIds: []pgtype.UUID{meas.ID, meas.ID},
-				SourceEventID:            anomSourceUUID,
-				XPositionCm:              floatPtrToNumeric(&f.XPositionCm),
-				DetectedAt:               fMeasuredAt,
-				Status:                   "open",
-				ActuatedAttemptsCount:    0,
-				RetryPending:             false,
-			})
 		}
 	}
 
@@ -602,16 +642,168 @@ func (s *Service) FinalizeInspection(
 		return s.GetLatestInspection(ctx, principal, moduleID)
 	}
 
+	panelLength := numericToFloatPtr(row.PanelLengthCm)
+
+	// Validate confirmed hotspots input
+	for _, ch := range input.ConfirmedHotspots {
+		if ch.OriginMeasurementEventID == "" {
+			return nil, ErrInvalidInput
+		}
+		if len(ch.ConfirmingEventIDs) < 2 {
+			return nil, ErrInvalidInput
+		}
+		seenConfirming := make(map[string]struct{}, len(ch.ConfirmingEventIDs))
+		foundOrigin := false
+		for _, cidStr := range ch.ConfirmingEventIDs {
+			seenConfirming[cidStr] = struct{}{}
+			if cidStr == ch.OriginMeasurementEventID {
+				foundOrigin = true
+			}
+		}
+		if len(seenConfirming) < 2 || !foundOrigin {
+			return nil, ErrInvalidInput
+		}
+		if ch.RowIndex != nil {
+			if *ch.RowIndex < 0 || *ch.RowIndex > 23 {
+				return nil, ErrInvalidInput
+			}
+		}
+		if ch.GlobalXPositionCm < 0 || !isFinite(ch.GlobalXPositionCm) || !isFinite(ch.MaxTemperatureC) {
+			return nil, ErrInvalidInput
+		}
+		if panelLength != nil && ch.GlobalXPositionCm > *panelLength {
+			return nil, ErrInvalidInput
+		}
+	}
+
 	now := time.Now().UTC()
 	finAt := now
 	if input.FinishedAt != nil && !input.FinishedAt.IsZero() {
 		finAt = input.FinishedAt.UTC()
 	}
 
+	var verifResultPg pgtype.Text
+	var origAnomaly db.GetAnomalyEventByIDRow
+	if insp.Type == "verification" {
+		if !insp.CleaningOperationID.Valid {
+			return nil, ErrInvalidInput
+		}
+		cleanOp, err := qtx.GetCleaningOperationByID(ctx, db.GetCleaningOperationByIDParams{
+			ID:       insp.CleaningOperationID,
+			ModuleID: moduleID,
+		})
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+		origAnomaly, err = qtx.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+			ID:       cleanOp.AnomalyEventID,
+			ModuleID: moduleID,
+		})
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+
+		hotspotPersists := false
+		origX, origXErr := strconv.ParseFloat(origAnomaly.XPositionCm, 64)
+		for _, ch := range input.ConfirmedHotspots {
+			if ch.SourceEventID != "" && auth.FormatUUID(origAnomaly.SourceEventID) == ch.SourceEventID {
+				hotspotPersists = true
+				break
+			}
+			if origXErr == nil && math.Abs(ch.GlobalXPositionCm-origX) <= 1.0 {
+				hotspotPersists = true
+				break
+			}
+		}
+
+		if !hotspotPersists {
+			verifResultPg = pgtype.Text{String: "resolved", Valid: true}
+			_, err = qtx.UpdateCleaningOperationPostResult(ctx, db.UpdateCleaningOperationPostResultParams{
+				PostCleaningResult: "resolved",
+				ID:                 cleanOp.ID,
+				ModuleID:           moduleID,
+			})
+			if err != nil {
+				return nil, err
+			}
+			_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+				Status:       "resolved",
+				RetryPending: false,
+				RetryReason:  pgtype.Text{Valid: false},
+				ClosedAt:     &now,
+				ID:           origAnomaly.ID,
+				ModuleID:     moduleID,
+			})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			verifResultPg = pgtype.Text{String: "unresolved", Valid: true}
+			_, err = qtx.UpdateCleaningOperationPostResult(ctx, db.UpdateCleaningOperationPostResultParams{
+				PostCleaningResult: "unresolved",
+				ID:                 cleanOp.ID,
+				ModuleID:           moduleID,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			if cleanOp.Status == "completed" {
+				if origAnomaly.ActuatedAttemptsCount >= 3 {
+					_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+						Status:       "unresolved",
+						RetryPending: false,
+						RetryReason:  pgtype.Text{Valid: false},
+						ClosedAt:     &now,
+						ID:           origAnomaly.ID,
+						ModuleID:     moduleID,
+					})
+				} else {
+					_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+						Status:       "open",
+						RetryPending: false,
+						RetryReason:  pgtype.Text{Valid: false},
+						ClosedAt:     nil,
+						ID:           origAnomaly.ID,
+						ModuleID:     moduleID,
+					})
+				}
+				if err != nil {
+					return nil, err
+				}
+			} else if cleanOp.Status == "failed" && origAnomaly.ActuatedAttemptsCount < 3 {
+				_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+					Status:       "open",
+					RetryPending: true,
+					RetryReason:  pgtype.Text{String: "Interrupted cleaning - retry pending verification", Valid: true},
+					ClosedAt:     nil,
+					ID:           origAnomaly.ID,
+					ModuleID:     moduleID,
+				})
+				if err != nil {
+					return nil, err
+				}
+			} else if origAnomaly.ActuatedAttemptsCount >= 3 {
+				_, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+					Status:       "unresolved",
+					RetryPending: false,
+					RetryReason:  pgtype.Text{Valid: false},
+					ClosedAt:     &now,
+					ID:           origAnomaly.ID,
+					ModuleID:     moduleID,
+				})
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
 	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{
 		Status:               "completed",
 		FinishedAt:           &finAt,
 		BaselineTemperatureC: floatPtrToNumeric(&input.BaselineTemperatureC),
+		VerificationResult:   verifResultPg,
 		ID:                   insp.ID,
 		ModuleID:             moduleID,
 	})
@@ -621,25 +813,26 @@ func (s *Service) FinalizeInspection(
 
 	// Process confirmed hotspots
 	for _, ch := range input.ConfirmedHotspots {
-		if len(ch.ConfirmingEventIDs) < 2 {
-			return nil, ErrInvalidInput
+		if insp.Type == "verification" && origAnomaly.ID.Valid {
+			origX, origXErr := strconv.ParseFloat(origAnomaly.XPositionCm, 64)
+			if (ch.SourceEventID != "" && auth.FormatUUID(origAnomaly.SourceEventID) == ch.SourceEventID) ||
+				(origXErr == nil && math.Abs(ch.GlobalXPositionCm-origX) <= 1.0) {
+				continue
+			}
 		}
 
-		var originMeasID pgtype.UUID
-		if ch.OriginMeasurementEventID != "" {
-			origSourceUUID, err := auth.ParseUUID(ch.OriginMeasurementEventID)
-			if err != nil {
-				return nil, ErrInvalidInput
-			}
-			mRow, err := qtx.GetMeasurementBySourceEventID(ctx, db.GetMeasurementBySourceEventIDParams{
-				ModuleID:      moduleID,
-				SourceEventID: origSourceUUID,
-			})
-			if err != nil || mRow.InspectionID.Bytes != insp.ID.Bytes {
-				return nil, ErrInvalidInput
-			}
-			originMeasID = mRow.ID
+		origSourceUUID, err := auth.ParseUUID(ch.OriginMeasurementEventID)
+		if err != nil {
+			return nil, ErrInvalidInput
 		}
+		origMeasRow, err := qtx.GetMeasurementBySourceEventID(ctx, db.GetMeasurementBySourceEventIDParams{
+			ModuleID:      moduleID,
+			SourceEventID: origSourceUUID,
+		})
+		if err != nil || origMeasRow.InspectionID.Bytes != insp.ID.Bytes {
+			return nil, ErrInvalidInput
+		}
+		originMeasID := origMeasRow.ID
 
 		confirmingUUIDs := make([]pgtype.UUID, 0, len(ch.ConfirmingEventIDs))
 		var maxMeasuredAt time.Time
@@ -659,9 +852,6 @@ func (s *Service) FinalizeInspection(
 			confirmingUUIDs = append(confirmingUUIDs, mRow.ID)
 			if mRow.MeasuredAt.After(maxMeasuredAt) {
 				maxMeasuredAt = mRow.MeasuredAt
-			}
-			if !originMeasID.Valid {
-				originMeasID = mRow.ID
 			}
 		}
 

@@ -308,12 +308,6 @@ class ModuleRepository {
     }
   }
 
-  Future<ModuleThermalMap?> getLatestThermalMap({
-    required String moduleId,
-  }) async {
-    return null;
-  }
-
   Future<DeviceStatus> getDeviceStatus({required String moduleId}) async {
     try {
       final response = await dio.get<Map<String, dynamic>>(

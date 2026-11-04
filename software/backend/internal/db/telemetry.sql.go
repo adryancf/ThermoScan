@@ -328,8 +328,7 @@ INSERT INTO measurements (
     $10,
     $11
 )
-ON CONFLICT (module_id, source_event_id) DO UPDATE
-SET received_at = now()
+ON CONFLICT (module_id, source_event_id) DO NOTHING
 RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, hotspot_detected, voltage_v::text AS voltage_v, current_a::text AS current_a, power_w::text AS power_w, thermal_frame, received_at
 `
 
@@ -402,8 +401,9 @@ SET
     status = $1,
     finished_at = $2,
     baseline_temperature_c = $3,
+    verification_result = $4,
     updated_at = now()
-WHERE id = $4 AND module_id = $5
+WHERE id = $5 AND module_id = $6
 RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at
 `
 
@@ -411,6 +411,7 @@ type FinalizeInspectionParams struct {
 	Status               string
 	FinishedAt           *time.Time
 	BaselineTemperatureC pgtype.Numeric
+	VerificationResult   pgtype.Text
 	ID                   pgtype.UUID
 	ModuleID             pgtype.UUID
 }
@@ -436,6 +437,7 @@ func (q *Queries) FinalizeInspection(ctx context.Context, arg FinalizeInspection
 		arg.Status,
 		arg.FinishedAt,
 		arg.BaselineTemperatureC,
+		arg.VerificationResult,
 		arg.ID,
 		arg.ModuleID,
 	)
@@ -500,6 +502,76 @@ func (q *Queries) GetAnomalyEventByID(ctx context.Context, arg GetAnomalyEventBy
 		&i.ActuatedAttemptsCount,
 		&i.RetryPending,
 		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getCleaningOperationByID = `-- name: GetCleaningOperationByID :one
+SELECT
+    c.id,
+    c.module_id,
+    c.anomaly_event_id,
+    c.source_event_id,
+    c.target_x_position_cm::text AS target_x_position_cm,
+    c.pump_actuated,
+    c.attempt_number,
+    c.started_at,
+    c.ended_at,
+    c.duration_seconds::text AS duration_seconds,
+    c.estimated_water_volume_ml::text AS estimated_water_volume_ml,
+    c.status,
+    c.failure_reason,
+    c.post_cleaning_result,
+    c.created_at,
+    c.updated_at
+FROM cleaning_operations c
+WHERE c.id = $1 AND c.module_id = $2
+`
+
+type GetCleaningOperationByIDParams struct {
+	ID       pgtype.UUID
+	ModuleID pgtype.UUID
+}
+
+type GetCleaningOperationByIDRow struct {
+	ID                     pgtype.UUID
+	ModuleID               pgtype.UUID
+	AnomalyEventID         pgtype.UUID
+	SourceEventID          pgtype.UUID
+	TargetXPositionCm      string
+	PumpActuated           bool
+	AttemptNumber          pgtype.Int4
+	StartedAt              *time.Time
+	EndedAt                *time.Time
+	DurationSeconds        string
+	EstimatedWaterVolumeMl string
+	Status                 string
+	FailureReason          pgtype.Text
+	PostCleaningResult     string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+func (q *Queries) GetCleaningOperationByID(ctx context.Context, arg GetCleaningOperationByIDParams) (GetCleaningOperationByIDRow, error) {
+	row := q.db.QueryRow(ctx, getCleaningOperationByID, arg.ID, arg.ModuleID)
+	var i GetCleaningOperationByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.AnomalyEventID,
+		&i.SourceEventID,
+		&i.TargetXPositionCm,
+		&i.PumpActuated,
+		&i.AttemptNumber,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.DurationSeconds,
+		&i.EstimatedWaterVolumeMl,
+		&i.Status,
+		&i.FailureReason,
+		&i.PostCleaningResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1341,6 +1413,127 @@ func (q *Queries) UpdateAnomalyEventStatus(ctx context.Context, arg UpdateAnomal
 		&i.ActuatedAttemptsCount,
 		&i.RetryPending,
 		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateAnomalyEventVerification = `-- name: UpdateAnomalyEventVerification :one
+UPDATE anomaly_events
+SET status = $1,
+    retry_pending = $2,
+    retry_reason = $3,
+    closed_at = $4,
+    updated_at = now()
+WHERE id = $5 AND module_id = $6
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+`
+
+type UpdateAnomalyEventVerificationParams struct {
+	Status       string
+	RetryPending bool
+	RetryReason  pgtype.Text
+	ClosedAt     *time.Time
+	ID           pgtype.UUID
+	ModuleID     pgtype.UUID
+}
+
+type UpdateAnomalyEventVerificationRow struct {
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+func (q *Queries) UpdateAnomalyEventVerification(ctx context.Context, arg UpdateAnomalyEventVerificationParams) (UpdateAnomalyEventVerificationRow, error) {
+	row := q.db.QueryRow(ctx, updateAnomalyEventVerification,
+		arg.Status,
+		arg.RetryPending,
+		arg.RetryReason,
+		arg.ClosedAt,
+		arg.ID,
+		arg.ModuleID,
+	)
+	var i UpdateAnomalyEventVerificationRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.OriginMeasurementID,
+		&i.ConfirmingMeasurementIds,
+		&i.SourceEventID,
+		&i.XPositionCm,
+		&i.DetectedAt,
+		&i.Status,
+		&i.ActuatedAttemptsCount,
+		&i.RetryPending,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const updateCleaningOperationPostResult = `-- name: UpdateCleaningOperationPostResult :one
+UPDATE cleaning_operations
+SET post_cleaning_result = $1,
+    updated_at = now()
+WHERE id = $2 AND module_id = $3
+RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at
+`
+
+type UpdateCleaningOperationPostResultParams struct {
+	PostCleaningResult string
+	ID                 pgtype.UUID
+	ModuleID           pgtype.UUID
+}
+
+type UpdateCleaningOperationPostResultRow struct {
+	ID                     pgtype.UUID
+	ModuleID               pgtype.UUID
+	AnomalyEventID         pgtype.UUID
+	SourceEventID          pgtype.UUID
+	TargetXPositionCm      string
+	PumpActuated           bool
+	AttemptNumber          pgtype.Int4
+	StartedAt              *time.Time
+	EndedAt                *time.Time
+	DurationSeconds        string
+	EstimatedWaterVolumeMl string
+	Status                 string
+	FailureReason          pgtype.Text
+	PostCleaningResult     string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+func (q *Queries) UpdateCleaningOperationPostResult(ctx context.Context, arg UpdateCleaningOperationPostResultParams) (UpdateCleaningOperationPostResultRow, error) {
+	row := q.db.QueryRow(ctx, updateCleaningOperationPostResult, arg.PostCleaningResult, arg.ID, arg.ModuleID)
+	var i UpdateCleaningOperationPostResultRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.AnomalyEventID,
+		&i.SourceEventID,
+		&i.TargetXPositionCm,
+		&i.PumpActuated,
+		&i.AttemptNumber,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.DurationSeconds,
+		&i.EstimatedWaterVolumeMl,
+		&i.Status,
+		&i.FailureReason,
+		&i.PostCleaningResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)

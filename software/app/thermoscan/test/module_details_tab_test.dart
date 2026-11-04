@@ -147,11 +147,6 @@ class _MockModuleRepo extends ModuleRepository {
   }) async =>
       const [];
 
-  @override
-  Future<ModuleThermalMap?> getLatestThermalMap({
-    required String moduleId,
-  }) async =>
-      null;
 }
 
 void main() {
@@ -254,6 +249,54 @@ void main() {
       });
 
       expect(status.isOnline, isTrue);
+    });
+  });
+
+  group('ModuleMeasurement Domain & Radiometric Strict Compliance Tests', () {
+    test('ModuleMeasurement safely parses thermal_frame with null elements', () {
+      final json = {
+        'id': 'm-1',
+        'module_id': 'mod-1',
+        'inspection_id': 'insp-1',
+        'source_event_id': 'evt-1',
+        'measured_at': '2026-11-03T12:00:00Z',
+        'x_position_cm': 4.0,
+        'max_temperature_c': 52.3,
+        'hotspot_detected': true,
+        'voltage_v': 18.2,
+        'current_a': 4.1,
+        'power_w': 74.62,
+        'thermal_frame': [28.1, null, 29.5],
+        'received_at': '2026-11-03T12:00:05Z',
+      };
+
+      final measurement = ModuleMeasurement.fromJson(json);
+      expect(measurement.xPositionCm, 4.0);
+      expect(measurement.maxTemperatureC, 52.3);
+      expect(measurement.hotspotDetected, isTrue);
+      expect(measurement.thermalFrame, isNotNull);
+      expect(measurement.thermalFrame!.length, 3);
+      expect(measurement.thermalFrame![0], 28.1);
+      expect(measurement.thermalFrame![1], isNull);
+      expect(measurement.thermalFrame![2], 29.5);
+    });
+
+    test('ModuleInspection stores baselineTemperatureC while measurement does not', () {
+      const inspection = ModuleInspection(
+        id: 'insp-1',
+        moduleId: 'mod-1',
+        sourceEventId: 'evt-insp-1',
+        type: 'periodic',
+        scheduledFor: '2026-11-03T11:00:00Z',
+        startedAt: '2026-11-03T11:00:05Z',
+        finishedAt: '2026-11-03T11:15:00Z',
+        status: 'completed',
+        baselineTemperatureC: 34.8,
+        createdAt: '2026-11-03T11:00:05Z',
+        updatedAt: '2026-11-03T11:15:00Z',
+      );
+
+      expect(inspection.baselineTemperatureC, 34.8);
     });
   });
 

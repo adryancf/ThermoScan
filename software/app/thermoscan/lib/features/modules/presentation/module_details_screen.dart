@@ -403,8 +403,6 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             : null;
     final latestInspectionAsync = ref.watch(latestInspectionProvider(mod.id));
     final latestInspection = latestInspectionAsync.valueOrNull;
-    final thermalMapAsync = ref.watch(moduleThermalMapProvider(mod.id));
-    final thermalMap = thermalMapAsync.valueOrNull;
 
     return RefreshIndicator(
       color: AppColors.primary,
@@ -413,7 +411,6 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
         ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
         ref.invalidate(latestInspectionProvider(widget.moduleId));
-        ref.invalidate(moduleThermalMapProvider(widget.moduleId));
         await ref.read(moduleDetailsProvider(widget.moduleId).future);
       },
       child: SingleChildScrollView(
@@ -550,7 +547,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 module: mod,
                 latestMeasurement: latestMeasurement,
                 latestInspection: latestInspection,
-                thermalMap: thermalMap,
+                measurements: measurementsAsync.valueOrNull,
               ),
               const SizedBox(height: 16),
             ],

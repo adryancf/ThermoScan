@@ -80,6 +80,9 @@ class _ModuleMeasurementsScreenState
     final detailsAsync = ref.watch(moduleDetailsProvider(widget.moduleId));
     final measurementsAsync =
         ref.watch(moduleMeasurementsProvider(widget.moduleId));
+    final latestInspectionAsync =
+        ref.watch(latestInspectionProvider(widget.moduleId));
+    final latestInspection = latestInspectionAsync.valueOrNull;
 
     final mod = detailsAsync.valueOrNull?.module;
 
@@ -87,6 +90,7 @@ class _ModuleMeasurementsScreenState
       color: AppColors.primary,
       onRefresh: () async {
         ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+        ref.invalidate(latestInspectionProvider(widget.moduleId));
         await ref.read(
           moduleMeasurementsProvider(widget.moduleId).future,
         );
@@ -183,7 +187,10 @@ class _ModuleMeasurementsScreenState
                   itemCount: sessions.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 12),
                   itemBuilder: (context, index) {
-                    return _buildInspectionSessionCard(sessions[index]);
+                    return _buildInspectionSessionCard(
+                      sessions[index],
+                      latestInspection,
+                    );
                   },
                 );
               },
@@ -249,17 +256,55 @@ class _ModuleMeasurementsScreenState
     );
   }
 
-  Widget _buildInspectionSessionCard(_InspectionSession session) {
-    final isHotspot = session.hasHotspot;
+  Widget _buildInspectionSessionCard(
+    _InspectionSession session,
+    LatestInspection? latestInspection,
+  ) {
+    final hasConfirmed = latestInspection != null &&
+        (session.id == latestInspection.inspection.id ||
+            session.id == latestInspection.inspection.sourceEventId ||
+            session.measurements.any((m) => latestInspection.confirmedAnomalies
+                .any((a) => (a.xPositionCm - m.xPositionCm).abs() < 1.0))) &&
+        latestInspection.confirmedAnomalies.isNotEmpty;
+    final hasCandidate = session.hasCandidate;
+    final baselineTemp = latestInspection?.inspection.baselineTemperatureC;
     final isExpanded = _expandedSessions.contains(session.id);
     final count = session.measurements.length;
+
+    final Color statusColor;
+    final Color statusBg;
+    final Color statusBorder;
+    final String statusText;
+    final IconData statusIcon;
+
+    if (hasConfirmed) {
+      statusColor = AppColors.error;
+      statusBg = AppColors.errorBackground;
+      statusBorder = AppColors.errorBorder;
+      statusText = 'HOTSPOT';
+      statusIcon = Icons.warning_rounded;
+    } else if (hasCandidate) {
+      statusColor = AppColors.warning;
+      statusBg = AppColors.warningBackground;
+      statusBorder = AppColors.warningBorder;
+      statusText = 'CANDIDATE';
+      statusIcon = Icons.info_outline_rounded;
+    } else {
+      statusColor = AppColors.success;
+      statusBg = AppColors.successBackground;
+      statusBorder = AppColors.successBorder;
+      statusText = 'NORMAL';
+      statusIcon = Icons.grid_on_rounded;
+    }
 
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isHotspot ? AppColors.errorBorder : AppColors.border,
+          color: hasConfirmed
+              ? AppColors.errorBorder
+              : (hasCandidate ? AppColors.warningBorder : AppColors.border),
         ),
       ),
       child: Column(
@@ -273,14 +318,12 @@ class _ModuleMeasurementsScreenState
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: isHotspot
-                        ? AppColors.errorBackground
-                        : AppColors.primarySoft.withValues(alpha: 0.3),
+                    color: statusBg,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
-                    isHotspot ? Icons.warning_rounded : Icons.grid_on_rounded,
-                    color: isHotspot ? AppColors.error : AppColors.primary,
+                    statusIcon,
+                    color: statusColor,
                     size: 20,
                   ),
                 ),
@@ -307,22 +350,16 @@ class _ModuleMeasurementsScreenState
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: isHotspot
-                                  ? AppColors.errorBackground
-                                  : AppColors.successBackground,
+                              color: statusBg,
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
-                                color: isHotspot
-                                    ? AppColors.errorBorder
-                                    : AppColors.successBorder,
+                                color: statusBorder,
                               ),
                             ),
                             child: Text(
-                              isHotspot ? 'HOTSPOT' : 'NORMAL',
+                              statusText,
                               style: AppTypography.caption.copyWith(
-                                color: isHotspot
-                                    ? AppColors.error
-                                    : AppColors.success,
+                                color: statusColor,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 10,
                               ),
@@ -346,11 +383,15 @@ class _ModuleMeasurementsScreenState
                           _buildMetricChip(
                             'Peak',
                             '${session.maxTemp.toStringAsFixed(1)}°C',
-                            isHotspot ? AppColors.error : AppColors.textPrimary,
+                            hasConfirmed
+                                ? AppColors.error
+                                : (hasCandidate ? AppColors.warning : AppColors.textPrimary),
                           ),
                           _buildMetricChip(
                             'Base',
-                            '${session.avgBaseline.toStringAsFixed(1)}°C',
+                            baselineTemp != null && baselineTemp > 0
+                                ? '${baselineTemp.toStringAsFixed(1)}°C'
+                                : 'N/A',
                             AppColors.textSecondary,
                           ),
                           _buildMetricChip(
@@ -437,24 +478,49 @@ class _ModuleMeasurementsScreenState
   }
 
   Widget _buildStepTile(ModuleMeasurement m) {
+    final isCandidate = m.hotspotDetected;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: m.hotspotDetected ? AppColors.errorBorder : AppColors.border,
+          color: isCandidate ? AppColors.warningBorder : AppColors.border,
         ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
-            style: AppTypography.caption.copyWith(
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
+                style: AppTypography.caption.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              if (isCandidate) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: AppColors.warningBackground,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: AppColors.warningBorder),
+                  ),
+                  child: const Text(
+                    'Candidate',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.warning,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
           Wrap(
             spacing: 6,
@@ -465,11 +531,15 @@ class _ModuleMeasurementsScreenState
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
-                  color: m.hotspotDetected ? AppColors.error : AppColors.textSecondary,
+                  color: isCandidate ? AppColors.warning : AppColors.textSecondary,
                 ),
               ),
               Text(
                 '• ${m.voltageV.toStringAsFixed(1)}V',
+                style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
+              ),
+              Text(
+                '• ${m.currentA.toStringAsFixed(2)}A',
                 style: const TextStyle(fontSize: 10, color: AppColors.textSecondary),
               ),
               Text(
@@ -575,17 +645,12 @@ class _InspectionSession {
     required this.measurements,
   });
 
-  bool get hasHotspot => measurements.any((m) => m.hotspotDetected);
+  bool get hasCandidate => measurements.any((m) => m.hotspotDetected);
 
   double get maxTemp => measurements.fold(
         0.0,
         (prev, m) => m.maxTemperatureC > prev ? m.maxTemperatureC : prev,
       );
-
-  double get avgBaseline => measurements.isEmpty
-      ? 0.0
-      : measurements.map((m) => m.baselineTemperatureC).reduce((a, b) => a + b) /
-          measurements.length;
 
   double get avgVoltage => measurements.isEmpty
       ? 0.0

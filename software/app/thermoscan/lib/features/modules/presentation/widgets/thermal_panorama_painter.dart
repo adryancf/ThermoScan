@@ -293,6 +293,7 @@ class ThermalPanoramaData {
     List<ConfirmedAnomaly> confirmedAnomalies = const [],
     double? panelLengthCm,
     int? totalInspectionMeasurements,
+    bool fitToScannedRange = false,
   }) {
     final sorted = sortMeasurementsSpatially(measurements);
     final coverage = ThermalCoverageInfo(
@@ -315,18 +316,26 @@ class ThermalPanoramaData {
       }
     }
 
-    final minDomainX = sorted.isEmpty
-        ? -ThermalCoverageInfo.halfFovCm
-        : math.min(
-            -ThermalCoverageInfo.halfFovCm,
-            minFrameX - ThermalCoverageInfo.halfFovCm,
-          );
-    final maxDomainX = sorted.isEmpty
-        ? effectivePanelLength + ThermalCoverageInfo.halfFovCm
-        : math.max(
-            effectivePanelLength + ThermalCoverageInfo.halfFovCm,
-            maxFrameX + ThermalCoverageInfo.halfFovCm,
-          );
+    final double minDomainX;
+    final double maxDomainX;
+
+    if (fitToScannedRange && sorted.isNotEmpty) {
+      minDomainX = minFrameX - ThermalCoverageInfo.halfFovCm;
+      maxDomainX = maxFrameX + ThermalCoverageInfo.halfFovCm;
+    } else {
+      minDomainX = sorted.isEmpty
+          ? -ThermalCoverageInfo.halfFovCm
+          : math.min(
+              -ThermalCoverageInfo.halfFovCm,
+              minFrameX - ThermalCoverageInfo.halfFovCm,
+            );
+      maxDomainX = sorted.isEmpty
+          ? effectivePanelLength + ThermalCoverageInfo.halfFovCm
+          : math.max(
+              effectivePanelLength + ThermalCoverageInfo.halfFovCm,
+              maxFrameX + ThermalCoverageInfo.halfFovCm,
+            );
+    }
 
     var framesWithMatrix = 0;
     var framesWithoutMatrix = 0;
@@ -610,5 +619,57 @@ class ThermalPanoramaPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant ThermalPanoramaPainter oldDelegate) {
     return oldDelegate.panorama != panorama;
+  }
+}
+
+/// CustomPainter that renders an individual 32x24 matrix for a selected frame.
+class SingleFrameMatrixPainter extends CustomPainter {
+  const SingleFrameMatrixPainter({
+    required this.thermalFrame,
+    required this.colorForTemperature,
+  });
+
+  final List<double?> thermalFrame;
+  final Color Function(double tempC) colorForTemperature;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bgPaint = Paint()
+      ..color = ThermalPanoramaPainter.uncoveredBackgroundColor
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(Offset.zero & size, bgPaint);
+
+    if (thermalFrame.length != ThermalCoverageInfo.sensorPixelCount) {
+      return;
+    }
+
+    final rows = ThermalCoverageInfo.sensorRows;
+    final cols = ThermalCoverageInfo.sensorCols;
+    final cellW = size.width / cols;
+    final cellH = size.height / rows;
+    final cellPaint = Paint()..style = PaintingStyle.fill;
+
+    for (var r = 0; r < rows; r++) {
+      final top = r * cellH;
+      for (var c = 0; c < cols; c++) {
+        final val = thermalFrame[r * cols + c];
+        if (ThermalPanoramaData.isValidPixelValue(val)) {
+          cellPaint.color = colorForTemperature(val!);
+        } else {
+          cellPaint.color = ThermalPanoramaPainter.unresolvedInvalidColor;
+        }
+
+        final left = c * cellW;
+        canvas.drawRect(
+          Rect.fromLTWH(left, top, cellW + 0.3, cellH + 0.3),
+          cellPaint,
+        );
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant SingleFrameMatrixPainter oldDelegate) {
+    return oldDelegate.thermalFrame != thermalFrame;
   }
 }

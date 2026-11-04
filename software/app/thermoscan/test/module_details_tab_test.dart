@@ -1699,6 +1699,143 @@ void main() {
         expect(find.text('X = 8.0 cm'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      '11. RadiometricScanCard UX: toggles between Fit-to-Scan and Full-Panel zoom and inspects single frame 32x24 matrix',
+      (tester) async {
+        const mod200 = PvModule(
+          id: 'mod-200',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array 200cm',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 200.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        final framePixels = List<double?>.filled(768, 38.0);
+        final m1 = ModuleMeasurement(
+          id: 'm-f1',
+          moduleId: 'mod-200',
+          inspectionId: 'insp-200',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-04T12:00:00Z',
+          xPositionCm: 0.0,
+          maxTemperatureC: 38.0,
+          thermalFrame: framePixels,
+          voltageV: 18.2,
+          currentA: 4.1,
+          powerW: 74.62,
+          receivedAt: '2026-11-04T12:00:05Z',
+        );
+        final m2 = ModuleMeasurement(
+          id: 'm-f2',
+          moduleId: 'mod-200',
+          inspectionId: 'insp-200',
+          sourceEventId: 'evt-2',
+          measuredAt: '2026-11-04T12:00:10Z',
+          xPositionCm: 4.0,
+          maxTemperatureC: 58.4,
+          thermalFrame: framePixels,
+          voltageV: 18.2,
+          currentA: 4.1,
+          powerW: 74.62,
+          receivedAt: '2026-11-04T12:00:15Z',
+        );
+
+        const anomaly = ConfirmedAnomaly(
+          id: 'anom-1',
+          moduleId: 'mod-200',
+          originMeasurementId: 'm-f2',
+          confirmingMeasurementIds: ['m-f2'],
+          sourceEventId: 'evt-a1',
+          xPositionCm: 4.0,
+          detectedAt: '2026-11-04T12:00:15Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        );
+
+        const latestInsp = LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-200',
+            moduleId: 'mod-200',
+            sourceEventId: 'evt-insp-200',
+            type: 'scheduled',
+            scheduledFor: '2026-11-04T12:00:00Z',
+            status: 'completed',
+            baselineTemperatureC: 35.0,
+            createdAt: '2026-11-04T12:00:00Z',
+            updatedAt: '2026-11-04T12:00:20Z',
+          ),
+          totalMeasurements: 2,
+          confirmedAnomalies: [anomaly],
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod200,
+                  measurements: [m1, m2],
+                  latestInspection: latestInsp,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // 1. Initial mode is Fit-to-Scan
+        expect(find.text('Zoom: Scan Area'), findsOneWidget);
+        expect(find.textContaining('Range: -2.5 to 6.5 cm (9.0 cm)'), findsOneWidget);
+        expect(find.textContaining('Rail Scan Coverage: 0.0 to 4.0 cm of 200 cm'), findsOneWidget);
+
+        // 2. Dual-Frame Hotspot Confirmation explainer is visible
+        expect(find.byKey(const Key('hotspot_confirmation_summary')), findsOneWidget);
+        expect(find.textContaining('H1 at X=4.0 cm confirmed by: F2 (4.0 cm)'), findsOneWidget);
+
+        // 3. Toggle to Full Panel zoom
+        await tester.tap(find.byKey(const Key('toggle_zoom_mode')));
+        await tester.pumpAndSettle();
+        expect(find.text('Zoom: Full Panel'), findsOneWidget);
+        expect(find.textContaining('Range: -2.5 to 202.5 cm (205.0 cm)'), findsOneWidget);
+
+        // 4. Toggle back to Scan Area
+        await tester.tap(find.byKey(const Key('toggle_zoom_mode')));
+        await tester.pumpAndSettle();
+        expect(find.text('Zoom: Scan Area'), findsOneWidget);
+
+        // 5. Tap on frame card F2 to open single frame 32x24 inspector
+        expect(find.byKey(const Key('selected_frame_inspector')), findsNothing);
+        await tester.tap(find.byKey(const Key('thermal_frame_card_2')));
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('selected_frame_inspector')), findsOneWidget);
+        expect(find.byKey(const Key('single_frame_matrix_canvas')), findsOneWidget);
+        expect(find.text('Selected Frame (X = 4.0 cm)'), findsOneWidget);
+
+        // 6. Tap Close to dismiss inspector (scroll down to ensure visible if needed)
+        await tester.ensureVisible(find.text('Close'));
+        await tester.tap(find.text('Close'));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('selected_frame_inspector')), findsNothing);
+      },
+    );
   });
 
   group('Module Details TabBar & TabBarView UI Tests', () {

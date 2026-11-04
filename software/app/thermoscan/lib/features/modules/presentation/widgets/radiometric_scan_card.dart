@@ -5,7 +5,7 @@ import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
 /// SCR-10: Physical Thermal Frames & Radiometric Telemetry Metrics
-class RadiometricScanCard extends StatelessWidget {
+class RadiometricScanCard extends StatefulWidget {
   const RadiometricScanCard({
     super.key,
     required this.module,
@@ -20,11 +20,19 @@ class RadiometricScanCard extends StatelessWidget {
   final List<ModuleMeasurement>? measurements;
 
   @override
+  State<RadiometricScanCard> createState() => _RadiometricScanCardState();
+}
+
+class _RadiometricScanCardState extends State<RadiometricScanCard> {
+  bool _fitToScan = true;
+  int? _selectedFrameIndex;
+
+  @override
   Widget build(BuildContext context) {
-    final m = latestMeasurement;
-    final insp = latestInspection;
+    final m = widget.latestMeasurement;
+    final insp = widget.latestInspection;
     final allMeasurements =
-        measurements ?? (m != null ? [m] : <ModuleMeasurement>[]);
+        widget.measurements ?? (m != null ? [m] : <ModuleMeasurement>[]);
     final rawMeasurements = filterMeasurementsForCurrentInspection(
       measurements: allMeasurements,
       latestInspection: insp,
@@ -80,8 +88,9 @@ class RadiometricScanCard extends StatelessWidget {
     final panorama = ThermalPanoramaData.fromMeasurements(
       measurements: rawMeasurements,
       confirmedAnomalies: confirmedAnomalies,
-      panelLengthCm: module.panelLengthCm,
+      panelLengthCm: widget.module.panelLengthCm,
       totalInspectionMeasurements: insp?.totalMeasurements,
+      fitToScannedRange: _fitToScan,
     );
     final sortedMeasurements = panorama.sortedMeasurements;
     final coverage = panorama.coverageInfo;
@@ -117,11 +126,6 @@ class RadiometricScanCard extends StatelessWidget {
         ? (peakTemp - baselineTemp)
         : null;
 
-    final panelLength =
-        (module.panelLengthCm != null && module.panelLengthCm! > 0)
-        ? module.panelLengthCm!
-        : 20.0;
-
     final String deltaText;
     if (hasConfirmedHotspots) {
       deltaText = delta != null
@@ -144,7 +148,7 @@ class RadiometricScanCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // Header with Title and Status Badge
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -197,7 +201,73 @@ class RadiometricScanCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+
+          // Scale / Zoom Controls & Position Overview on the Rail
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              if (sortedMeasurements.isNotEmpty)
+                Text(
+                  'Range: ${panorama.minDomainX.toStringAsFixed(1)} to ${panorama.maxDomainX.toStringAsFixed(1)} cm (${panorama.domainSpanCm.toStringAsFixed(1)} cm)',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 10,
+                  ),
+                )
+              else
+                const SizedBox.shrink(),
+              InkWell(
+                key: const Key('toggle_zoom_mode'),
+                borderRadius: BorderRadius.circular(6),
+                onTap: () {
+                  setState(() {
+                    _fitToScan = !_fitToScan;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        _fitToScan ? Icons.zoom_in_rounded : Icons.zoom_out_map_rounded,
+                        size: 13,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _fitToScan ? 'Zoom: Scan Area' : 'Zoom: Full Panel',
+                        style: AppTypography.caption.copyWith(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+
+          // Mini Rail Progress Bar
+          if (sortedMeasurements.isNotEmpty &&
+              widget.module.panelLengthCm != null &&
+              widget.module.panelLengthCm! > 0)
+            _buildRailProgressOverview(
+              minFrameX: sortedMeasurements.first.xPositionCm,
+              maxFrameX: sortedMeasurements.last.xPositionCm,
+              panelLengthCm: widget.module.panelLengthCm!,
+            ),
+
+          const SizedBox(height: 6),
 
           // 2D Thermal Viewport with Real Thermal Panorama & Physical Frames on X-Ruler
           Container(
@@ -233,7 +303,7 @@ class RadiometricScanCard extends StatelessWidget {
 
                       return Stack(
                         children: [
-                          // Real 2D Thermal Mosaic Layer (only when valid 32x24 thermal_frame exists)
+                          // Real 2D Thermal Mosaic Layer
                           if (panorama.hasAnyThermalMatrix)
                             Positioned(
                               top: 36,
@@ -301,7 +371,8 @@ class RadiometricScanCard extends StatelessWidget {
                                     ),
                                   ),
                                   ..._buildRulerTicks(
-                                    panelLength: panelLength,
+                                    minDomainX: panorama.minDomainX,
+                                    maxDomainX: panorama.maxDomainX,
                                     xToPx: xToPx,
                                     maxWidth: w,
                                   ),
@@ -346,6 +417,11 @@ class RadiometricScanCard extends StatelessWidget {
                                               );
                                           final isFrameConfirmed =
                                               associatedAnomalies.isNotEmpty;
+                                          final isSelected =
+                                              _selectedFrameIndex == idx;
+                                          final isDimmed =
+                                              _selectedFrameIndex != null &&
+                                              !isSelected;
 
                                           return Positioned(
                                             key: Key('fov_strip_${idx + 1}'),
@@ -356,91 +432,113 @@ class RadiometricScanCard extends StatelessWidget {
                                             width: framePxWidth,
                                             top: 0,
                                             bottom: 0,
-                                            child: Container(
-                                              margin:
-                                                  const EdgeInsets.symmetric(
-                                                    vertical: 4,
+                                            child: GestureDetector(
+                                              onTap: () {
+                                                setState(() {
+                                                  if (_selectedFrameIndex == idx) {
+                                                    _selectedFrameIndex = null;
+                                                  } else {
+                                                    _selectedFrameIndex = idx;
+                                                  }
+                                                });
+                                              },
+                                              child: AnimatedContainer(
+                                                duration: const Duration(milliseconds: 180),
+                                                margin:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 4,
+                                                    ),
+                                                decoration: BoxDecoration(
+                                                  color: isSelected
+                                                      ? (isFrameConfirmed
+                                                          ? AppColors.error.withValues(alpha: 0.3)
+                                                          : AppColors.primary.withValues(alpha: 0.25))
+                                                      : isFrameConfirmed
+                                                          ? AppColors.error.withValues(alpha: isDimmed ? 0.08 : 0.18)
+                                                          : Colors.white.withValues(alpha: isDimmed ? 0.02 : 0.06),
+                                                  borderRadius:
+                                                      BorderRadius.circular(6),
+                                                  border: Border.all(
+                                                    color: isSelected
+                                                        ? (isFrameConfirmed
+                                                            ? AppColors.error
+                                                            : AppColors.primary)
+                                                        : isFrameConfirmed
+                                                            ? AppColors.error.withValues(alpha: isDimmed ? 0.4 : 0.9)
+                                                            : Colors.white.withValues(alpha: isDimmed ? 0.2 : 0.45),
+                                                    width: isSelected
+                                                        ? 2.0
+                                                        : (isFrameConfirmed ? 1.5 : 1.0),
                                                   ),
-                                              decoration: BoxDecoration(
-                                                color: isFrameConfirmed
-                                                    ? AppColors.error
-                                                          .withValues(
-                                                            alpha: 0.18,
-                                                          )
-                                                    : Colors.white.withValues(
-                                                        alpha: 0.06,
-                                                      ),
-                                                borderRadius:
-                                                    BorderRadius.circular(6),
-                                                border: Border.all(
-                                                  color: isFrameConfirmed
-                                                      ? AppColors.error
-                                                      : Colors.white.withValues(
-                                                          alpha: 0.45,
-                                                        ),
-                                                  width: isFrameConfirmed
-                                                      ? 1.5
-                                                      : 1,
                                                 ),
-                                              ),
-                                              child: Column(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 3,
-                                                          vertical: 1,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      color: isFrameConfirmed
-                                                          ? AppColors.error
-                                                                .withValues(
-                                                                  alpha: 0.85,
-                                                                )
-                                                          : Colors.black
-                                                                .withValues(
-                                                                  alpha: 0.55,
-                                                                ),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            3,
+                                                child: framePxWidth < 28.0
+                                                    ? Center(
+                                                        child: Text(
+                                                          'F${idx + 1}',
+                                                          style: const TextStyle(
+                                                            color: Colors.white,
+                                                            fontSize: 7.5,
+                                                            fontWeight: FontWeight.w700,
                                                           ),
-                                                    ),
-                                                    child: Text(
-                                                      'F${idx + 1} (${meas.xPositionCm.toStringAsFixed(0)}cm)',
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontSize: 8,
-                                                        fontWeight:
-                                                            FontWeight.w700,
+                                                        ),
+                                                      )
+                                                    : Column(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .spaceBetween,
+                                                        children: [
+                                                          Container(
+                                                            padding:
+                                                                const EdgeInsets.symmetric(
+                                                                  horizontal: 3,
+                                                                  vertical: 1,
+                                                                ),
+                                                            decoration: BoxDecoration(
+                                                              color: isSelected
+                                                                  ? (isFrameConfirmed
+                                                                      ? AppColors.error
+                                                                      : AppColors.primary)
+                                                                  : isFrameConfirmed
+                                                                      ? AppColors.error.withValues(alpha: 0.85)
+                                                                      : Colors.black.withValues(alpha: 0.55),
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    3,
+                                                                  ),
+                                                            ),
+                                                            child: Text(
+                                                              'F${idx + 1} (${meas.xPositionCm.toStringAsFixed(0)}cm)',
+                                                              style: const TextStyle(
+                                                                color: Colors.white,
+                                                                fontSize: 8,
+                                                                fontWeight:
+                                                                    FontWeight.w700,
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          Text(
+                                                            '${meas.maxTemperatureC.toStringAsFixed(1)}°C',
+                                                            style: TextStyle(
+                                                              color: isFrameConfirmed
+                                                                  ? AppColors
+                                                                        .errorBackground
+                                                                  : Colors.white,
+                                                              fontSize: 8.5,
+                                                              fontWeight:
+                                                                  FontWeight.w700,
+                                                            ),
+                                                          ),
+                                                        ],
                                                       ),
-                                                    ),
-                                                  ),
-                                                  Text(
-                                                    '${meas.maxTemperatureC.toStringAsFixed(1)}°C',
-                                                    style: TextStyle(
-                                                      color: isFrameConfirmed
-                                                          ? AppColors
-                                                                .errorBackground
-                                                          : Colors.white,
-                                                      fontSize: 8.5,
-                                                      fontWeight:
-                                                          FontWeight.w700,
-                                                    ),
-                                                  ),
-                                                ],
                                               ),
                                             ),
                                           );
                                         })
                                         .toList(),
-                                  ),
+                                   ),
                           ),
 
-                          // Confirmed Hotspot Target Markers (Strictly from latestInspection.confirmedAnomalies)
+                          // Confirmed Hotspot Target Markers
                           ...confirmedAnomalies.asMap().entries.map((entry) {
                             final anomIdx = entry.key;
                             final anomaly = entry.value;
@@ -600,6 +698,15 @@ class RadiometricScanCard extends StatelessWidget {
               ],
             ),
 
+          // Confirmed Hotspot Dual-Frame Confirmation Explainer
+          if (hasConfirmedHotspots) ...[
+            const SizedBox(height: 10),
+            _buildHotspotConfirmationSummary(
+              confirmedAnomalies: confirmedAnomalies,
+              sortedMeasurements: sortedMeasurements,
+            ),
+          ],
+
           // Explicit Diagnostic & Coverage State Notices
           ..._buildStateNotices(
             panorama: panorama,
@@ -628,6 +735,14 @@ class RadiometricScanCard extends StatelessWidget {
                   ),
                 ),
             ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Tap a frame to inspect its 32×24 matrix and exact sensor readings',
+            style: AppTypography.caption.copyWith(
+              fontSize: 10,
+              color: AppColors.textSecondary,
+            ),
           ),
           const SizedBox(height: 8),
           SingleChildScrollView(
@@ -661,6 +776,7 @@ class RadiometricScanCard extends StatelessWidget {
                         confirmedAnomalies,
                       );
                       final isConfirmed = anomalyLabels.isNotEmpty;
+                      final isSelected = _selectedFrameIndex == idx;
 
                       final vStr = f.voltageV != null
                           ? '${f.voltageV!.toStringAsFixed(1)}V'
@@ -677,123 +793,156 @@ class RadiometricScanCard extends StatelessWidget {
                       final fovEnd =
                           f.xPositionCm + ThermalCoverageInfo.halfFovCm;
 
-                      return Container(
+                      return InkWell(
                         key: Key('thermal_frame_card_${idx + 1}'),
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isConfirmed
-                              ? AppColors.errorBackground
-                              : AppColors.background,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isConfirmed
-                                ? AppColors.error
-                                : AppColors.border,
-                            width: isConfirmed ? 1.5 : 1,
+                        borderRadius: BorderRadius.circular(10),
+                        onTap: () {
+                          setState(() {
+                            if (_selectedFrameIndex == idx) {
+                              _selectedFrameIndex = null;
+                            } else {
+                              _selectedFrameIndex = idx;
+                            }
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
                           ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  isConfirmed
-                                      ? Icons.warning_amber_rounded
-                                      : Icons.check_circle_outline_rounded,
-                                  size: 14,
-                                  color: isConfirmed
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? (isConfirmed
+                                    ? AppColors.errorBackground
+                                    : AppColors.primarySoft)
+                                : (isConfirmed
+                                    ? AppColors.errorBackground
+                                    : AppColors.background),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: isSelected
+                                  ? (isConfirmed
                                       ? AppColors.error
-                                      : AppColors.success,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'F${idx + 1} (X=${f.xPositionCm.toStringAsFixed(1)} cm)',
-                                  style: AppTypography.caption.copyWith(
-                                    fontWeight: FontWeight.w700,
+                                      : AppColors.primary)
+                                  : (isConfirmed
+                                      ? AppColors.error
+                                      : AppColors.border),
+                              width: isSelected ? 2.0 : (isConfirmed ? 1.5 : 1.0),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isConfirmed
+                                        ? Icons.warning_amber_rounded
+                                        : Icons.check_circle_outline_rounded,
+                                    size: 14,
                                     color: isConfirmed
                                         ? AppColors.error
-                                        : AppColors.textPrimary,
+                                        : AppColors.success,
                                   ),
-                                ),
-                                if (isConfirmed) ...[
                                   const SizedBox(width: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 4,
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppColors.error,
-                                      borderRadius: BorderRadius.circular(3),
-                                    ),
-                                    child: const Text(
-                                      'HOTSPOT',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                  Text(
+                                    'F${idx + 1} (X=${f.xPositionCm.toStringAsFixed(1)} cm)',
+                                    style: AppTypography.caption.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: isConfirmed
+                                          ? AppColors.error
+                                          : AppColors.textPrimary,
                                     ),
                                   ),
-                                  ...anomalyLabels.map(
-                                    (label) => Padding(
-                                      padding: const EdgeInsets.only(left: 3),
-                                      child: Container(
-                                        key: Key(
-                                          'frame_${idx + 1}_badge_$label',
-                                        ),
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 4,
-                                          vertical: 1,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.textPrimary,
-                                          borderRadius: BorderRadius.circular(
-                                            3,
-                                          ),
-                                        ),
-                                        child: Text(
-                                          label,
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 8,
-                                            fontWeight: FontWeight.w700,
-                                          ),
+                                  if (isConfirmed) ...[
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.error,
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                      child: const Text(
+                                        'HOTSPOT',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w700,
                                         ),
                                       ),
                                     ),
-                                  ),
+                                    ...anomalyLabels.map(
+                                      (label) => Padding(
+                                        padding: const EdgeInsets.only(left: 3),
+                                        child: Container(
+                                          key: Key(
+                                            'frame_${idx + 1}_badge_$label',
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.textPrimary,
+                                            borderRadius: BorderRadius.circular(
+                                              3,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            label,
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Peak: ${f.maxTemperatureC.toStringAsFixed(1)}°C • Span: ${fovStart.toStringAsFixed(1)}-${fovEnd.toStringAsFixed(1)} cm',
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 9.5,
-                                color: AppColors.textSecondary,
                               ),
-                            ),
-                            Text(
-                              '$vStr • $iStr • $pStr',
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 9.0,
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w600,
+                              const SizedBox(height: 4),
+                              Text(
+                                'Peak: ${f.maxTemperatureC.toStringAsFixed(1)}°C • Span: ${fovStart.toStringAsFixed(1)}-${fovEnd.toStringAsFixed(1)} cm',
+                                style: AppTypography.caption.copyWith(
+                                  fontSize: 9.5,
+                                  color: AppColors.textSecondary,
+                                ),
                               ),
-                            ),
-                          ],
+                              Text(
+                                '$vStr • $iStr • $pStr',
+                                style: AppTypography.caption.copyWith(
+                                  fontSize: 9.0,
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       );
                     }).toList(),
             ),
           ),
+
+          // Selected Single-Frame 32x24 Inspector
+          if (_selectedFrameIndex != null &&
+              _selectedFrameIndex! < sortedMeasurements.length) ...[
+            const SizedBox(height: 12),
+            _buildSelectedFrameInspector(
+              frameIndex: _selectedFrameIndex!,
+              measurement: sortedMeasurements[_selectedFrameIndex!],
+              panorama: panorama,
+              confirmedAnomalies: confirmedAnomalies,
+            ),
+          ],
+
           const SizedBox(height: 16),
 
           // 4 Key Telemetry Metrics Grid with Baseline Temperature
@@ -849,6 +998,290 @@ class RadiometricScanCard extends StatelessWidget {
                   isWarning: false,
                   valueColor: AppColors.primary,
                 ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Mini rail indicator showing the scanned interval relative to full panel length.
+  Widget _buildRailProgressOverview({
+    required double minFrameX,
+    required double maxFrameX,
+    required double panelLengthCm,
+  }) {
+    final startRatio = ((minFrameX - ThermalCoverageInfo.halfFovCm) / panelLengthCm).clamp(0.0, 1.0);
+    final endRatio = ((maxFrameX + ThermalCoverageInfo.halfFovCm) / panelLengthCm).clamp(0.0, 1.0);
+    final widthRatio = (endRatio - startRatio).clamp(0.02, 1.0);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Rail Scan Coverage: ${minFrameX.toStringAsFixed(1)} to ${maxFrameX.toStringAsFixed(1)} cm of ${panelLengthCm.toStringAsFixed(0)} cm',
+                style: AppTypography.caption.copyWith(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              Text(
+                '${(widthRatio * 100).toStringAsFixed(0)}% scanned',
+                style: AppTypography.caption.copyWith(
+                  fontSize: 10,
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final barWidth = constraints.maxWidth;
+              return Stack(
+                children: [
+                  Container(
+                    height: 5,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.withValues(alpha: 0.25),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  Positioned(
+                    left: startRatio * barWidth,
+                    width: widthRatio * barWidth,
+                    child: Container(
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Explainer banner showing which frames confirmed each hotspot.
+  Widget _buildHotspotConfirmationSummary({
+    required List<ConfirmedAnomaly> confirmedAnomalies,
+    required List<ModuleMeasurement> sortedMeasurements,
+  }) {
+    return Container(
+      key: const Key('hotspot_confirmation_summary'),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.errorBackground,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.errorBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.check_circle_rounded,
+                color: AppColors.error,
+                size: 16,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Dual-Frame Hotspot Confirmation',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.error,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ...confirmedAnomalies.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final anomaly = entry.value;
+            final confirmingFrames = sortedMeasurements
+                .asMap()
+                .entries
+                .where((mEntry) => isFrameAssociatedWithAnomaly(mEntry.value, anomaly))
+                .map((mEntry) => 'F${mEntry.key + 1} (${mEntry.value.xPositionCm.toStringAsFixed(1)} cm)')
+                .toList();
+
+            final framesText = confirmingFrames.isNotEmpty
+                ? confirmingFrames.join(' and ')
+                : 'Overlapping frames';
+
+            return Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '• H${idx + 1} at X=${anomaly.xPositionCm.toStringAsFixed(1)} cm confirmed by: $framesText',
+                style: AppTypography.caption.copyWith(
+                  color: AppColors.textPrimary,
+                  fontSize: 10.5,
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  /// Inspector panel for viewing the isolated 32x24 matrix of the selected frame.
+  Widget _buildSelectedFrameInspector({
+    required int frameIndex,
+    required ModuleMeasurement measurement,
+    required ThermalPanoramaData panorama,
+    required List<ConfirmedAnomaly> confirmedAnomalies,
+  }) {
+    final tf = measurement.thermalFrame;
+    final hasMatrix = tf != null && tf.length == ThermalCoverageInfo.sensorPixelCount;
+    final anomalyLabels = getFrameAnomalyLabels(measurement, confirmedAnomalies);
+    final isConfirmed = anomalyLabels.isNotEmpty;
+
+    return Container(
+      key: const Key('selected_frame_inspector'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isConfirmed ? AppColors.error : AppColors.primary,
+          width: 1.5,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: isConfirmed ? AppColors.error : AppColors.primary,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'F${frameIndex + 1}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Selected Frame (X = ${measurement.xPositionCm.toStringAsFixed(1)} cm)',
+                    style: AppTypography.caption.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ],
+              ),
+              InkWell(
+                onTap: () => setState(() => _selectedFrameIndex = null),
+                child: Padding(
+                  padding: const EdgeInsets.all(2),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.close_rounded, size: 14, color: AppColors.textSecondary),
+                      const SizedBox(width: 2),
+                      Text(
+                        'Close',
+                        style: AppTypography.caption.copyWith(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // 32x24 Pure Thermal Matrix View
+          if (hasMatrix) ...[
+            Container(
+              height: 120,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: CustomPaint(
+                  key: const Key('single_frame_matrix_canvas'),
+                  painter: SingleFrameMatrixPainter(
+                    thermalFrame: tf,
+                    colorForTemperature: panorama.colorForTemperature,
+                  ),
+                ),
+              ),
+            ),
+          ] else ...[
+            Container(
+              height: 60,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: const Center(
+                child: Text(
+                  'No 32×24 matrix data in this acquisition',
+                  style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+                ),
+              ),
+            ),
+          ],
+
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Span: ${(measurement.xPositionCm - 2.5).toStringAsFixed(1)} - ${(measurement.xPositionCm + 2.5).toStringAsFixed(1)} cm',
+                style: AppTypography.caption.copyWith(fontSize: 10, color: AppColors.textSecondary),
+              ),
+              Text(
+                'Peak: ${measurement.maxTemperatureC.toStringAsFixed(1)}°C',
+                style: AppTypography.caption.copyWith(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: isConfirmed ? AppColors.error : AppColors.textPrimary,
+                ),
+              ),
+              Text(
+                '${measurement.voltageV?.toStringAsFixed(1) ?? "N/A"}V • ${measurement.currentA?.toStringAsFixed(2) ?? "N/A"}A • ${measurement.powerW?.toStringAsFixed(1) ?? "N/A"}W',
+                style: AppTypography.caption.copyWith(fontSize: 10, color: AppColors.primary),
               ),
             ],
           ),
@@ -985,17 +1418,31 @@ class RadiometricScanCard extends StatelessWidget {
   }
 
   List<Widget> _buildRulerTicks({
-    required double panelLength,
+    required double minDomainX,
+    required double maxDomainX,
     required double Function(double xCm) xToPx,
     required double maxWidth,
   }) {
     final widgets = <Widget>[];
-    final step = panelLength <= 20.0 ? 5.0 : 10.0;
-    for (double x = 0; x <= panelLength; x += step) {
+    final span = maxDomainX - minDomainX;
+
+    double step;
+    if (span <= 12.0) {
+      step = 2.0;
+    } else if (span <= 30.0) {
+      step = 5.0;
+    } else if (span <= 80.0) {
+      step = 10.0;
+    } else {
+      step = 20.0;
+    }
+
+    final startTick = (minDomainX / step).ceil() * step;
+    for (double x = startTick; x <= maxDomainX; x += step) {
       final leftPx = xToPx(x);
       widgets.add(
         Positioned(
-          left: (leftPx - 8).clamp(4.0, maxWidth - 28.0),
+          left: (leftPx - 10).clamp(2.0, maxWidth - 28.0),
           top: 0,
           child: Column(
             mainAxisSize: MainAxisSize.min,

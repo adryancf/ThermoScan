@@ -51,6 +51,8 @@ class _ModuleMeasurementsScreenState
     final detailsAsync = ref.watch(moduleDetailsProvider(widget.moduleId));
     final latestInspectionAsync =
         ref.watch(latestInspectionProvider(widget.moduleId));
+    final allMeasurementsAsync =
+        ref.watch(moduleMeasurementsProvider(widget.moduleId));
 
     final mod = detailsAsync.valueOrNull?.module;
 
@@ -58,6 +60,7 @@ class _ModuleMeasurementsScreenState
       color: AppColors.primary,
       onRefresh: () async {
         ref.invalidate(latestInspectionProvider(widget.moduleId));
+        ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
         ref.invalidate(inspectionMeasurementsPagedProvider);
       },
       child: SingleChildScrollView(
@@ -114,12 +117,28 @@ class _ModuleMeasurementsScreenState
                 ),
               ),
               data: (latestInspection) {
-                if (latestInspection == null ||
-                    latestInspection.inspection.id.isEmpty) {
+                final allMeasurements =
+                    allMeasurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
+                if ((latestInspection == null ||
+                        latestInspection.inspection.id.isEmpty) &&
+                    allMeasurements.isEmpty) {
                   return _buildEmptyState();
                 }
 
-                return _buildPaginatedInspectionSection(latestInspection);
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (latestInspection != null &&
+                        latestInspection.inspection.id.isNotEmpty) ...[
+                      _buildPaginatedInspectionSection(latestInspection),
+                      const SizedBox(height: 20),
+                    ],
+                    _buildInspectionHistorySection(
+                      allMeasurementsAsync: allMeasurementsAsync,
+                      latestInspection: latestInspection,
+                    ),
+                  ],
+                );
               },
             ),
           ],
@@ -443,6 +462,225 @@ class _ModuleMeasurementsScreenState
               fontWeight: FontWeight.w700,
               color: valueColor,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInspectionHistorySection({
+    required AsyncValue<List<ModuleMeasurement>> allMeasurementsAsync,
+    required LatestInspection? latestInspection,
+  }) {
+    return allMeasurementsAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (allMeasurements) {
+        if (allMeasurements.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        // Group measurements by inspectionId
+        final Map<String, List<ModuleMeasurement>> grouped = {};
+        for (final m in allMeasurements) {
+          final key = m.inspectionId.isNotEmpty ? m.inspectionId : 'unlinked';
+          grouped.putIfAbsent(key, () => []).add(m);
+        }
+
+        // Sort groups by most recent measurement timestamp DESC
+        final entries = grouped.entries.toList()
+          ..sort((a, b) {
+            final maxA = _maxMeasuredAt(a.value);
+            final maxB = _maxMeasuredAt(b.value);
+            if (maxA != null && maxB != null) {
+              return maxB.compareTo(maxA);
+            }
+            return b.key.compareTo(a.key);
+          });
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.history_rounded,
+                  color: AppColors.primary,
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Inspection History (Grouped by Inspection)',
+                    style: AppTypography.h3,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'All recorded inspections and their measurements grouped by inspection_id',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: entries.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 12),
+              itemBuilder: (context, index) {
+                final entry = entries[index];
+                final inspectionId = entry.key;
+                final groupMeasurements = List<ModuleMeasurement>.from(entry.value)
+                  ..sort((a, b) => a.xPositionCm.compareTo(b.xPositionCm));
+                final isLatest =
+                    latestInspection?.inspection.id == inspectionId;
+                return _buildInspectionHistoryGroupCard(
+                  inspectionId: inspectionId,
+                  measurements: groupMeasurements,
+                  isLatest: isLatest,
+                  latestInspection: isLatest ? latestInspection : null,
+                );
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  DateTime? _maxMeasuredAt(List<ModuleMeasurement> items) {
+    DateTime? maxDt;
+    for (final m in items) {
+      final dt = DateTime.tryParse(m.measuredAt);
+      if (dt != null && (maxDt == null || dt.isAfter(maxDt))) {
+        maxDt = dt;
+      }
+    }
+    return maxDt;
+  }
+
+  String _formatShortTimestamp(String isoString) {
+    final dt = DateTime.tryParse(isoString)?.toLocal();
+    if (dt == null) return isoString;
+    final y = dt.year.toString().padLeft(4, '0');
+    final mo = dt.month.toString().padLeft(2, '0');
+    final d = dt.day.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final mi = dt.minute.toString().padLeft(2, '0');
+    final s = dt.second.toString().padLeft(2, '0');
+    return '$d/$mo/$y $h:$mi:$s';
+  }
+
+  Widget _buildInspectionHistoryGroupCard({
+    required String inspectionId,
+    required List<ModuleMeasurement> measurements,
+    required bool isLatest,
+    required LatestInspection? latestInspection,
+  }) {
+    final shortId = inspectionId.length > 8
+        ? '${inspectionId.substring(0, 8)}...'
+        : inspectionId;
+    final peakTemp = measurements.isNotEmpty
+        ? measurements
+              .map((m) => m.maxTemperatureC)
+              .reduce((a, b) => a > b ? a : b)
+        : 0.0;
+    final latestDt = _maxMeasuredAt(measurements);
+    final dateLabel = latestDt != null
+        ? _formatShortTimestamp(latestDt.toIso8601String())
+        : (measurements.isNotEmpty ? measurements.first.measuredAt : 'N/A');
+
+    return Container(
+      key: Key('history_group_$inspectionId'),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isLatest ? AppColors.primary : AppColors.border,
+          width: isLatest ? 1.5 : 1.0,
+        ),
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            'Inspection $shortId',
+                            style: AppTypography.caption.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (isLatest) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primarySoft,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'LATEST',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$dateLabel • ${measurements.length} frames • Peak ${peakTemp.toStringAsFixed(1)}°C',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: measurements.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 6),
+            itemBuilder: (ctx, idx) {
+              final m = measurements[idx];
+              final isConfirmed = latestInspection != null &&
+                  latestInspection.confirmedAnomalies.any(
+                    (a) =>
+                        a.originMeasurementId == m.id ||
+                        a.confirmingMeasurementIds.contains(m.id) ||
+                        (a.originMeasurementId.isEmpty &&
+                            a.confirmingMeasurementIds.isEmpty &&
+                            (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
+                  );
+              return _buildPaginatedStepTile(m, isConfirmed);
+            },
           ),
         ],
       ),

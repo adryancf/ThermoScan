@@ -23,8 +23,13 @@ class RadiometricScanCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final m = latestMeasurement;
     final insp = latestInspection;
-    final rawMeasurements =
+    final allMeasurements =
         measurements ?? (m != null ? [m] : <ModuleMeasurement>[]);
+    final rawMeasurements = filterMeasurementsForCurrentInspection(
+      measurements: allMeasurements,
+      latestInspection: insp,
+      latestMeasurement: m,
+    );
 
     if (m == null && insp == null && rawMeasurements.isEmpty) {
       return Container(

@@ -87,6 +87,7 @@ class _MockModuleRepo extends ModuleRepository {
   final Object? createModuleError;
   LatestInspection? mockLatestInspection;
   PagedMeasurements Function(int page)? pagedMeasurementsProvider;
+  List<ModuleMeasurement> mockAllMeasurements = const [];
 
   @override
   Future<LatestInspection?> getLatestInspection({required String moduleId}) async =>
@@ -166,7 +167,7 @@ class _MockModuleRepo extends ModuleRepository {
     int limit = 50,
     int offset = 0,
   }) async =>
-      const [];
+      mockAllMeasurements;
 
   @override
   Future<List<ModuleCleaning>> listCleanings({
@@ -1471,6 +1472,231 @@ void main() {
         expect(find.byKey(const Key('fov_strip_1')), findsOneWidget);
         expect(find.byKey(const Key('fov_strip_2')), findsOneWidget);
         expect(find.byKey(const Key('fov_strip_3')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '9. RadiometricScanCard filters out measurements from older inspections so thermal frames do not accumulate',
+      (tester) async {
+        const mod = PvModule(
+          id: 'mod-filter',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array Filter',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 20.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        const oldMeas1 = ModuleMeasurement(
+          id: 'old-1',
+          moduleId: 'mod-filter',
+          inspectionId: 'insp-old-11111111',
+          sourceEventId: 'evt-old-1',
+          measuredAt: '2026-11-03T10:00:00Z',
+          xPositionCm: 8.0,
+          maxTemperatureC: 59.2,
+          receivedAt: '2026-11-03T10:00:05Z',
+        );
+        const oldMeas2 = ModuleMeasurement(
+          id: 'old-2',
+          moduleId: 'mod-filter',
+          inspectionId: 'insp-old-11111111',
+          sourceEventId: 'evt-old-2',
+          measuredAt: '2026-11-03T10:00:10Z',
+          xPositionCm: 10.0,
+          maxTemperatureC: 58.7,
+          receivedAt: '2026-11-03T10:00:15Z',
+        );
+        const currentMeas1 = ModuleMeasurement(
+          id: 'curr-1',
+          moduleId: 'mod-filter',
+          inspectionId: 'insp-current-2222',
+          sourceEventId: 'evt-curr-1',
+          measuredAt: '2026-11-04T12:00:00Z',
+          xPositionCm: 0.0,
+          maxTemperatureC: 35.4,
+          receivedAt: '2026-11-04T12:00:05Z',
+        );
+        const currentMeas2 = ModuleMeasurement(
+          id: 'curr-2',
+          moduleId: 'mod-filter',
+          inspectionId: 'insp-current-2222',
+          sourceEventId: 'evt-curr-2',
+          measuredAt: '2026-11-04T12:00:10Z',
+          xPositionCm: 2.0,
+          maxTemperatureC: 35.8,
+          receivedAt: '2026-11-04T12:00:15Z',
+        );
+
+        const latestInsp = LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-current-2222',
+            moduleId: 'mod-filter',
+            sourceEventId: 'evt-insp-curr',
+            type: 'scheduled',
+            scheduledFor: '2026-11-04T12:00:00Z',
+            status: 'completed',
+            baselineTemperatureC: 35.0,
+            createdAt: '2026-11-04T12:00:00Z',
+            updatedAt: '2026-11-04T12:00:20Z',
+          ),
+          totalMeasurements: 2,
+          confirmedAnomalies: [],
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod,
+                  measurements: [currentMeas2, currentMeas1, oldMeas2, oldMeas1],
+                  latestMeasurement: currentMeas2,
+                  latestInspection: latestInsp,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Only the 2 frames from insp-current-2222 are rendered
+        expect(find.byKey(const Key('fov_strip_1')), findsOneWidget);
+        expect(find.byKey(const Key('fov_strip_2')), findsOneWidget);
+        expect(find.byKey(const Key('fov_strip_3')), findsNothing);
+        expect(find.text('F1 (X=0.0 cm)'), findsOneWidget);
+        expect(find.text('F2 (X=2.0 cm)'), findsOneWidget);
+        expect(find.textContaining('X=8.0 cm'), findsNothing);
+        expect(find.textContaining('X=10.0 cm'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '10. ModuleMeasurementsScreen renders Inspection History grouped by inspection_id',
+      (tester) async {
+        final mockRepo = _MockModuleRepo();
+        mockRepo.mockLatestInspection = const LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-22222222-bbbb',
+            moduleId: 'mod-1',
+            sourceEventId: 'evt-insp-2',
+            type: 'scheduled',
+            scheduledFor: '2026-11-04T15:00:00Z',
+            status: 'completed',
+            baselineTemperatureC: 35.0,
+            createdAt: '2026-11-04T15:00:00Z',
+            updatedAt: '2026-11-04T15:00:10Z',
+          ),
+          totalMeasurements: 2,
+          confirmedAnomalies: [],
+        );
+        mockRepo.pagedMeasurementsProvider = (_) => const PagedMeasurements(
+          page: 1,
+          limit: 10,
+          totalCount: 2,
+          totalPages: 1,
+          hasNextPage: false,
+          measurements: [
+            ModuleMeasurement(
+              id: 'm-new-1',
+              moduleId: 'mod-1',
+              inspectionId: 'insp-22222222-bbbb',
+              sourceEventId: 'evt-n1',
+              measuredAt: '2026-11-04T15:00:05Z',
+              xPositionCm: 0.0,
+              maxTemperatureC: 35.4,
+              receivedAt: '2026-11-04T15:00:06Z',
+            ),
+            ModuleMeasurement(
+              id: 'm-new-2',
+              moduleId: 'mod-1',
+              inspectionId: 'insp-22222222-bbbb',
+              sourceEventId: 'evt-n2',
+              measuredAt: '2026-11-04T15:00:08Z',
+              xPositionCm: 2.0,
+              maxTemperatureC: 35.8,
+              receivedAt: '2026-11-04T15:00:09Z',
+            ),
+          ],
+        );
+        mockRepo.mockAllMeasurements = const [
+          ModuleMeasurement(
+            id: 'm-new-2',
+            moduleId: 'mod-1',
+            inspectionId: 'insp-22222222-bbbb',
+            sourceEventId: 'evt-n2',
+            measuredAt: '2026-11-04T15:00:08Z',
+            xPositionCm: 2.0,
+            maxTemperatureC: 35.8,
+            receivedAt: '2026-11-04T15:00:09Z',
+          ),
+          ModuleMeasurement(
+            id: 'm-new-1',
+            moduleId: 'mod-1',
+            inspectionId: 'insp-22222222-bbbb',
+            sourceEventId: 'evt-n1',
+            measuredAt: '2026-11-04T15:00:05Z',
+            xPositionCm: 0.0,
+            maxTemperatureC: 35.4,
+            receivedAt: '2026-11-04T15:00:06Z',
+          ),
+          ModuleMeasurement(
+            id: 'm-old-1',
+            moduleId: 'mod-1',
+            inspectionId: 'insp-11111111-aaaa',
+            sourceEventId: 'evt-o1',
+            measuredAt: '2026-11-03T11:00:05Z',
+            xPositionCm: 8.0,
+            maxTemperatureC: 58.4,
+            receivedAt: '2026-11-03T11:00:06Z',
+          ),
+        ];
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+              authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+              authControllerProvider.overrideWith(
+                (ref) => _FakeAuthController(techUser),
+              ),
+              moduleRepositoryProvider.overrideWithValue(mockRepo),
+            ],
+            child: const MaterialApp(
+              home: ModuleMeasurementsScreen(moduleId: 'mod-1'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Inspection History (Grouped by Inspection)'),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('history_group_insp-22222222-bbbb')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('history_group_insp-11111111-aaaa')),
+          findsOneWidget,
+        );
+        expect(find.text('LATEST'), findsOneWidget);
+        expect(find.text('X = 8.0 cm'), findsOneWidget);
       },
     );
   });

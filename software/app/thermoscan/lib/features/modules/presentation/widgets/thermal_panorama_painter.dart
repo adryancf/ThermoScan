@@ -29,6 +29,63 @@ List<ModuleMeasurement> sortMeasurementsSpatially(
   return copy;
 }
 
+/// Filters [measurements] to strictly contain only the frames belonging to the
+/// current/latest inspection.
+///
+/// Priority:
+/// 1. If [latestInspection] has a non-empty `inspection.id` and at least one
+///    measurement in [measurements] matches that `inspectionId`, returns only
+///    measurements with `m.inspectionId == latestInspection.inspection.id`.
+/// 2. Otherwise, if [latestMeasurement] has a non-empty `inspectionId`, filters
+///    by `latestMeasurement.inspectionId`.
+/// 3. Otherwise, determines the most recent measurement in [measurements] by
+///    `measuredAt` (with fallback to the first non-empty `inspectionId`) and
+///    filters by its `inspectionId`.
+List<ModuleMeasurement> filterMeasurementsForCurrentInspection({
+  required List<ModuleMeasurement> measurements,
+  LatestInspection? latestInspection,
+  ModuleMeasurement? latestMeasurement,
+}) {
+  if (measurements.isEmpty) {
+    return latestMeasurement != null ? [latestMeasurement] : const [];
+  }
+
+  String? targetInspectionId;
+  final latestInspId = latestInspection?.inspection.id;
+  if (latestInspId != null &&
+      latestInspId.isNotEmpty &&
+      measurements.any((m) => m.inspectionId == latestInspId)) {
+    targetInspectionId = latestInspId;
+  } else if (latestMeasurement != null &&
+      latestMeasurement.inspectionId.isNotEmpty &&
+      measurements.any((m) => m.inspectionId == latestMeasurement.inspectionId)) {
+    targetInspectionId = latestMeasurement.inspectionId;
+  } else {
+    ModuleMeasurement? mostRecent;
+    DateTime? mostRecentDt;
+    for (final m in measurements) {
+      if (m.inspectionId.isEmpty) continue;
+      final dt = DateTime.tryParse(m.measuredAt);
+      if (mostRecent == null) {
+        mostRecent = m;
+        mostRecentDt = dt;
+      } else if (dt != null && (mostRecentDt == null || dt.isAfter(mostRecentDt))) {
+        mostRecent = m;
+        mostRecentDt = dt;
+      }
+    }
+    targetInspectionId = mostRecent?.inspectionId;
+  }
+
+  if (targetInspectionId == null || targetInspectionId.isEmpty) {
+    return measurements;
+  }
+
+  return measurements
+      .where((m) => m.inspectionId == targetInspectionId)
+      .toList();
+}
+
 /// Checks whether [frame] is associated with [anomaly].
 ///
 /// Primary rule: if [anomaly.originMeasurementId] or [anomaly.confirmingMeasurementIds]

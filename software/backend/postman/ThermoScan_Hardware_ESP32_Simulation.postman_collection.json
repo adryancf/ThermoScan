@@ -8,6 +8,1249 @@
   },
   "item": [
     {
+      "name": "00 - \ud83d\udd25 [FLUXO ESP32] Simula\u00e7\u00e3o Sequencial Completa (Passo a Passo)",
+      "description": "Pasta mestre para simula\u00e7\u00e3o ponta a ponta do ciclo de vida da ESP32 comunicando-se com o backend e mobile. Execute as requisi\u00e7\u00f5es em ordem (ou clique com bot\u00e3o direito na pasta e selecione 'Run folder') para simular o comportamento id\u00eantico ao firmware real.",
+      "item": [
+        {
+          "name": "Fase 1: Inicializa\u00e7\u00e3o & Handshake (Boot da ESP32)",
+          "description": "A ESP32 liga, consulta seu MAC Address gravado de f\u00e1brica, realiza o claim para obter credenciais seguras (device_token) e executa o handshake de configura\u00e7\u00e3o em duas fases.",
+          "item": [
+            {
+              "name": "01. [Claim] Provisionar Token por MAC Address",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Claim realizado com sucesso (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(data.device_token).to.be.a(\"string\");",
+                      "    pm.expect(data.module_id).to.be.a(\"string\");",
+                      "});",
+                      "if (data.device_token) {",
+                      "    pm.collectionVariables.set(\"deviceToken\", data.device_token);",
+                      "    pm.collectionVariables.set(\"moduleId\", data.module_id);",
+                      "    console.log(\"[ESP32] Device Token gravado na NVS:\", data.device_token);",
+                      "    console.log(\"[ESP32] Module ID associado:\", data.module_id);",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"mac_address\": \"{{macAddress}}\",\n  \"firmware_version\": \"v1.4.2\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/claim",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "claim"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "02. [Ping] Diagn\u00f3stico de Sensores, Wi-Fi e Interlocks",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Ping registrado com sucesso (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"water_available\": true,\n  \"limits_check_passed\": true,\n  \"thermal_sensor_active\": true\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/ping",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "ping"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "03. [Handshake] Obter Configura\u00e7\u00e3o Atual do Dispositivo",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Configura\u00e7\u00e3o obtida com sucesso (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(data.config_version).to.be.a(\"number\");",
+                      "});",
+                      "if (data.config_version !== undefined) {",
+                      "    pm.collectionVariables.set(\"configVersion\", data.config_version);",
+                      "    console.log(\"[ESP32] Config Version obtida:\", data.config_version);",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/configuration",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "configuration"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "04. [Handshake] Confirmar Aplica\u00e7\u00e3o da Configura\u00e7\u00e3o (NVS Ack)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Configura\u00e7\u00e3o confirmada e sincronizada (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(data.configuration_sync.state).to.eql(\"synced\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"config_version\": {{configVersion}},\n  \"applied\": true,\n  \"checksum\": \"sha256_nvs_verified_001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/configuration/ack",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "configuration",
+                    "ack"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fase 2: Varredura T\u00e9rmica & Detec\u00e7\u00e3o de Hotspots (Inspe\u00e7\u00e3o Agendada)",
+          "description": "O firmware aciona o motor de passo e o MLX90640. Realiza a varredura f\u00edsica a passos de 2 cm, calculando baseline e candidatos localmente. Transmite as medi\u00e7\u00f5es em lotes <= 10 e finaliza a inspe\u00e7\u00e3o registrando a anomalia confirmada no backend.",
+          "item": [
+            {
+              "name": "05. [Varredura] Enviar Lote 1: Posi\u00e7\u00f5es X = 0.0cm a 4.0cm",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const inspId = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "pm.collectionVariables.set(\"inspectionSourceEventId\", inspId);",
+                      "const m1 = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "const m2 = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "pm.collectionVariables.set(\"measSourceId_1\", m1);",
+                      "pm.collectionVariables.set(\"measSourceId_2\", m2);",
+                      "console.log(\"[ESP32] Nova Inspe\u00e7\u00e3o iniciada:\", inspId);"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Lote 1 ingerido com sucesso (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"inspection_source_event_id\": \"{{inspectionSourceEventId}}\",\n  \"inspection_type\": \"scheduled\",\n  \"scheduled_for\": \"{{$isoTimestamp}}\",\n  \"batch\": [\n    {\n      \"source_event_id\": \"{{measSourceId_1}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 0.0,\n      \"max_temperature_c\": 35.4,\n      \"hotspot_detected\": false,\n      \"voltage_v\": 18.5,\n      \"current_a\": 4.2,\n      \"power_w\": 77.7,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    },\n    {\n      \"source_event_id\": \"{{measSourceId_2}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 2.0,\n      \"max_temperature_c\": 35.8,\n      \"hotspot_detected\": false,\n      \"voltage_v\": 18.5,\n      \"current_a\": 4.2,\n      \"power_w\": 77.7,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/telemetry",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "telemetry"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "06. [Varredura] Enviar Lote 2: Posi\u00e7\u00f5es X = 4.0cm e 6.0cm (Candidatos a Hotspot)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const m3 = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "const m4 = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "pm.collectionVariables.set(\"measSourceId_3\", m3);",
+                      "pm.collectionVariables.set(\"measSourceId_4\", m4);"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Lote 2 ingerido com sucesso (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"inspection_source_event_id\": \"{{inspectionSourceEventId}}\",\n  \"inspection_type\": \"scheduled\",\n  \"scheduled_for\": \"{{$isoTimestamp}}\",\n  \"batch\": [\n    {\n      \"source_event_id\": \"{{measSourceId_3}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 4.0,\n      \"max_temperature_c\": 58.4,\n      \"hotspot_detected\": true,\n      \"voltage_v\": 18.2,\n      \"current_a\": 3.9,\n      \"power_w\": 70.98,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        58.4,\n        58.4,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        58.4,\n        58.4,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    },\n    {\n      \"source_event_id\": \"{{measSourceId_4}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 6.0,\n      \"max_temperature_c\": 57.9,\n      \"hotspot_detected\": true,\n      \"voltage_v\": 18.1,\n      \"current_a\": 3.9,\n      \"power_w\": 70.59,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        57.9,\n        57.9,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        57.9,\n        57.9,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/telemetry",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "telemetry"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "07. [Varredura] Finalizar Inspe\u00e7\u00e3o com Baseline & Hotspot Confirmado",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Inspe\u00e7\u00e3o finalizada com sucesso (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(data.latest_inspection.inspection.status).to.eql(\"completed\");",
+                      "    pm.expect(data.latest_inspection.inspection.baseline_temperature_c).to.eql(35.0);",
+                      "    pm.expect(data.latest_inspection.confirmed_anomalies).to.be.an(\"array\").with.lengthOf(1);",
+                      "    pm.expect(data.latest_inspection.confirmed_anomalies[0].status).to.eql(\"open\");",
+                      "});",
+                      "if (data.latest_inspection && data.latest_inspection.inspection) {",
+                      "    pm.collectionVariables.set(\"inspectionId\", data.latest_inspection.inspection.id);",
+                      "    console.log(\"[ESP32] Inspection ID gravado:\", data.latest_inspection.inspection.id);",
+                      "}",
+                      "if (data.latest_inspection && data.latest_inspection.confirmed_anomalies.length > 0) {",
+                      "    pm.collectionVariables.set(\"anomalyEventId\", data.latest_inspection.confirmed_anomalies[0].id);",
+                      "    console.log(\"[ESP32] Anomaly Event ID capturado para lavagem:\", data.latest_inspection.confirmed_anomalies[0].id);",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"baseline_temperature_c\": 35.0,\n  \"finished_at\": \"{{$isoTimestamp}}\",\n  \"confirmed_hotspots\": [\n    {\n      \"source_event_id\": \"{{$guid}}\",\n      \"global_x_position_cm\": 5.0,\n      \"row_index\": 12,\n      \"max_temperature_c\": 58.4,\n      \"detected_at\": \"{{$isoTimestamp}}\",\n      \"origin_measurement_event_id\": \"{{measSourceId_3}}\",\n      \"confirming_event_ids\": [\n        \"{{measSourceId_3}}\",\n        \"{{measSourceId_4}}\"\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/inspections/{{inspectionSourceEventId}}/finalize",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "inspections",
+                    "{{inspectionSourceEventId}}",
+                    "finalize"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fase 3: Cen\u00e1rio A - Lavagem Conclu\u00edda com Sucesso & Resolu\u00e7\u00e3o T\u00e9rmica",
+          "description": "A ESP32 aciona a minibomba d'\u00e1gua na posi\u00e7\u00e3o X=5.0 cm, conclui a pulveriza\u00e7\u00e3o, registra a lavagem (status=completed, post_cleaning_result=pending), aguarda a dissipa\u00e7\u00e3o t\u00e9rmica e executa a inspe\u00e7\u00e3o de verifica\u00e7\u00e3o. A finaliza\u00e7\u00e3o sem hotspots resolve a anomalia.",
+          "item": [
+            {
+              "name": "08. [Cen\u00e1rio A] Registrar Relat\u00f3rio de Lavagem Conclu\u00edda",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Lavagem conclu\u00edda registrada (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "    pm.expect(data.cleaning.status).to.eql(\"completed\");",
+                      "    pm.expect(data.cleaning.post_cleaning_result).to.eql(\"pending\");",
+                      "});",
+                      "if (data.cleaning && data.cleaning.id) {",
+                      "    pm.collectionVariables.set(\"cleaningOperationId\", data.cleaning.id);",
+                      "    console.log(\"[ESP32] Cleaning Operation ID gravado para verifica\u00e7\u00e3o:\", data.cleaning.id);",
+                      "}"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_x_position_cm\": 5.0,\n  \"pump_actuated\": true,\n  \"attempt_number\": 1,\n  \"duration_seconds\": 45.0,\n  \"estimated_water_volume_ml\": 80.0,\n  \"status\": \"completed\",\n  \"post_cleaning_result\": \"pending\",\n  \"anomaly_event_id\": \"{{anomalyEventId}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/cleanings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "cleanings"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "09. [Cen\u00e1rio A] Telemetria de Verifica\u00e7\u00e3o P\u00f3s-Lavagem (Temperatura Normalizada)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const verifInspId = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "pm.collectionVariables.set(\"verifInspectionSourceEventId\", verifInspId);",
+                      "pm.collectionVariables.set(\"verifMeasSourceId_1\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "pm.collectionVariables.set(\"verifMeasSourceId_2\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "console.log(\"[ESP32] Inspe\u00e7\u00e3o de Verifica\u00e7\u00e3o iniciada:\", verifInspId);"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Telemetria de verifica\u00e7\u00e3o aceita (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"inspection_source_event_id\": \"{{verifInspectionSourceEventId}}\",\n  \"inspection_type\": \"verification\",\n  \"cleaning_operation_id\": \"{{cleaningOperationId}}\",\n  \"batch\": [\n    {\n      \"source_event_id\": \"{{verifMeasSourceId_1}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 4.0,\n      \"max_temperature_c\": 35.8,\n      \"hotspot_detected\": false,\n      \"voltage_v\": 18.5,\n      \"current_a\": 4.2,\n      \"power_w\": 77.7,\n      \"thermal_frame\": [\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        null,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        null,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0\n      ]\n    },\n    {\n      \"source_event_id\": \"{{verifMeasSourceId_2}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 6.0,\n      \"max_temperature_c\": 35.6,\n      \"hotspot_detected\": false,\n      \"voltage_v\": 18.5,\n      \"current_a\": 4.2,\n      \"power_w\": 77.7,\n      \"thermal_frame\": [\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        null,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        null,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/telemetry",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "telemetry"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "10. [Cen\u00e1rio A] Finalizar Verifica\u00e7\u00e3o - Anomalia Resolvida (Zero Hotspots)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Verifica\u00e7\u00e3o finalizada com sucesso (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(data.latest_inspection.inspection.status).to.eql(\"completed\");",
+                      "    pm.expect(data.latest_inspection.inspection.type).to.eql(\"verification\");",
+                      "    pm.expect(data.latest_inspection.confirmed_anomalies).to.be.an(\"array\").with.lengthOf(0);",
+                      "});",
+                      "console.log(\"[ESP32] Sucesso: Anomalia resolvida termicamente e opera\u00e7\u00e3o conclu\u00edda!\");"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"baseline_temperature_c\": 35.0,\n  \"finished_at\": \"{{$isoTimestamp}}\",\n  \"confirmed_hotspots\": []\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/inspections/{{verifInspectionSourceEventId}}/finalize",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "inspections",
+                    "{{verifInspectionSourceEventId}}",
+                    "finalize"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fase 4: Cen\u00e1rio B - Lavagem Interrompida & Hotspot Persistente (Retry Pending)",
+          "description": "Simula lavagem interrompida (status=failed, pump_actuated=true, consumindo 1 tentativa). Na verifica\u00e7\u00e3o p\u00f3s-lavagem, a ESP32 detecta que o hotspot persiste. O backend mant\u00e9m a anomalia como open com retry_pending=true.",
+          "item": [
+            {
+              "name": "11. [Cen\u00e1rio B] Setup de Nova Varredura com Anomalia Ativa",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const inspB = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "pm.collectionVariables.set(\"inspB_id\", inspB);",
+                      "pm.collectionVariables.set(\"mB_1\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "pm.collectionVariables.set(\"mB_2\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Setup Cen\u00e1rio B - Lote ingerido (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"inspection_source_event_id\": \"{{inspB_id}}\",\n  \"inspection_type\": \"scheduled\",\n  \"batch\": [\n    {\n      \"source_event_id\": \"{{mB_1}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 8.0,\n      \"max_temperature_c\": 59.2,\n      \"hotspot_detected\": true,\n      \"voltage_v\": 18.2,\n      \"current_a\": 3.9,\n      \"power_w\": 70.98,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        58.4,\n        58.4,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        58.4,\n        58.4,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    },\n    {\n      \"source_event_id\": \"{{mB_2}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 10.0,\n      \"max_temperature_c\": 58.7,\n      \"hotspot_detected\": true,\n      \"voltage_v\": 18.2,\n      \"current_a\": 3.9,\n      \"power_w\": 70.98,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        57.9,\n        57.9,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        57.9,\n        57.9,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/telemetry",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "telemetry"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "12. [Cen\u00e1rio B] Setup - Finalizar Varredura Gerando Anomalia B",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Anomalia B criada com sucesso (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(data.latest_inspection.confirmed_anomalies).to.be.an(\"array\").with.lengthOf(1);",
+                      "});",
+                      "pm.collectionVariables.set(\"anomalyEventId_B\", data.latest_inspection.confirmed_anomalies[0].id);"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"baseline_temperature_c\": 35.0,\n  \"finished_at\": \"{{$isoTimestamp}}\",\n  \"confirmed_hotspots\": [\n    {\n      \"source_event_id\": \"{{$guid}}\",\n      \"global_x_position_cm\": 9.0,\n      \"row_index\": 10,\n      \"max_temperature_c\": 59.2,\n      \"detected_at\": \"{{$isoTimestamp}}\",\n      \"origin_measurement_event_id\": \"{{mB_1}}\",\n      \"confirming_event_ids\": [\n        \"{{mB_1}}\",\n        \"{{mB_2}}\"\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/inspections/{{inspB_id}}/finalize",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "inspections",
+                    "{{inspB_id}}",
+                    "finalize"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "13. [Cen\u00e1rio B] Relat\u00f3rio de Lavagem Interrompida (Tentativa 1 Consumida)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Lavagem interrompida registrada (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "    pm.expect(data.cleaning.status).to.eql(\"failed\");",
+                      "    pm.expect(data.cleaning.pump_actuated).to.eql(true);",
+                      "    pm.expect(data.cleaning.post_cleaning_result).to.eql(\"pending\");",
+                      "});",
+                      "pm.collectionVariables.set(\"cleaningOperationId_B\", data.cleaning.id);"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"target_x_position_cm\": 9.0,\n  \"pump_actuated\": true,\n  \"attempt_number\": 1,\n  \"duration_seconds\": 14.0,\n  \"estimated_water_volume_ml\": 25.0,\n  \"status\": \"failed\",\n  \"failure_reason\": \"Water pressure dropped below minimum safety threshold during cycle\",\n  \"post_cleaning_result\": \"pending\",\n  \"anomaly_event_id\": \"{{anomalyEventId_B}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/cleanings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "cleanings"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "14. [Cen\u00e1rio B] Telemetria de Verifica\u00e7\u00e3o P\u00f3s-Interrup\u00e7\u00e3o (Hotspot Persiste)",
+              "event": [
+                {
+                  "listen": "prerequest",
+                  "script": {
+                    "exec": [
+                      "const verifB = pm.variables.replaceIn(\"{{$guid}}\");",
+                      "pm.collectionVariables.set(\"verifB_InspId\", verifB);",
+                      "pm.collectionVariables.set(\"verifB_m1\", pm.variables.replaceIn(\"{{$guid}}\"));",
+                      "pm.collectionVariables.set(\"verifB_m2\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                    ],
+                    "type": "text/javascript"
+                  }
+                },
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Telemetria verifica\u00e7\u00e3o p\u00f3s-interrup\u00e7\u00e3o aceita (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"inspection_source_event_id\": \"{{verifB_InspId}}\",\n  \"inspection_type\": \"verification\",\n  \"cleaning_operation_id\": \"{{cleaningOperationId_B}}\",\n  \"batch\": [\n    {\n      \"source_event_id\": \"{{verifB_m1}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 8.0,\n      \"max_temperature_c\": 58.0,\n      \"hotspot_detected\": true,\n      \"voltage_v\": 18.2,\n      \"current_a\": 3.9,\n      \"power_w\": 70.98,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        58.4,\n        58.4,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        58.4,\n        58.4,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    },\n    {\n      \"source_event_id\": \"{{verifB_m2}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 10.0,\n      \"max_temperature_c\": 57.5,\n      \"hotspot_detected\": true,\n      \"voltage_v\": 18.2,\n      \"current_a\": 3.9,\n      \"power_w\": 70.98,\n      \"thermal_frame\": [\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        null,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        57.9,\n        57.9,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        57.9,\n        57.9,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2,\n        35.3,\n        35.4,\n        35.0,\n        35.1,\n        35.2\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/telemetry",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "telemetry"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "15. [Cen\u00e1rio B] Finalizar Verifica\u00e7\u00e3o - Hotspot Persiste (Retry Pending)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Verifica\u00e7\u00e3o p\u00f3s-interrup\u00e7\u00e3o mant\u00e9m anomalia open com retry_pending (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    pm.expect(data.latest_inspection.inspection.status).to.eql(\"completed\");",
+                      "    pm.expect(data.latest_inspection.confirmed_anomalies).to.be.an(\"array\").with.lengthOf(1);",
+                      "    var anom = data.latest_inspection.confirmed_anomalies[0];",
+                      "    pm.expect(anom.status).to.eql(\"open\");",
+                      "    pm.expect(anom.retry_pending).to.eql(true);",
+                      "    pm.expect(anom.actuated_attempts_count).to.eql(1);",
+                      "});",
+                      "console.log(\"[ESP32] Sucesso: Anomalia permanece aberta com inten\u00e7\u00e3o de retentativa (retry_pending=true)!\");"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"baseline_temperature_c\": 35.0,\n  \"finished_at\": \"{{$isoTimestamp}}\",\n  \"confirmed_hotspots\": [\n    {\n      \"source_event_id\": \"{{$guid}}\",\n      \"global_x_position_cm\": 9.0,\n      \"row_index\": 10,\n      \"max_temperature_c\": 58.0,\n      \"detected_at\": \"{{$isoTimestamp}}\",\n      \"origin_measurement_event_id\": \"{{verifB_m1}}\",\n      \"confirming_event_ids\": [\n        \"{{verifB_m1}}\",\n        \"{{verifB_m2}}\"\n      ]\n    }\n  ]\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/inspections/{{verifB_InspId}}/finalize",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "inspections",
+                    "{{verifB_InspId}}",
+                    "finalize"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fase 5: Cen\u00e1rio C - Recusa Antes do Acionamento (Falta d'\u00c1gua no Reservat\u00f3rio)",
+          "description": "O sensor capacitivo detecta que o tanque est\u00e1 vazio (water_available=false). A ESP32 aciona o intertravamento de seguran\u00e7a, recusa a lavagem antes de ligar a bomba. A tentativa n\u00e3o \u00e9 consumida e a anomalia permanece aberta aguardando reabastecimento.",
+          "item": [
+            {
+              "name": "16. [Cen\u00e1rio C] Ping Detectando Reservat\u00f3rio Vazio (water_available = false)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Diagn\u00f3stico de falta d'\u00e1gua reportado (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"water_available\": false,\n  \"limits_check_passed\": true,\n  \"thermal_sensor_active\": true\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/ping",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "ping"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "17. [Cen\u00e1rio C] Relat\u00f3rio de Recusa de Lavagem por Intertravamento F\u00edsico",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "var data = pm.response.json();",
+                      "pm.test(\"Recusa registrada sem acionamento mec\u00e2nico (201 Created)\", function() {",
+                      "    pm.response.to.have.status(201);",
+                      "    pm.expect(data.cleaning.status).to.eql(\"refused\");",
+                      "    pm.expect(data.cleaning.pump_actuated).to.eql(false);",
+                      "    pm.expect(data.cleaning.post_cleaning_result).to.eql(\"pending\");",
+                      "});",
+                      "console.log(\"[ESP32] Sucesso: Intertravamento respeitado! Nenhuma tentativa consumida.\");"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"anomaly_event_id\": \"{{anomalyEventId_B}}\",\n  \"target_x_position_cm\": 9.0,\n  \"pump_actuated\": false,\n  \"status\": \"refused\",\n  \"failure_reason\": \"Capacitive water sensor interlock active (water_available=false)\",\n  \"post_cleaning_result\": \"pending\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/cleanings",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "devices",
+                    "{{moduleId}}",
+                    "cleanings"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Fase 6: Valida\u00e7\u00e3o no Mobile & Visualiza\u00e7\u00e3o em Tempo Real",
+          "description": "Endpoints consumidos pelo aplicativo Flutter (e t\u00e9cnico) para inspecionar visualmente as medi\u00e7\u00f5es individuais por posi\u00e7\u00e3o X, baseline da inspe\u00e7\u00e3o e alertas gerados.",
+          "item": [
+            {
+              "name": "18. [Mobile / App] Consultar \u00daltima Inspe\u00e7\u00e3o com Anomalias Confirmadas",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"\u00daltima inspe\u00e7\u00e3o obtida (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    var data = pm.response.json();",
+                      "    pm.expect(data.inspection).to.be.an(\"object\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/latest-inspection",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "modules",
+                    "{{moduleId}}",
+                    "latest-inspection"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "19. [Mobile / App] Consultar Medi\u00e7\u00f5es Paginadas da Inspe\u00e7\u00e3o (X ASC)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Medi\u00e7\u00f5es da inspe\u00e7\u00e3o retornadas paginadas (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    var data = pm.response.json();",
+                      "    pm.expect(data.measurements).to.be.an(\"array\");",
+                      "    pm.expect(data.pagination).to.be.an(\"object\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/inspections/{{inspectionId}}/measurements?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "modules",
+                    "{{moduleId}}",
+                    "inspections",
+                    "{{inspectionId}}",
+                    "measurements"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "20. [Mobile / App] Consultar Hist\u00f3rico de Lavagens",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Hist\u00f3rico de lavagens retornado (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    var data = pm.response.json();",
+                      "    pm.expect(data.cleanings).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/modules/{{moduleId}}/cleanings?limit=20&offset=0",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "modules",
+                    "{{moduleId}}",
+                    "cleanings"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "offset",
+                      "value": "0"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "21. [Mobile / App] Consultar Alertas de Campo Ativos",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "exec": [
+                      "pm.test(\"Alertas retornados (200 OK)\", function() {",
+                      "    pm.response.to.have.status(200);",
+                      "    var data = pm.response.json();",
+                      "    pm.expect(data.alerts).to.be.an(\"array\");",
+                      "});"
+                    ],
+                    "type": "text/javascript"
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{deviceToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/alerts",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "alerts"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "00 - Pareamento do Dispositivo (ESP32 Claim)",
       "item": [
         {
@@ -792,7 +2035,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"baseline_temperature_c\": 35.0,\n  \"finished_at\": \"{{$isoTimestamp}}\",\n  \"confirmed_hotspots\": [\n    {\n      \"source_event_id\": \"{{$guid}}\",\n      \"global_x_position_cm\": 5.0,\n      \"max_temperature_c\": 58.4,\n      \"origin_measurement_event_id\": \"{{measSourceId_3}}\",\n      \"confirming_event_ids\": [\n        \"{{measSourceId_3}}\",\n        \"{{measSourceId_4}}\"\n      ]\n    }\n  ]\n}"
+              "raw": "{\n  \"baseline_temperature_c\": 35.0,\n  \"finished_at\": \"{{$isoTimestamp}}\",\n  \"confirmed_hotspots\": [\n    {\n      \"source_event_id\": \"{{$guid}}\",\n      \"global_x_position_cm\": 5.0,\n      \"max_temperature_c\": 58.4,\n      \"origin_measurement_event_id\": \"{{measSourceId_3}}\",\n      \"confirming_event_ids\": [\n        \"{{measSourceId_3}}\",\n        \"{{measSourceId_4}}\"\n      ],\n      \"row_index\": 12,\n      \"detected_at\": \"{{$isoTimestamp}}\"\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/inspections/{{inspectionSourceEventId}}/finalize",
@@ -841,7 +2084,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"target_x_position_cm\": 6.0,\n  \"pump_actuated\": true,\n  \"attempt_number\": 1,\n  \"duration_seconds\": 45.0,\n  \"estimated_water_volume_ml\": 80.0,\n  \"status\": \"completed\",\n  \"post_cleaning_result\": \"resolved\",\n  \"anomaly_event_id\": \"{{anomalyEventId}}\"\n}"
+              "raw": "{\n  \"target_x_position_cm\": 6.0,\n  \"pump_actuated\": true,\n  \"attempt_number\": 1,\n  \"duration_seconds\": 45.0,\n  \"estimated_water_volume_ml\": 80.0,\n  \"status\": \"completed\",\n  \"post_cleaning_result\": \"pending\",\n  \"anomaly_event_id\": \"{{anomalyEventId}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/cleanings",
@@ -901,7 +2144,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"target_x_position_cm\": 6.0,\n    \"pump_actuated\": false,\n    \"status\": \"refused\",\n    \"failure_reason\": \"Capacitive water sensor interlock active (water_available=false)\",\n    \"post_cleaning_result\": \"unresolved\"\n}"
+              "raw": "{\n  \"target_x_position_cm\": 6.0,\n  \"pump_actuated\": false,\n  \"status\": \"refused\",\n  \"failure_reason\": \"Capacitive water sensor interlock active (water_available=false)\",\n  \"post_cleaning_result\": \"pending\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/cleanings",
@@ -937,7 +2180,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"inspection_source_event_id\": \"{{$guid}}\",\n  \"inspection_type\": \"verification\",\n  \"cleaning_operation_id\": \"{{cleaningOperationId}}\",\n  \"source_event_id\": \"{{$guid}}\",\n  \"x_position_cm\": 5.0,\n  \"max_temperature_c\": 35.8,\n  \"hotspot_detected\": false,\n  \"voltage_v\": 18.5,\n  \"current_a\": 4.2,\n  \"power_w\": 77.7,\n  \"thermal_frame\": [\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0,\n    35.0\n  ]\n}"
+              "raw": "{\n  \"inspection_source_event_id\": \"{{verifInspectionSourceEventId}}\",\n  \"inspection_type\": \"verification\",\n  \"cleaning_operation_id\": \"{{cleaningOperationId}}\",\n  \"batch\": [\n    {\n      \"source_event_id\": \"{{verifMeasSourceId_1}}\",\n      \"measured_at\": \"{{$isoTimestamp}}\",\n      \"x_position_cm\": 5.0,\n      \"max_temperature_c\": 35.8,\n      \"hotspot_detected\": false,\n      \"voltage_v\": 18.5,\n      \"current_a\": 4.2,\n      \"power_w\": 77.7,\n      \"thermal_frame\": [\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        null,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        null,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0,\n        35.1,\n        35.2,\n        34.8,\n        34.9,\n        35.0\n      ]\n    }\n  ]\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/telemetry",
@@ -954,7 +2197,88 @@
             },
             "description": "Varredura p\u00f3s-lavagem acionada pelo rob\u00f4 associada estritamente \u00e0 cleaning_operation_id existente."
           },
-          "response": []
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const vId = pm.variables.replaceIn(\"{{$guid}}\");",
+                  "pm.collectionVariables.set(\"verifInspectionSourceEventId\", vId);",
+                  "pm.collectionVariables.set(\"verifMeasSourceId_1\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Verifica\u00e7\u00e3o p\u00f3s-lavagem aceita (201 Created)\", function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "04. Finalizar Inspe\u00e7\u00e3o de Verifica\u00e7\u00e3o (Resolu\u00e7\u00e3o da Anomalia)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var data = pm.response.json();",
+                  "pm.test(\"Verifica\u00e7\u00e3o finalizada com resolu\u00e7\u00e3o da anomalia (200 OK)\", function() {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(data.latest_inspection.inspection.status).to.eql(\"completed\");",
+                  "    pm.expect(data.latest_inspection.inspection.type).to.eql(\"verification\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{deviceToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"baseline_temperature_c\": 35.0,\n  \"finished_at\": \"{{$isoTimestamp}}\",\n  \"confirmed_hotspots\": []\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/devices/{{moduleId}}/inspections/{{verifInspectionSourceEventId}}/finalize",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "devices",
+                "{{moduleId}}",
+                "inspections",
+                "{{verifInspectionSourceEventId}}",
+                "finalize"
+              ]
+            }
+          }
         }
       ],
       "description": "Simula o atuador motorizado, bocal aspersor e minibomba executando o protocolo de limpeza."
@@ -1242,6 +2566,61 @@
     },
     {
       "key": "inspectionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "verifInspectionSourceEventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "verifMeasSourceId_1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "verifMeasSourceId_2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "inspB_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mB_1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mB_2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "anomalyEventId_B",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cleaningOperationId_B",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "verifB_InspId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "verifB_m1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "verifB_m2",
       "value": "",
       "type": "string"
     }

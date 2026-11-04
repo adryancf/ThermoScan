@@ -45,6 +45,9 @@ public:
     bool ingestCleaning(const CleaningPayload& /*cleaning*/) override { return false; }
     bool isConnected() const override;
 
+    bool isConfigurationPending() const override { return config_pending_; }
+    void clearConfigurationPending() override { config_pending_ = false; }
+
     bool hadAuthError() const { return auth_error_; }
     void clearAuthError() { auth_error_ = false; }
     bool hadConflictError() const { return conflict_error_; }
@@ -79,6 +82,7 @@ private:
     bool initialized_{false};
     bool auth_error_{false};
     bool conflict_error_{false};
+    bool config_pending_{false};
 
     void appendAuthHeader(HTTPClient& http);
 };

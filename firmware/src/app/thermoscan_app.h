@@ -80,6 +80,13 @@ public:
     const domain::CleaningStateMachine& getCleaningStateMachine() const { return cleaning_sm_; }
     const AppConfig& getConfig() const { return config_; }
 
+    // Configuration sync query and getters
+    bool isConfigUpdatePending() const { return config_update_pending_; }
+    void setConfigUpdatePending(bool pending) { config_update_pending_ = pending; }
+    uint32_t getNextInspectionTime() const { return next_inspection_time_; }
+    void setNextInspectionTime(uint32_t t) { next_inspection_time_ = t; }
+    const std::string& getLastConfigError() const { return last_config_error_; }
+
     // Manual triggers
     void triggerManualInspection();
     void triggerManualCleaning(float target_x_cm);
@@ -122,6 +129,10 @@ private:
     bool manual_inspection_requested_{false};
     bool manual_cleaning_requested_{false};
     float manual_cleaning_target_x_{0.0f};
+
+    bool config_update_pending_{false};
+    bool config_sync_failed_waiting_ping_{false};
+    std::string last_config_error_{};
 
     // State handlers
     void handleBootInit();

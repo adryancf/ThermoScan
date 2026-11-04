@@ -148,14 +148,36 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     serializeJson(doc, requestBody);
 
     int httpCode = http.POST(String(requestBody.c_str()));
-    http.end();
 
     if (httpCode == 401) {
         auth_error_ = true;
+        http.end();
         return false;
     }
 
-    return (httpCode == HTTP_CODE_OK);
+    if (httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        http.end();
+
+        JsonDocument respDoc;
+        if (!deserializeJson(respDoc, response.c_str())) {
+            if (respDoc["configuration_sync"].is<JsonObject>()) {
+                JsonObject sync = respDoc["configuration_sync"];
+                bool is_sync = sync["is_synchronized"] | true;
+                uint32_t latest_ver = sync["latest_version"] | 0;
+                uint32_t applied_ver = sync["applied_version"] | 0;
+                if (!is_sync || (latest_ver > applied_ver)) {
+                    config_pending_ = true;
+                } else {
+                    config_pending_ = false;
+                }
+            }
+        }
+        return true;
+    }
+
+    http.end();
+    return false;
 }
 
 bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
@@ -178,32 +200,6 @@ bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
     http.end();
 
     out_config_json = response.c_str();
-
-    // Parse and cache in NVS if available
-    if (storage_ != nullptr) {
-        JsonDocument doc;
-        if (!deserializeJson(doc, response.c_str())) {
-            uint32_t ver = doc["config_version"] | 0;
-            if (ver > 0) {
-                storage_->saveConfigVersion(ver);
-            }
-            float min_solar = doc["min_solar_angle"] | 30.0f;
-            storage_->saveMinSolarAngle(min_solar);
-            int interval_d = doc["interval_days"] | 7;
-            storage_->saveIntervalDays(interval_d);
-            int ping_s = doc["ping_interval_seconds"] | 300;
-            storage_->savePingIntervalSeconds(ping_s);
-
-            if (doc["geometry"].is<JsonObject>()) {
-                float len = doc["geometry"]["panel_length_cm"] | 100.0f;
-                float width = doc["geometry"]["panel_width_cm"] | 50.0f;
-                int count = doc["geometry"]["panel_count"] | 1;
-                float space = doc["geometry"]["panel_spacing_cm"] | 2.0f;
-                storage_->saveGeometry(len, width, count, space);
-            }
-        }
-    }
-
     return true;
 }
 

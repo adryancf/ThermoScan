@@ -100,6 +100,10 @@ public:
     virtual bool hadAuthError() const { return false; }
     virtual bool isConnected() const = 0;
 
+    // Configuration sync query and reset
+    virtual bool isConfigurationPending() const { return false; }
+    virtual void clearConfigurationPending() {}
+
     // Legacy backward-compat methods
     virtual bool ingestTelemetry(const TelemetryPayload& telemetry) = 0;
     virtual bool ingestCleaning(const CleaningPayload& cleaning) = 0;

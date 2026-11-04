@@ -102,11 +102,19 @@ public:
 class MockStorage : public IStorage {
 public:
     StorageState state{};
+    uint32_t config_version{1};
+    float panel_len{100.0f};
+    float panel_wid{50.0f};
+    int32_t panel_cnt{1};
+    float panel_spc{2.0f};
+    float min_solar{30.0f};
+    int32_t interval_d{7};
+    int32_t ping_s{300};
 
     bool init() override { return true; }
     bool saveModuleId(const std::string& moduleId) override { state.module_id = moduleId; return true; }
     bool getModuleId(std::string& out) override { out = state.module_id; return true; }
-    bool saveConfigVersion(uint32_t version) override { state.config_version = version; return true; }
+    bool saveConfigVersion(uint32_t version) override { state.config_version = version; config_version = version; return true; }
     bool getConfigVersion(uint32_t& out) override { out = state.config_version; return true; }
     bool saveAnomalyEventId(const std::string& eventId) override { state.anomaly_event_id = eventId; return true; }
     bool getAnomalyEventId(std::string& out) override { out = state.anomaly_event_id; return true; }
@@ -120,6 +128,13 @@ public:
     bool getPendingVerification(bool& out) override { out = state.pending_verification; return true; }
     bool saveNextInspectionTimestamp(uint32_t timestamp) override { state.next_inspection_timestamp = timestamp; return true; }
     bool getNextInspectionTimestamp(uint32_t& out) override { out = state.next_inspection_timestamp; return true; }
+    bool saveGeometry(float l, float w, int32_t c, float sp) override {
+        panel_len = l; panel_wid = w; panel_cnt = c; panel_spc = sp;
+        return true;
+    }
+    bool saveMinSolarAngle(float ang) override { min_solar = ang; return true; }
+    bool saveIntervalDays(int32_t d) override { interval_d = d; return true; }
+    bool savePingIntervalSeconds(int32_t s) override { ping_s = s; return true; }
     bool saveAll(const StorageState& s) override { state = s; return true; }
     bool loadAll(StorageState& s) override { s = state; return true; }
     bool clear() override { state = StorageState{}; return true; }
@@ -136,10 +151,22 @@ public:
     uint32_t last_acked_config_version{0};
     CleaningReportInput last_cleaning_report{};
 
+    bool config_pending{false};
+    bool get_config_success{true};
+    std::string config_json_payload{
+        "{\"config_version\":2,\"geometry\":{\"panel_length_cm\":120.0,\"panel_width_cm\":60.0,\"panel_count\":2,\"panel_spacing_cm\":3.0},\"min_solar_angle\":35.0,\"interval_days\":14,\"ping_interval_seconds\":120,\"latitude\":-23.5,\"longitude\":-46.6}"
+    };
+
     bool init() override { return true; }
     bool claimDevice(const std::string&) override { return true; }
     bool sendPing() override { pings_sent++; return true; }
-    bool getConfiguration(std::string& out) override { out = "{\"config_version\":2}"; return true; }
+    bool isConfigurationPending() const override { return config_pending; }
+    void clearConfigurationPending() override { config_pending = false; }
+    bool getConfiguration(std::string& out) override {
+        if (!get_config_success) return false;
+        out = config_json_payload;
+        return true;
+    }
     bool ackConfiguration(uint32_t v) override { last_acked_config_version = v; return true; }
     bool ingestTelemetryBatch(const IngestTelemetryBatchInput&) override { batches_ingested++; return true; }
     bool finalizeInspection(const std::string&, const FinalizeInspectionInput&) override { inspections_finalized++; return true; }
@@ -369,6 +396,9 @@ void test_ack_configuration_called_in_syncing(void) {
     ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
     app.init();
 
+    // Mark pending configuration
+    app.setConfigUpdatePending(true);
+
     // Force transition to SYNCING
     app.triggerManualInspection();
     app.tick(); // SCANNING
@@ -378,7 +408,222 @@ void test_ack_configuration_called_in_syncing(void) {
 
     app.tick(); // Executes handleSyncing() -> fetches config & calls ackConfiguration!
     TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
-    TEST_ASSERT_EQUAL_UINT32(1, cloud.last_acked_config_version);
+    TEST_ASSERT_EQUAL_UINT32(2, cloud.last_acked_config_version);
+}
+
+void test_ping_in_idle_with_pending_config_syncs_and_acks(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_UINT32(1, app.getConfig().config_version);
+
+    // Backend informs via ping that configuration is pending
+    cloud.config_pending = true;
+    time.epoch = 1730000301; // Advance past ping interval (300s)
+
+    app.tick(); // IDLE: sends ping -> detects pending -> transitions to SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.pings_sent);
+
+    app.tick(); // SYNCING: fetches config -> validates -> applies RAM & NVS -> acks -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_UINT32(2, app.getConfig().config_version);
+    TEST_ASSERT_EQUAL_FLOAT(120.0f, app.getConfig().panel_length_cm);
+    TEST_ASSERT_EQUAL_INT32(14, app.getConfig().interval_days);
+    TEST_ASSERT_EQUAL_UINT32(2, storage.config_version);
+    TEST_ASSERT_EQUAL_INT32(14, storage.interval_d);
+    TEST_ASSERT_EQUAL_UINT32(2, cloud.last_acked_config_version);
+    TEST_ASSERT_FALSE(cloud.isConfigurationPending());
+}
+
+void test_interval_days_change_recalculates_next_inspection_time_without_immediate_scan(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+    TEST_ASSERT_EQUAL_INT32(7, app.getConfig().interval_days);
+
+    uint32_t prior_schedule = time.epoch + (7 * 86400);
+    app.setNextInspectionTime(prior_schedule);
+
+    // New configuration changes interval from 7 to 14 days
+    cloud.config_pending = true;
+    time.epoch = 1730000305;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING -> applies -> returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_INT32(14, app.getConfig().interval_days);
+
+    // next_inspection_time_ must be recalculated as now + (14 * 86400)
+    uint32_t expected_next = 1730000305 + (14 * 86400);
+    TEST_ASSERT_EQUAL_UINT32(expected_next, app.getNextInspectionTime());
+
+    // CRITICAL REQUIREMENT: No immediate scan must be triggered!
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+}
+
+void test_ping_in_waiting_verification_marks_pending_without_cooldown_interruption(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // Simulate recovery of a pending verification (spray ended at t=1730000000)
+    storage.state.pending_verification = true;
+    storage.state.spray_ended_timestamp = 1730000000;
+    storage.state.effective_attempts = 1;
+    storage.state.active_hotspot_x_cm = 30.0f;
+    storage.state.baseline_temp_c = 25.0f;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    time.epoch = 1730000050;
+    app.init();
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+
+    // At t=1730000350 (only 350s into 1800s cooldown), a ping occurs with pending config
+    time.epoch = 1730000350;
+    cloud.config_pending = true;
+
+    app.tick(); // handleWaitingVerification executes ping
+
+    // Must remain strictly in WAITING_VERIFICATION!
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    // Config pending flag must be set
+    TEST_ASSERT_TRUE(app.isConfigUpdatePending());
+    // RAM config must NOT be touched
+    TEST_ASSERT_EQUAL_UINT32(1, app.getConfig().config_version);
+    // Ack must NOT be sent
+    TEST_ASSERT_EQUAL_UINT32(0, cloud.last_acked_config_version);
+
+    // Cooldown must continue undisturbed
+    time.epoch = 1730001000;
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+}
+
+void test_return_to_idle_after_verification_triggers_pending_sync(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // SP solar noon equinox is ~1710946800. Spray finished at 1710945000 (14:30 UTC)
+    const uint32_t spray_end = 1710945000;
+    storage.state.pending_verification = true;
+    storage.state.spray_ended_timestamp = spray_end;
+    storage.state.effective_attempts = 1;
+    storage.state.active_hotspot_x_cm = 30.0f;
+    storage.state.baseline_temp_c = 25.0f;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    time.epoch = spray_end + 50;
+    app.init();
+
+    // Trigger pending config during cooldown (at +350s)
+    time.epoch = spray_end + 350;
+    cloud.config_pending = true;
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    TEST_ASSERT_TRUE(app.isConfigUpdatePending());
+
+    // Advance past 1800s cooldown into valid solar window (~15:00 UTC in SP):
+    time.epoch = spray_end + 1850; // 1710946850
+    app.tick(); // WAITING_VERIFICATION -> VERIFYING
+    TEST_ASSERT_EQUAL(AppState::VERIFYING, app.getState());
+
+    // Complete verification scan (mock camera returns uniform 25.0C -> RESOLVED)
+    app.tick(); // VERIFYING -> completes -> transitions to SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    // SYNCING executes: applies the pending configuration that was deferred during cooldown!
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_UINT32(2, app.getConfig().config_version);
+    TEST_ASSERT_EQUAL_UINT32(2, cloud.last_acked_config_version);
+    TEST_ASSERT_FALSE(app.isConfigUpdatePending());
+}
+
+void test_invalid_config_retains_previous_and_does_not_ack(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Malformed/invalid configuration: panel length negative (-100) and solar angle 150 deg (> 90)
+    cloud.config_json_payload = "{\"config_version\":3,\"geometry\":{\"panel_length_cm\":-100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":150.0,\"interval_days\":0,\"ping_interval_seconds\":5}";
+    cloud.config_pending = true;
+    time.epoch = 1730000305;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING: detects invalid params, refuses to apply, does NOT ack, returns to IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_UINT32(1, app.getConfig().config_version); // Retained original v1
+    TEST_ASSERT_EQUAL_UINT32(0, cloud.last_acked_config_version); // No ack sent!
+    TEST_ASSERT_FALSE(app.getLastConfigError().empty());
+}
+
+void test_network_failure_in_get_config_retains_pending_and_returns_idle(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    cloud.config_pending = true;
+    cloud.get_config_success = false; // Simulate HTTP network failure or timeout
+    time.epoch = 1730000305;
+
+    app.tick(); // IDLE -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+
+    app.tick(); // SYNCING: getConfiguration fails -> retains pending flag, no ack, returns IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_UINT32(1, app.getConfig().config_version);
+    TEST_ASSERT_EQUAL_UINT32(0, cloud.last_acked_config_version);
+    TEST_ASSERT_TRUE(app.isConfigUpdatePending()); // Pending retained for next ping!
 }
 
 int main(int argc, char **argv) {
@@ -392,5 +637,11 @@ int main(int argc, char **argv) {
     RUN_TEST(test_cleaning_refusal_without_pump);
     RUN_TEST(test_unsynced_clock_prevents_ping_and_solar_window);
     RUN_TEST(test_ack_configuration_called_in_syncing);
+    RUN_TEST(test_ping_in_idle_with_pending_config_syncs_and_acks);
+    RUN_TEST(test_interval_days_change_recalculates_next_inspection_time_without_immediate_scan);
+    RUN_TEST(test_ping_in_waiting_verification_marks_pending_without_cooldown_interruption);
+    RUN_TEST(test_return_to_idle_after_verification_triggers_pending_sync);
+    RUN_TEST(test_invalid_config_retains_previous_and_does_not_ack);
+    RUN_TEST(test_network_failure_in_get_config_retains_pending_and_returns_idle);
     return UNITY_END();
 }

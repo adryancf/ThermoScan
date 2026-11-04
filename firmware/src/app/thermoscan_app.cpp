@@ -1,6 +1,7 @@
 #include "thermoscan_app.h"
 #include <cmath>
 #include <algorithm>
+#include <ArduinoJson.h>
 
 #if defined(ARDUINO) || defined(ESP32)
 #include <Arduino.h>
@@ -228,9 +229,13 @@ void ThermoscanApp::handleIdle() {
         (now - last_ping_time_) >= static_cast<uint32_t>(config_.ping_interval_seconds)) {
         cloud_->sendPing();
         last_ping_time_ = now;
+        if (cloud_->isConfigurationPending()) {
+            config_update_pending_ = true;
+            config_sync_failed_waiting_ping_ = false;
+        }
     }
 
-    // Check manual override requests
+    // 1. Manual commands have highest priority
     if (manual_inspection_requested_) {
         manual_inspection_requested_ = false;
         state_ = AppState::SCANNING;
@@ -246,7 +251,13 @@ void ThermoscanApp::handleIdle() {
         return;
     }
 
-    // Scheduled inspection evaluation
+    // 2. Pending configuration synchronization
+    if (config_update_pending_ && !config_sync_failed_waiting_ping_) {
+        state_ = AppState::SYNCING;
+        return;
+    }
+
+    // 3. Scheduled inspection evaluation
     if (now > 0 && next_inspection_time_ > 0 && now >= next_inspection_time_) {
         if (checkSolarWindow()) {
             state_ = AppState::SCANNING;
@@ -545,6 +556,10 @@ void ThermoscanApp::handleWaitingVerification() {
         (now - last_ping_time_) >= static_cast<uint32_t>(config_.ping_interval_seconds)) {
         cloud_->sendPing();
         last_ping_time_ = now;
+        if (cloud_->isConfigurationPending()) {
+            config_update_pending_ = true;
+            config_sync_failed_waiting_ping_ = false;
+        }
     }
 }
 
@@ -679,13 +694,158 @@ void ThermoscanApp::handleVerifying() {
 }
 
 void ThermoscanApp::handleSyncing() {
-    if (cloud_ != nullptr && cloud_->isConnected()) {
-        cloud_->sendPing();
-        std::string cfg_json;
-        if (cloud_->getConfiguration(cfg_json)) {
-            cloud_->ackConfiguration(config_.config_version);
+    // Only fetch configuration if a pending update was marked
+    if (!config_update_pending_) {
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    if (cloud_ == nullptr || !cloud_->isConnected()) {
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    std::string cfg_json;
+    if (!cloud_->getConfiguration(cfg_json)) {
+        // getConfiguration failed: keep pending flag true, return to IDLE, retry on next ping
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, cfg_json.c_str());
+    if (err) {
+        last_config_error_ = "json_parse_error";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    // 1. Version validation
+    uint32_t ver = doc["config_version"] | 0;
+    if (ver == 0) {
+        last_config_error_ = "invalid_version";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    // 2. Geometry validation
+    if (!doc["geometry"].is<JsonObject>()) {
+        last_config_error_ = "missing_geometry";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    float len = doc["geometry"]["panel_length_cm"] | 0.0f;
+    float width = doc["geometry"]["panel_width_cm"] | 0.0f;
+    int32_t count = doc["geometry"]["panel_count"] | 0;
+    float space = doc["geometry"]["panel_spacing_cm"] | -1.0f;
+
+    if (len <= 0.0f || width <= 0.0f || count < 1 || space < 0.0f) {
+        last_config_error_ = "invalid_geometry";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    // 3. Solar angle validation (0 to 90 degrees)
+    float min_solar = doc["min_solar_angle"] | -1.0f;
+    if (min_solar < 0.0f || min_solar > 90.0f) {
+        last_config_error_ = "invalid_solar_angle";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    // 4. Interval validation (>= 1 day)
+    int32_t interval_d = doc["interval_days"] | 0;
+    if (interval_d < 1) {
+        last_config_error_ = "invalid_interval";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    // 5. Ping interval validation (>= 10 seconds)
+    int32_t ping_s = doc["ping_interval_seconds"] | 0;
+    if (ping_s < 10) {
+        last_config_error_ = "invalid_ping_interval";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    // 6. Coordinates validation (optional latitude -90..90, longitude -180..180)
+    float lat = config_.latitude;
+    if (doc["latitude"].is<float>()) {
+        lat = doc["latitude"].as<float>();
+        if (lat < -90.0f || lat > 90.0f) {
+            last_config_error_ = "invalid_latitude";
+            config_sync_failed_waiting_ping_ = true;
+            state_ = AppState::IDLE;
+            return;
         }
     }
+
+    float lon = config_.longitude;
+    if (doc["longitude"].is<float>()) {
+        lon = doc["longitude"].as<float>();
+        if (lon < -180.0f || lon > 180.0f) {
+            last_config_error_ = "invalid_longitude";
+            config_sync_failed_waiting_ping_ = true;
+            state_ = AppState::IDLE;
+            return;
+        }
+    }
+
+    // All parameters validated successfully!
+    last_config_error_.clear();
+    const bool interval_changed = (interval_d != config_.interval_days);
+
+    // Apply to RAM
+    config_.config_version = ver;
+    config_.panel_length_cm = len;
+    config_.panel_width_cm = width;
+    config_.panel_count = count;
+    config_.panel_spacing_cm = space;
+    config_.min_solar_angle = min_solar;
+    config_.interval_days = interval_d;
+    config_.ping_interval_seconds = ping_s;
+    config_.latitude = lat;
+    config_.longitude = lon;
+
+    // Apply to NVS Flash
+    if (storage_ != nullptr) {
+        storage_->saveConfigVersion(ver);
+        storage_->saveGeometry(len, width, count, space);
+        storage_->saveMinSolarAngle(min_solar);
+        storage_->saveIntervalDays(interval_d);
+        storage_->savePingIntervalSeconds(ping_s);
+    }
+
+    // Recalculate scheduled inspection timestamp only if interval changed
+    if (interval_changed) {
+        const uint32_t now = getCurrentTime();
+        if (now > 0) {
+            next_inspection_time_ = now + static_cast<uint32_t>(config_.interval_days * 86400);
+        } else {
+            next_inspection_time_ = 0;
+        }
+        if (storage_ != nullptr) {
+            storage_->saveNextInspectionTimestamp(next_inspection_time_);
+        }
+    }
+
+    // Send acknowledgment only after successful RAM & NVS persistence
+    cloud_->ackConfiguration(config_.config_version);
+    cloud_->clearConfigurationPending();
+
+    config_update_pending_ = false;
+    config_sync_failed_waiting_ping_ = false;
     state_ = AppState::IDLE;
 }
 

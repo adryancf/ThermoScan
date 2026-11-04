@@ -14,6 +14,7 @@ import 'package:thermoscan/features/modules/presentation/module_details_screen.d
 import 'package:thermoscan/features/modules/presentation/module_hardware_handshake_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_installation_wizard_screen.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/radiometric_scan_card.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
 
 class _FakeAuthController extends StateNotifier<AuthState>
@@ -745,6 +746,733 @@ void main() {
       expect(find.text('X = 30.0 cm'), findsOneWidget);
       expect(find.text('Page 2 of 2 (20 items)'), findsOneWidget);
     });
+
+    testWidgets(
+      '1. Spatial ordering sorts measurements by x_position_cm ASC and tie-breaks by measured_at ASC and id ASC',
+      (tester) async {
+        const mod = PvModule(
+          id: 'mod-sort',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array Sort',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 20.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        // Input provided in measured_at DESC order with tie at X = 4.0 cm
+        const mDesc1 = ModuleMeasurement(
+          id: 'm-z',
+          moduleId: 'mod-sort',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-4',
+          measuredAt: '2026-11-03T12:00:30Z',
+          xPositionCm: 6.0,
+          maxTemperatureC: 43.0,
+          receivedAt: '2026-11-03T12:00:35Z',
+        );
+        const mDesc2 = ModuleMeasurement(
+          id: 'm-b',
+          moduleId: 'mod-sort',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-3',
+          measuredAt: '2026-11-03T12:00:20Z',
+          xPositionCm: 4.0,
+          maxTemperatureC: 42.0,
+          receivedAt: '2026-11-03T12:00:25Z',
+        );
+        const mDesc3 = ModuleMeasurement(
+          id: 'm-c',
+          moduleId: 'mod-sort',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-2',
+          measuredAt: '2026-11-03T12:00:10Z',
+          xPositionCm: 4.0,
+          maxTemperatureC: 41.0,
+          receivedAt: '2026-11-03T12:00:15Z',
+        );
+        const mDesc4 = ModuleMeasurement(
+          id: 'm-a',
+          moduleId: 'mod-sort',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-03T12:00:00Z',
+          xPositionCm: 0.0,
+          maxTemperatureC: 40.0,
+          receivedAt: '2026-11-03T12:00:05Z',
+        );
+
+        final sorted = sortMeasurementsSpatially([
+          mDesc1,
+          mDesc2,
+          mDesc3,
+          mDesc4,
+        ]);
+        expect(sorted.map((m) => m.id).toList(), [
+          'm-a', // X = 0.0
+          'm-c', // X = 4.0, earlier measuredAt (12:00:10Z)
+          'm-b', // X = 4.0, later measuredAt (12:00:20Z)
+          'm-z', // X = 6.0
+        ]);
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod,
+                  measurements: [mDesc1, mDesc2, mDesc3, mDesc4],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // F1 is X=0.0 cm, F2 & F3 are X=4.0 cm, F4 is X=6.0 cm
+        expect(find.text('F1 (X=0.0 cm)'), findsOneWidget);
+        expect(find.text('F2 (X=4.0 cm)'), findsOneWidget);
+        expect(find.text('F3 (X=4.0 cm)'), findsOneWidget);
+        expect(find.text('F4 (X=6.0 cm)'), findsOneWidget);
+        // Verify centered FOV span [X-2.5, X+2.5]
+        expect(find.textContaining('Span: -2.5-2.5 cm'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '2 & 3. Anomaly association by origin_measurement_id and confirming_measurement_ids',
+      (tester) async {
+        const mod = PvModule(
+          id: 'mod-assoc',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array Assoc',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 20.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        const f1 = ModuleMeasurement(
+          id: 'meas-origin',
+          moduleId: 'mod-assoc',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-03T12:00:00Z',
+          xPositionCm: 4.0,
+          maxTemperatureC: 61.0,
+          receivedAt: '2026-11-03T12:00:05Z',
+        );
+        const f2 = ModuleMeasurement(
+          id: 'meas-confirming',
+          moduleId: 'mod-assoc',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-2',
+          measuredAt: '2026-11-03T12:00:10Z',
+          xPositionCm: 6.0,
+          maxTemperatureC: 63.0,
+          receivedAt: '2026-11-03T12:00:15Z',
+        );
+        const f3 = ModuleMeasurement(
+          id: 'meas-unrelated',
+          moduleId: 'mod-assoc',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-3',
+          measuredAt: '2026-11-03T12:00:20Z',
+          xPositionCm: 6.0, // Same X as anomaly, but NOT in origin/confirming IDs!
+          maxTemperatureC: 39.0,
+          receivedAt: '2026-11-03T12:00:25Z',
+        );
+
+        const anomaly = ConfirmedAnomaly(
+          id: 'anom-1',
+          moduleId: 'mod-assoc',
+          originMeasurementId: 'meas-origin',
+          confirmingMeasurementIds: ['meas-confirming'],
+          sourceEventId: 'evt-anom-1',
+          xPositionCm: 6.0,
+          detectedAt: '2026-11-03T12:00:15Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        );
+
+        // Pure association checks:
+        expect(isFrameAssociatedWithAnomaly(f1, anomaly), isTrue);
+        expect(isFrameAssociatedWithAnomaly(f2, anomaly), isTrue);
+        // f3 is at X=6.0, but since explicit IDs exist on anomaly, f3 is NOT associated!
+        expect(isFrameAssociatedWithAnomaly(f3, anomaly), isFalse);
+
+        const insp = LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-1',
+            moduleId: 'mod-assoc',
+            sourceEventId: 'evt-insp-1',
+            type: 'scheduled',
+            scheduledFor: '2026-11-03T12:00:00Z',
+            status: 'completed',
+            baselineTemperatureC: 35.0,
+            createdAt: '2026-11-03T12:00:00Z',
+            updatedAt: '2026-11-03T12:00:00Z',
+          ),
+          totalMeasurements: 3,
+          confirmedAnomalies: [anomaly],
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod,
+                  measurements: [f1, f2, f3],
+                  latestInspection: insp,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // F1 and F2 have H1 badges, F3 does not
+        expect(find.byKey(const Key('frame_1_badge_H1')), findsOneWidget);
+        expect(find.byKey(const Key('frame_2_badge_H1')), findsOneWidget);
+        expect(find.byKey(const Key('frame_3_badge_H1')), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '4. Multiple anomalies render independent rail markers and highlight shared frame with both H1 and H2',
+      (tester) async {
+        const mod = PvModule(
+          id: 'mod-multi',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array Multi',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 20.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        const f1 = ModuleMeasurement(
+          id: 'm-1',
+          moduleId: 'mod-multi',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-03T12:00:00Z',
+          xPositionCm: 4.0,
+          maxTemperatureC: 60.0,
+          receivedAt: '2026-11-03T12:00:05Z',
+        );
+        const fShared = ModuleMeasurement(
+          id: 'm-shared',
+          moduleId: 'mod-multi',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-2',
+          measuredAt: '2026-11-03T12:00:10Z',
+          xPositionCm: 6.0,
+          maxTemperatureC: 64.0,
+          receivedAt: '2026-11-03T12:00:15Z',
+        );
+        const f3 = ModuleMeasurement(
+          id: 'm-3',
+          moduleId: 'mod-multi',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-3',
+          measuredAt: '2026-11-03T12:00:20Z',
+          xPositionCm: 8.0,
+          maxTemperatureC: 62.0,
+          receivedAt: '2026-11-03T12:00:25Z',
+        );
+
+        const anom1 = ConfirmedAnomaly(
+          id: 'anom-1',
+          moduleId: 'mod-multi',
+          originMeasurementId: 'm-1',
+          confirmingMeasurementIds: ['m-1', 'm-shared'],
+          sourceEventId: 'evt-a1',
+          xPositionCm: 4.5,
+          detectedAt: '2026-11-03T12:00:15Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        );
+        const anom2 = ConfirmedAnomaly(
+          id: 'anom-2',
+          moduleId: 'mod-multi',
+          originMeasurementId: 'm-shared',
+          confirmingMeasurementIds: ['m-shared', 'm-3'],
+          sourceEventId: 'evt-a2',
+          xPositionCm: 7.5,
+          detectedAt: '2026-11-03T12:00:25Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        );
+
+        const insp = LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-1',
+            moduleId: 'mod-multi',
+            sourceEventId: 'evt-insp-1',
+            type: 'scheduled',
+            scheduledFor: '2026-11-03T12:00:00Z',
+            status: 'completed',
+            baselineTemperatureC: 35.0,
+            createdAt: '2026-11-03T12:00:00Z',
+            updatedAt: '2026-11-03T12:00:00Z',
+          ),
+          totalMeasurements: 3,
+          confirmedAnomalies: [anom1, anom2],
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod,
+                  measurements: [f1, fShared, f3],
+                  latestInspection: insp,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Both hotspot markers are rendered on the rail
+        expect(find.text('HOTSPOT 4.5cm'), findsOneWidget);
+        expect(find.text('HOTSPOT 7.5cm'), findsOneWidget);
+
+        // F1 has H1 only
+        expect(find.byKey(const Key('frame_1_badge_H1')), findsOneWidget);
+        expect(find.byKey(const Key('frame_1_badge_H2')), findsNothing);
+
+        // F2 (m-shared) has BOTH H1 and H2 badges!
+        expect(find.byKey(const Key('frame_2_badge_H1')), findsOneWidget);
+        expect(find.byKey(const Key('frame_2_badge_H2')), findsOneWidget);
+
+        // F3 has H2 only
+        expect(find.byKey(const Key('frame_3_badge_H1')), findsNothing);
+        expect(find.byKey(const Key('frame_3_badge_H2')), findsOneWidget);
+      },
+    );
+
+    test(
+      '5. Fallback FOV association uses half-open interval [X-2.5, X+2.5) without false boundary match at X+2.5 or X+5.0',
+      () {
+        const frameAtZero = ModuleMeasurement(
+          id: 'm-0',
+          moduleId: 'mod-1',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-0',
+          measuredAt: '2026-11-03T12:00:00Z',
+          xPositionCm: 0.0,
+          maxTemperatureC: 45.0,
+          receivedAt: '2026-11-03T12:00:05Z',
+        );
+
+        // Anomaly without IDs at X = 5.0 cm (old upper bound X + 5.0)
+        const anomalyAt5 = ConfirmedAnomaly(
+          id: 'a-5',
+          moduleId: 'mod-1',
+          originMeasurementId: '',
+          confirmingMeasurementIds: [],
+          sourceEventId: 'evt-a5',
+          xPositionCm: 5.0,
+          detectedAt: '2026-11-03T12:00:10Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        );
+
+        // Anomaly without IDs at X = 2.5 cm (exact upper boundary X + 2.5)
+        const anomalyAt2_5 = ConfirmedAnomaly(
+          id: 'a-2.5',
+          moduleId: 'mod-1',
+          originMeasurementId: '',
+          confirmingMeasurementIds: [],
+          sourceEventId: 'evt-a25',
+          xPositionCm: 2.5,
+          detectedAt: '2026-11-03T12:00:10Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        );
+
+        // Anomaly without IDs at X = -2.5 cm (lower inclusive boundary X - 2.5)
+        const anomalyAtMinus2_5 = ConfirmedAnomaly(
+          id: 'a-m2.5',
+          moduleId: 'mod-1',
+          originMeasurementId: '',
+          confirmingMeasurementIds: [],
+          sourceEventId: 'evt-am25',
+          xPositionCm: -2.5,
+          detectedAt: '2026-11-03T12:00:10Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        );
+
+        expect(isFrameAssociatedWithAnomaly(frameAtZero, anomalyAt5), isFalse);
+        expect(
+          isFrameAssociatedWithAnomaly(frameAtZero, anomalyAt2_5),
+          isFalse,
+        );
+        expect(
+          isFrameAssociatedWithAnomaly(frameAtZero, anomalyAtMinus2_5),
+          isTrue,
+        );
+      },
+    );
+
+    testWidgets(
+      '6. Panorama renders valid thermal_frame, complements invalid pixels (null/NaN) from neighbor overlap, and uses neutral fallback (never 0.0°C)',
+      (tester) async {
+        // Frame 1 at X = 0.0 cm (covers [-2.5, +2.5]):
+        // Has null at X = -2.0 cm (non-overlapping region -> unresolvedInvalid)
+        // and NaN at X = +0.5 cm (overlapping region with Frame 2 -> complemented by Frame 2!)
+        final frame1Pixels = List<double?>.filled(768, 35.0);
+        // At X = -2.0 cm (col = (( -2.0 - (-2.5) ) / 5.0 * 32).floor() = 3), row 0 -> null
+        frame1Pixels[3] = null;
+        // At X = +0.5 cm (col = (( 0.5 - (-2.5) ) / 5.0 * 32).floor() = 19), row 0 -> NaN
+        frame1Pixels[19] = double.nan;
+
+        // Frame 2 at X = 2.0 cm (covers [-0.5, +4.5]): all valid 48.0°C
+        final frame2Pixels = List<double?>.filled(768, 48.0);
+
+        final m1 = ModuleMeasurement(
+          id: 'm-1',
+          moduleId: 'mod-1',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-03T12:00:00Z',
+          xPositionCm: 0.0,
+          maxTemperatureC: 35.0,
+          thermalFrame: frame1Pixels,
+          receivedAt: '2026-11-03T12:00:05Z',
+        );
+        final m2 = ModuleMeasurement(
+          id: 'm-2',
+          moduleId: 'mod-1',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-2',
+          measuredAt: '2026-11-03T12:00:10Z',
+          xPositionCm: 2.0,
+          maxTemperatureC: 48.0,
+          thermalFrame: frame2Pixels,
+          receivedAt: '2026-11-03T12:00:15Z',
+        );
+
+        final panorama = ThermalPanoramaData.fromMeasurements(
+          measurements: [m1, m2],
+          panelLengthCm: 20.0,
+        );
+
+        // Verify minValidTempC is 35.0 (NEVER 0.0 from null/NaN!) and maxValidTempC is 48.0
+        expect(panorama.minValidTempC, 35.0);
+        expect(panorama.maxValidTempC, 48.0);
+        expect(panorama.totalInvalidPixelsInFrames, 2);
+
+        // At X = +0.5 cm, row 0: Frame 1 is closer (|0.5 - 0.0| = 0.5 < |0.5 - 2.0| = 1.5),
+        // but Frame 1 has NaN at col 19, so Frame 2 complements it with 48.0°C!
+        final complementedRes = panorama.resolveAt(0.5, 0);
+        expect(complementedRes.status, ThermalCellStatus.complemented);
+        expect(complementedRes.temperatureC, 48.0);
+
+        // At X = -2.0 cm, row 0: Only Frame 1 covers X = -2.0 cm, and it has null -> unresolvedInvalid
+        final unresolvedRes = panorama.resolveAt(-2.0, 0);
+        expect(unresolvedRes.status, ThermalCellStatus.unresolvedInvalid);
+        expect(unresolvedRes.temperatureC, isNull);
+
+        const mod = PvModule(
+          id: 'mod-1',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array 1',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 20.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod,
+                  measurements: [m1, m2],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('thermal_panorama_canvas')), findsOneWidget);
+        expect(find.byKey(const Key('notice_invalid_pixels')), findsOneWidget);
+        expect(find.text('Min: 35.0°C'), findsOneWidget);
+        expect(find.text('Max: 48.0°C'), findsOneWidget);
+        expect(find.textContaining('0.0°C'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      '7. Explicit UI states for measurements without thermal_frame, unlinked anomaly confirming IDs, and partial pagination',
+      (tester) async {
+        const mod = PvModule(
+          id: 'mod-states',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array States',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 20.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        const mNoMatrix = ModuleMeasurement(
+          id: 'm-loaded-1',
+          moduleId: 'mod-states',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-03T12:00:00Z',
+          xPositionCm: 2.0,
+          maxTemperatureC: 44.0,
+          thermalFrame: null,
+          receivedAt: '2026-11-03T12:00:05Z',
+        );
+
+        const insp = LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-1',
+            moduleId: 'mod-states',
+            sourceEventId: 'evt-insp-1',
+            type: 'scheduled',
+            scheduledFor: '2026-11-03T12:00:00Z',
+            status: 'completed',
+            baselineTemperatureC: 34.0,
+            createdAt: '2026-11-03T12:00:00Z',
+            updatedAt: '2026-11-03T12:00:00Z',
+          ),
+          totalMeasurements: 11, // Only 1 of 11 loaded due to pagination
+          confirmedAnomalies: [
+            ConfirmedAnomaly(
+              id: 'anom-unloaded',
+              moduleId: 'mod-states',
+              originMeasurementId: 'm-not-loaded-99',
+              confirmingMeasurementIds: ['m-not-loaded-100'],
+              sourceEventId: 'evt-a99',
+              xPositionCm: 16.0,
+              detectedAt: '2026-11-03T12:01:00Z',
+              status: 'open',
+              actuatedAttemptsCount: 0,
+              retryPending: false,
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod,
+                  measurements: [mNoMatrix],
+                  latestInspection: insp,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('No thermal_frame matrix available'), findsOneWidget);
+        expect(
+          find.byKey(const Key('notice_missing_thermal_frame')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('notice_unlinked_anomalies')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('notice_partial_pagination')),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Scale: N/A (No valid thermal pixels)'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      '8. Expected coverage calculation (panelLengthCm=68.0 -> 35 acquisitions, 73.0 cm coverage) and incomplete coverage notice without fake strips',
+      (tester) async {
+        const coverage68 = ThermalCoverageInfo(
+          panelLengthCm: 68.0,
+          loadedMeasurementsCount: 2,
+          totalInspectionMeasurements: 2,
+        );
+        expect(coverage68.expectedAcquisitions, 35);
+        expect(coverage68.expectedThermalCoverageCm, 73.0);
+        expect(coverage68.isIncompleteCoverage, isTrue);
+        expect(coverage68.isPartiallyLoadedByPagination, isFalse);
+
+        const mod68 = PvModule(
+          id: 'mod-68',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array 68cm',
+          macAddress: 'AA:BB:CC:11:22:33',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 68.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        const m1 = ModuleMeasurement(
+          id: 'm-1',
+          moduleId: 'mod-68',
+          inspectionId: 'insp-68',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-03T12:00:00Z',
+          xPositionCm: 0.0,
+          maxTemperatureC: 38.0,
+          receivedAt: '2026-11-03T12:00:05Z',
+        );
+        const m2 = ModuleMeasurement(
+          id: 'm-2',
+          moduleId: 'mod-68',
+          inspectionId: 'insp-68',
+          sourceEventId: 'evt-2',
+          measuredAt: '2026-11-03T12:00:10Z',
+          xPositionCm: 2.0,
+          maxTemperatureC: 39.0,
+          receivedAt: '2026-11-03T12:00:15Z',
+        );
+
+        const insp = LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-68',
+            moduleId: 'mod-68',
+            sourceEventId: 'evt-insp-68',
+            type: 'scheduled',
+            scheduledFor: '2026-11-03T12:00:00Z',
+            status: 'completed',
+            baselineTemperatureC: 35.0,
+            createdAt: '2026-11-03T12:00:00Z',
+            updatedAt: '2026-11-03T12:00:00Z',
+          ),
+          totalMeasurements: 2,
+          confirmedAnomalies: [],
+        );
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod68,
+                  measurements: [m1, m2],
+                  latestInspection: insp,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.text('Expected: 35 frames (73.0 cm)'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Incomplete coverage: 2 of 35 expected acquisitions'),
+          findsOneWidget,
+        );
+        // Only 2 FOV strips rendered; NO fake strips generated for missing positions
+        expect(find.byKey(const Key('fov_strip_1')), findsOneWidget);
+        expect(find.byKey(const Key('fov_strip_2')), findsOneWidget);
+        expect(find.byKey(const Key('fov_strip_3')), findsNothing);
+      },
+    );
   });
 
   group('Module Details TabBar & TabBarView UI Tests', () {

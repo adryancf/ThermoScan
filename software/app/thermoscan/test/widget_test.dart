@@ -786,7 +786,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Verify SCR-10 Radiometric Scan & Telemetry metrics
-    expect(find.text('32×24 Sensor Interpolation'), findsOneWidget);
+    expect(find.text('Radiometric Thermal Panorama'), findsOneWidget);
     expect(find.text('Thermal Frames (5 cm Sectors)'), findsOneWidget);
     expect(find.text('Peak Temperature'), findsOneWidget);
     expect(find.text('Baseline Temperature'), findsOneWidget);

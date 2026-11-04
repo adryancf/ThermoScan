@@ -82,3 +82,4 @@ void HeapTracker::resetSimulation() {
 }
 
 } // namespace utils
+

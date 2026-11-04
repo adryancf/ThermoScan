@@ -15,3 +15,4 @@ std::string generateUUIDv4();
 } // namespace utils
 
 #endif // THERMOSCAN_UTILS_UUID_GENERATOR_H
+

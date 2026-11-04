@@ -47,3 +47,4 @@ private:
 } // namespace utils
 
 #endif // THERMOSCAN_UTILS_HEAP_TRACKER_H
+

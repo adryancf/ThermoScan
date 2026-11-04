@@ -196,3 +196,4 @@ int main(int argc, char** argv) {
     RUN_TEST(test_heap_metrics_real_margin_during_scan);
     return UNITY_END();
 }
+

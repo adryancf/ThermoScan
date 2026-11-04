@@ -153,3 +153,4 @@ int main(int argc, char** argv) {
     RUN_TEST(test_uuid_generator_format);
     return UNITY_END();
 }
+

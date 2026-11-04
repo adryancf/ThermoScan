@@ -58,3 +58,4 @@ private:
 } // namespace domain
 
 #endif // THERMOSCAN_DOMAIN_TEMPERATURE_HISTOGRAM_H
+

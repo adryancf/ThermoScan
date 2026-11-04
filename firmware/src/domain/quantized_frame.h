@@ -65,3 +65,4 @@ struct QuantizedThermalFrame {
 } // namespace domain
 
 #endif // THERMOSCAN_DOMAIN_QUANTIZED_FRAME_H
+

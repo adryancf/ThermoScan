@@ -130,12 +130,22 @@ public:
     int pings_sent{0};
     int telemetries_ingested{0};
     int cleanings_ingested{0};
+    int batches_ingested{0};
+    int inspections_finalized{0};
+    int cleaning_reports_ingested{0};
 
     bool init() override { return true; }
     bool claimDevice(const std::string&) override { return true; }
     bool sendPing() override { pings_sent++; return true; }
     bool getConfiguration(std::string& out) override { out = "{}"; return true; }
     bool ackConfiguration(uint32_t) override { return true; }
+    bool ingestTelemetryBatch(const IngestTelemetryBatchInput&) override { batches_ingested++; return true; }
+    bool finalizeInspection(const std::string&, const FinalizeInspectionInput&) override { inspections_finalized++; return true; }
+    bool ingestCleaningReport(const CleaningReportInput&, std::string& out_id) override {
+        cleaning_reports_ingested++;
+        out_id = "clean-test-uuid";
+        return true;
+    }
     bool ingestTelemetry(const TelemetryPayload&) override { telemetries_ingested++; return true; }
     bool ingestCleaning(const CleaningPayload&) override { cleanings_ingested++; return true; }
     bool isConnected() const override { return true; }

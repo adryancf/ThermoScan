@@ -34,9 +34,18 @@ public:
     bool sendPing() override;
     bool getConfiguration(std::string& out_config_json) override;
     bool ackConfiguration(uint32_t config_version) override;
+    bool ingestTelemetryBatch(const IngestTelemetryBatchInput& input) override;
+    bool finalizeInspection(const std::string& inspection_source_event_id,
+                            const FinalizeInspectionInput& input) override;
+    bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) override;
     bool ingestTelemetry(const TelemetryPayload& telemetry) override;
     bool ingestCleaning(const CleaningPayload& cleaning) override;
     bool isConnected() const override;
+
+    bool hadAuthError() const { return auth_error_; }
+    void clearAuthError() { auth_error_ = false; }
+    bool hadConflictError() const { return conflict_error_; }
+    void clearConflictError() { conflict_error_ = false; }
 
     // Advanced & Diagnostic helpers
     bool claimWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok);
@@ -68,6 +77,8 @@ private:
     IThermalCamera* camera_{nullptr};
 
     bool initialized_{false};
+    bool auth_error_{false};
+    bool conflict_error_{false};
 
     void appendAuthHeader(HTTPClient& http);
 };

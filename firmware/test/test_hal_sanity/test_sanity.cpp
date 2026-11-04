@@ -98,6 +98,9 @@ public:
     bool sendPing() override { return true; }
     bool getConfiguration(std::string& out) override { out = "{}"; return true; }
     bool ackConfiguration(uint32_t /*config_version*/) override { return true; }
+    bool ingestTelemetryBatch(const IngestTelemetryBatchInput& /*input*/) override { return true; }
+    bool finalizeInspection(const std::string& /*inspection_id*/, const FinalizeInspectionInput& /*input*/) override { return true; }
+    bool ingestCleaningReport(const CleaningReportInput& /*input*/, std::string& out_id) override { out_id = "clean-mock"; return true; }
     bool ingestTelemetry(const TelemetryPayload& /*telemetry*/) override { return true; }
     bool ingestCleaning(const CleaningPayload& /*cleaning*/) override { return true; }
     bool isConnected() const override { return true; }

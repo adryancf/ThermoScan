@@ -2,7 +2,19 @@
 
 #include "http_cloud_client.h"
 
+#include <ctime>
+
 namespace hal_esp32 {
+
+static String formatEpochToRFC3339(uint32_t epoch) {
+    if (epoch == 0) return "";
+    time_t raw = static_cast<time_t>(epoch);
+    struct tm ts;
+    gmtime_r(&raw, &ts);
+    char buf[25];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &ts);
+    return String(buf);
+}
 
 HttpCloudClient::HttpCloudClient(const std::string& base_url,
                                  NvsStorage* storage,
@@ -139,6 +151,11 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     int httpCode = http.POST(requestBody);
     http.end();
 
+    if (httpCode == 401) {
+        auth_error_ = true;
+        return false;
+    }
+
     return (httpCode == HTTP_CODE_OK);
 }
 
@@ -222,7 +239,203 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
     int httpCode = http.POST(requestBody);
     http.end();
 
+    if (httpCode == 401) {
+        auth_error_ = true;
+        return false;
+    }
+
     return (httpCode == HTTP_CODE_OK);
+}
+
+bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& input) {
+    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/telemetry";
+    HTTPClient http;
+    http.begin(url.c_str());
+    appendAuthHeader(http);
+
+    JsonDocument doc;
+    doc["inspection_source_event_id"] = input.inspection_source_event_id.c_str();
+    doc["inspection_type"] = input.inspection_type.c_str();
+
+    if (!input.cleaning_operation_id.empty()) {
+        doc["cleaning_operation_id"] = input.cleaning_operation_id.c_str();
+    }
+    if (input.started_at_epoch > 0) {
+        doc["started_at"] = formatEpochToRFC3339(input.started_at_epoch);
+    }
+    if (input.scheduled_for_epoch > 0) {
+        doc["scheduled_for"] = formatEpochToRFC3339(input.scheduled_for_epoch);
+    }
+
+    JsonArray batchArr = doc["batch"].to<JsonArray>();
+    for (const auto& m : input.batch) {
+        JsonObject item = batchArr.add<JsonObject>();
+        item["source_event_id"] = m.source_event_id.c_str();
+        if (m.measured_at_epoch > 0) {
+            item["measured_at"] = formatEpochToRFC3339(m.measured_at_epoch);
+        }
+        item["x_position_cm"] = m.x_position_cm;
+        item["max_temperature_c"] = m.max_temperature_c;
+
+        if (m.voltage_v != nullptr) {
+            item["voltage_v"] = *m.voltage_v;
+        } else {
+            item["voltage_v"] = nullptr;
+        }
+
+        if (m.current_a != nullptr) {
+            item["current_a"] = *m.current_a;
+        } else {
+            item["current_a"] = nullptr;
+        }
+
+        if (m.power_w != nullptr) {
+            item["power_w"] = *m.power_w;
+        } else {
+            item["power_w"] = nullptr;
+        }
+
+        JsonArray frameArr = item["thermal_frame"].to<JsonArray>();
+        if (m.thermal_frame != nullptr) {
+            for (size_t i = 0; i < m.thermal_frame_size; ++i) {
+                float t = m.thermal_frame[i];
+                if (std::isnan(t) || std::isinf(t) || t < -40.0f || t > 300.0f) {
+                    frameArr.add(nullptr);
+                } else {
+                    frameArr.add(t);
+                }
+            }
+        } else {
+            for (size_t i = 0; i < 768; ++i) {
+                frameArr.add(nullptr);
+            }
+        }
+    }
+
+    String requestBody;
+    serializeJson(doc, requestBody);
+
+    int httpCode = http.POST(requestBody);
+    http.end();
+
+    if (httpCode == 401) {
+        auth_error_ = true;
+        return false;
+    }
+    if (httpCode == 409) {
+        conflict_error_ = true;
+        return false;
+    }
+
+    return (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK);
+}
+
+bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_event_id,
+                                        const FinalizeInspectionInput& input) {
+    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/inspections/" +
+                      inspection_source_event_id + "/finalize";
+    HTTPClient http;
+    http.begin(url.c_str());
+    appendAuthHeader(http);
+
+    JsonDocument doc;
+    if (input.finished_at_epoch > 0) {
+        doc["finished_at"] = formatEpochToRFC3339(input.finished_at_epoch);
+    }
+    doc["baseline_temperature_c"] = input.baseline_temperature_c;
+
+    JsonArray hotspotsArr = doc["confirmed_hotspots"].to<JsonArray>();
+    for (const auto& ch : input.confirmed_hotspots) {
+        JsonObject h = hotspotsArr.add<JsonObject>();
+        h["source_event_id"] = ch.source_event_id.c_str();
+        h["global_x_position_cm"] = ch.global_x_position_cm;
+        h["row_index"] = ch.row_index;
+        h["max_temperature_c"] = ch.max_temperature_c;
+        if (ch.detected_at_epoch > 0) {
+            h["detected_at"] = formatEpochToRFC3339(ch.detected_at_epoch);
+        }
+        h["origin_measurement_event_id"] = ch.origin_measurement_event_id.c_str();
+
+        JsonArray cids = h["confirming_event_ids"].to<JsonArray>();
+        for (const auto& cid : ch.confirming_event_ids) {
+            cids.add(cid.c_str());
+        }
+    }
+
+    String requestBody;
+    serializeJson(doc, requestBody);
+
+    int httpCode = http.POST(requestBody);
+    http.end();
+
+    if (httpCode == 401) {
+        auth_error_ = true;
+        return false;
+    }
+
+    return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
+}
+
+bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) {
+    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/cleanings";
+    HTTPClient http;
+    http.begin(url.c_str());
+    appendAuthHeader(http);
+
+    JsonDocument doc;
+    if (!input.anomaly_event_id.empty()) {
+        doc["anomaly_event_id"] = input.anomaly_event_id.c_str();
+    }
+    doc["target_x_position_cm"] = input.target_x_position_cm;
+    doc["pump_actuated"] = input.pump_actuated;
+
+    if (input.pump_actuated && input.attempt_number >= 1) {
+        doc["attempt_number"] = input.attempt_number;
+    } else {
+        doc["attempt_number"] = nullptr;
+    }
+
+    doc["duration_seconds"] = input.duration_seconds;
+    doc["status"] = input.status.c_str();
+    if (!input.failure_reason.empty()) {
+        doc["failure_reason"] = input.failure_reason.c_str();
+    }
+    doc["post_cleaning_result"] = "pending";
+
+    String requestBody;
+    serializeJson(doc, requestBody);
+
+    int httpCode = http.POST(requestBody);
+    if (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        http.end();
+
+        JsonDocument resDoc;
+        if (!deserializeJson(resDoc, response)) {
+            if (resDoc["cleaning"]["id"].is<const char*>()) {
+                out_cleaning_id = resDoc["cleaning"]["id"].as<std::string>();
+            }
+        }
+        return true;
+    }
+
+    if (httpCode == 401) {
+        auth_error_ = true;
+    }
+    http.end();
+    return false;
 }
 
 bool HttpCloudClient::ingestTelemetry(const TelemetryPayload& telemetry) {

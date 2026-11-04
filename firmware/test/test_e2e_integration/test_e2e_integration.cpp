@@ -57,6 +57,42 @@ void cleanDatabaseTables() {
     queryDB("TRUNCATE cleaning_operations, anomaly_events, measurements, inspections CASCADE;");
 }
 
+void cleanAllTestData() {
+    queryDB("TRUNCATE cleaning_operations, anomaly_events, measurements, inspections, "
+            "interval_change_logs, reservoir_readings, notifications, "
+            "module_clients, module_managers, module_technicians, technician_managers CASCADE; "
+            "DELETE FROM modules WHERE id = '00000000-0000-0000-0000-000000000003' OR company_id = '00000000-0000-0000-0000-000000000001'; "
+            "DELETE FROM users WHERE id = '00000000-0000-0000-0000-000000000002' OR company_id = '00000000-0000-0000-0000-000000000001'; "
+            "DELETE FROM companies WHERE id = '00000000-0000-0000-0000-000000000001';");
+}
+
+void ensureTestSeedDataExists() {
+    cleanAllTestData();
+    queryDB("INSERT INTO companies (id, name, address, is_active) "
+            "VALUES ('00000000-0000-0000-0000-000000000001', 'Solar Farm Alpha', 'Rua das Flores 123', true) "
+            "ON CONFLICT (id) DO NOTHING; "
+            "INSERT INTO users (id, company_id, name, email, password_hash, role, is_active, is_default_manager, must_change_password) "
+            "VALUES ('00000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-000000000001', 'Tech Operator', 'tech@solarfarm.local', '$2a$10$abcdefghijklmnopqrstuv', 'technician', true, false, false) "
+            "ON CONFLICT (id) DO NOTHING; "
+            "INSERT INTO modules ( "
+            "    id, company_id, installer_technician_id, name, mac_address, "
+            "    is_active, monitoring_status, panel_length_cm, panel_width_cm, "
+            "    panel_count, panel_spacing_cm, latitude, longitude, "
+            "    elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, "
+            "    minimum_solar_angle_deg, inspection_interval_days, "
+            "    reservoir_nominal_capacity_ml, configured_at "
+            ") VALUES ( "
+            "    '00000000-0000-0000-0000-000000000003', "
+            "    '00000000-0000-0000-0000-000000000001', "
+            "    '00000000-0000-0000-0000-000000000002', "
+            "    'ThermoScan Unit 01', "
+            "    '02:00:00:00:00:01', "
+            "    true, 'active', 100.0, 50.0, 1, 0.0, "
+            "    -23.5505, -46.6333, 760.0, 180.0, 20.0, 'manual', 'manual', "
+            "    30.0, 7, 1000.0, now() "
+            ") ON CONFLICT (id) DO NOTHING;");
+}
+
 class FakeE2EStorage : public IStorage {
 public:
     StorageState state{};
@@ -354,6 +390,8 @@ void test_e2e_full_cycle_scan_finalize_cleaning_verification() {
 }
 
 void test_e2e_idempotency_telemetry_resend() {
+    cleanDatabaseTables();
+
     std::string backend_url = getBackendUrl();
     FakeE2EStorage storage;
     FakeE2EWaterSensor water;
@@ -475,10 +513,15 @@ void test_e2e_interrupted_cleaning_and_retry_pending() {
 }
 
 int main(int argc, char** argv) {
+    ensureTestSeedDataExists();
+
     UNITY_BEGIN();
     RUN_TEST(test_e2e_device_claim_and_configuration);
     RUN_TEST(test_e2e_full_cycle_scan_finalize_cleaning_verification);
     RUN_TEST(test_e2e_idempotency_telemetry_resend);
     RUN_TEST(test_e2e_interrupted_cleaning_and_retry_pending);
-    return UNITY_END();
+    int status = UNITY_END();
+
+    cleanAllTestData();
+    return status;
 }

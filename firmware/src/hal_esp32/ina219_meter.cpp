@@ -27,7 +27,9 @@ bool Ina219Meter::readSnapshot(PowerSnapshot& out) {
     float current_ma = ina219_.getCurrent_mA();
     float power_mw = ina219_.getPower_mW();
 
-    if (std::isnan(bus_voltage_v) || std::isnan(current_ma)) {
+    if (std::isnan(bus_voltage_v) || std::isnan(current_ma) || std::isnan(power_mw) ||
+        std::isinf(bus_voltage_v) || std::isinf(current_ma) || std::isinf(power_mw) ||
+        bus_voltage_v < 0.0f) {
         out.valid = false;
         return false;
     }

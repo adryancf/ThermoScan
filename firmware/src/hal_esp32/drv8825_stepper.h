@@ -19,7 +19,7 @@ public:
                    uint8_t dir_pin = STEPPER_DIR_PIN,
                    uint8_t en_pin = STEPPER_EN_PIN,
                    uint8_t limit_pin = STEPPER_LIMIT_NC_PIN,
-                   float steps_per_cm = 50.0f);
+                   float steps_per_cm = DEFAULT_STEPS_PER_CM);
     ~Drv8825Stepper() override;
 
     bool init() override;
@@ -27,6 +27,8 @@ public:
     bool moveToXCm(float target_x_cm) override;
     float getXPositionCm() const override;
     bool checkLimitsIntegrity() override;
+    void disableMotor() override;
+    void emergencyStop() override;
 
     // Helper functions
     bool stepRelativeCm(float delta_cm);

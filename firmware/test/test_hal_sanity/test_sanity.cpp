@@ -38,11 +38,15 @@ public:
 class MockMotionController : public IMotionController {
     float pos_x{0.0f};
 public:
+    bool motor_enabled{false};
+
     bool init() override { return true; }
-    bool home() override { pos_x = 0.0f; return true; }
-    bool moveToXCm(float target_x_cm) override { pos_x = target_x_cm; return true; }
+    bool home() override { pos_x = 0.0f; motor_enabled = true; return true; }
+    bool moveToXCm(float target_x_cm) override { pos_x = target_x_cm; motor_enabled = true; return true; }
     float getXPositionCm() const override { return pos_x; }
     bool checkLimitsIntegrity() override { return true; }
+    void disableMotor() override { motor_enabled = false; }
+    void emergencyStop() override { motor_enabled = false; }
 };
 
 class MockSprayActuator : public ISprayActuator {

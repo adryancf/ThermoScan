@@ -70,14 +70,26 @@ bool Drv8825Stepper::home() {
     enableMotor(true);
     delay(10);
 
-    // If currently touching switch, pull away first (+1.0 cm)
+    // If currently touching switch (or switch wire is disconnected/open circuit):
+    // Back away +2.0 cm towards positive rail travel.
     if (isLimitReached()) {
         digitalWrite(dir_pin_, HIGH); // Forward direction (+X)
-        const int backoffSteps = static_cast<int>(1.0f * steps_per_cm_);
+        const int backoffSteps = static_cast<int>(2.0f * steps_per_cm_);
         for (int i = 0; i < backoffSteps; ++i) {
             pulseStep(1200);
+            if ((i % 50) == 0) {
+                yield();
+            }
         }
-        delay(20);
+        delay(30);
+
+        // If after 2.0 cm backoff the switch is STILL indicating limit reached (HIGH),
+        // the NC wire is broken or disconnected! Abort immediately for hardware safety.
+        if (isLimitReached()) {
+            enableMotor(false);
+            is_homed_ = false;
+            return false;
+        }
     }
 
     // Move backward towards X=0 until limit switch opens (HIGH)
@@ -91,6 +103,9 @@ bool Drv8825Stepper::home() {
             break;
         }
         pulseStep(1000);
+        if ((step % 50) == 0) {
+            yield();
+        }
     }
 
     if (!hitLimit) {
@@ -104,6 +119,9 @@ bool Drv8825Stepper::home() {
     const int fineBackoff = static_cast<int>(0.5f * steps_per_cm_);
     for (int i = 0; i < fineBackoff; ++i) {
         pulseStep(1500);
+        if ((i % 50) == 0) {
+            yield();
+        }
     }
     delay(20);
 
@@ -114,6 +132,9 @@ bool Drv8825Stepper::home() {
             break;
         }
         pulseStep(2000);
+        if ((i % 50) == 0) {
+            yield();
+        }
     }
 
     // Calibration complete: set origin X = 0.0 cm
@@ -121,6 +142,14 @@ bool Drv8825Stepper::home() {
     is_homed_ = true;
     enableMotor(false);
     return true;
+}
+
+void Drv8825Stepper::disableMotor() {
+    enableMotor(false);
+}
+
+void Drv8825Stepper::emergencyStop() {
+    enableMotor(false);
 }
 
 bool Drv8825Stepper::moveToXCm(float target_x_cm) {
@@ -155,6 +184,9 @@ bool Drv8825Stepper::moveToXCm(float target_x_cm) {
             return true;
         }
         pulseStep(1000);
+        if ((step % 50) == 0) {
+            yield();
+        }
     }
 
     current_x_cm_ = target_x_cm;

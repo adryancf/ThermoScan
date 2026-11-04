@@ -58,6 +58,8 @@ public:
     }
     float getXPositionCm() const override { return x_pos; }
     bool checkLimitsIntegrity() override { return limit_healthy; }
+    void disableMotor() override {}
+    void emergencyStop() override {}
 };
 
 class MockSprayActuator : public ISprayActuator {

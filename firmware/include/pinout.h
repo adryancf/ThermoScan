@@ -125,12 +125,22 @@ constexpr uint32_t POST_CLEANING_WAIT_SECONDS = 1800;     // Cooldown / dry wait
 #endif
 constexpr float SPATIAL_TOLERANCE_CM          = SPATIAL_TOLERANCE_DEFAULT_CM;
 
+// ----------------------------------------------------------------------------
+// Kinematic & Motor Calibration Parameters
+// ----------------------------------------------------------------------------
+#ifndef STEPS_PER_CM_DEFAULT
+#define STEPS_PER_CM_DEFAULT 50.0f  // Default for full-step bench setup; use 800.0f for 1/16 microstepping
+#endif
+constexpr float DEFAULT_STEPS_PER_CM = STEPS_PER_CM_DEFAULT;
+
+// Actuator settling delay for spray servo angle adjustment before pump trigger
+constexpr uint32_t SERVO_SETTLE_DELAY_MS = 300;
+
 // Maximum scan acquisitions buffered in RAM during a single inspection pass.
-// Each ScanAcquisition occupies ~3,080 bytes (768-float matrix + metadata).
-// 40 acquisitions consume ~123.2 KB RAM, safe for ESP32 free heap (~150-180 KB)
-// and covering up to 80 cm travel at 2.0 cm step.
+// With 35 acquisitions at 2.0 cm step, rail travel is 0 to 68 cm and thermal FOV coverage
+// reaches ~73 cm (68 cm + 5.0 cm FOV). If panel_length_cm exceeds 68 cm, scan truncates safely.
 #ifndef MAX_SCAN_ACQUISITIONS
-#define MAX_SCAN_ACQUISITIONS 40
+#define MAX_SCAN_ACQUISITIONS 35
 #endif
 constexpr size_t SCAN_MAX_ACQUISITIONS        = MAX_SCAN_ACQUISITIONS;
 

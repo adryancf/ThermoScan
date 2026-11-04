@@ -55,6 +55,18 @@ public:
     virtual bool saveAll(const StorageState& state) = 0;
     virtual bool loadAll(StorageState& state) = 0;
     virtual bool clear() = 0;
+
+    // Optional configuration & authentication helpers
+    virtual bool saveDeviceToken(const std::string& /*token*/) { return true; }
+    virtual bool getDeviceToken(std::string& /*out*/) { return true; }
+    virtual bool saveGeometry(float /*length_cm*/, float /*width_cm*/, int32_t /*panel_count*/, float /*spacing_cm*/) { return true; }
+    virtual bool getGeometry(float& /*length_cm*/, float& /*width_cm*/, int32_t& /*panel_count*/, float& /*spacing_cm*/) { return true; }
+    virtual bool saveMinSolarAngle(float /*angle_deg*/) { return true; }
+    virtual bool getMinSolarAngle(float& /*out*/) { return true; }
+    virtual bool saveIntervalDays(int32_t /*days*/) { return true; }
+    virtual bool getIntervalDays(int32_t& /*out*/) { return true; }
+    virtual bool savePingIntervalSeconds(int32_t /*seconds*/) { return true; }
+    virtual bool getPingIntervalSeconds(int32_t& /*out*/) { return true; }
 };
 
 #endif // THERMOSCAN_HAL_I_STORAGE_H

@@ -110,6 +110,7 @@ private:
     bool scan_truncated_by_memory_{false};
 
     domain::HotspotEvent active_hotspot_{};
+    std::string active_anomaly_id_{};
     float baseline_temp_c_{25.0f};
 
     uint32_t last_ping_time_{0};

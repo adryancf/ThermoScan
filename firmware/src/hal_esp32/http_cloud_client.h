@@ -2,17 +2,20 @@
 #define THERMOSCAN_HAL_ESP32_HTTP_CLOUD_CLIENT_H
 
 #if defined(ARDUINO) || defined(ESP32)
-
 #include <Arduino.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#else
+#include "hal/native_net_compat.h"
+#endif
+
 #include <ArduinoJson.h>
 #include "hal/i_cloud_client.h"
 #include "hal/i_water_sensor.h"
 #include "hal/i_motion_controller.h"
 #include "hal/i_thermal_camera.h"
-#include "nvs_storage.h"
+#include "hal/i_storage.h"
 
 namespace hal_esp32 {
 
@@ -23,7 +26,7 @@ namespace hal_esp32 {
 class HttpCloudClient : public ICloudClient {
 public:
     HttpCloudClient(const std::string& base_url = "http://192.168.1.100:8080",
-                    NvsStorage* storage = nullptr,
+                    IStorage* storage = nullptr,
                     IWaterSensor* water_sensor = nullptr,
                     IMotionController* motion = nullptr,
                     IThermalCamera* camera = nullptr);
@@ -38,6 +41,7 @@ public:
     bool finalizeInspection(const std::string& inspection_source_event_id,
                             const FinalizeInspectionInput& input) override;
     bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) override;
+    std::string getLastConfirmedAnomalyId() const override { return last_confirmed_anomaly_id_; }
     bool ingestTelemetry(const TelemetryPayload& telemetry) override;
     bool ingestCleaning(const CleaningPayload& cleaning) override;
     bool isConnected() const override;
@@ -46,6 +50,11 @@ public:
     void clearAuthError() { auth_error_ = false; }
     bool hadConflictError() const { return conflict_error_; }
     void clearConflictError() { conflict_error_ = false; }
+
+    // JSON payload builders (directly testable)
+    static std::string buildTelemetryBatchJson(const IngestTelemetryBatchInput& input);
+    static std::string buildFinalizeJson(const FinalizeInspectionInput& input);
+    static std::string buildCleaningReportJson(const CleaningReportInput& input);
 
     // Advanced & Diagnostic helpers
     bool claimWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok);
@@ -70,8 +79,9 @@ private:
     std::string base_url_;
     std::string module_id_;
     std::string device_token_;
+    std::string last_confirmed_anomaly_id_;
 
-    NvsStorage* storage_{nullptr};
+    IStorage* storage_{nullptr};
     IWaterSensor* water_sensor_{nullptr};
     IMotionController* motion_{nullptr};
     IThermalCamera* camera_{nullptr};
@@ -84,7 +94,5 @@ private:
 };
 
 } // namespace hal_esp32
-
-#endif // ARDUINO || ESP32
 
 #endif // THERMOSCAN_HAL_ESP32_HTTP_CLOUD_CLIENT_H

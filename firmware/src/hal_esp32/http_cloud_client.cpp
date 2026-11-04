@@ -1,23 +1,22 @@
-#if defined(ARDUINO) || defined(ESP32)
-
 #include "http_cloud_client.h"
 
 #include <ctime>
+#include <cmath>
 
 namespace hal_esp32 {
 
-static String formatEpochToRFC3339(uint32_t epoch) {
+static std::string formatEpochToRFC3339(uint32_t epoch) {
     if (epoch == 0) return "";
     time_t raw = static_cast<time_t>(epoch);
     struct tm ts;
     gmtime_r(&raw, &ts);
     char buf[25];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &ts);
-    return String(buf);
+    return std::string(buf);
 }
 
 HttpCloudClient::HttpCloudClient(const std::string& base_url,
-                                 NvsStorage* storage,
+                                 IStorage* storage,
                                  IWaterSensor* water_sensor,
                                  IMotionController* motion,
                                  IThermalCamera* camera)
@@ -88,7 +87,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
     String requestBody;
     serializeJson(doc, requestBody);
 
-    int httpCode = http.POST(requestBody);
+    int httpCode = http.POST(String(requestBody.c_str()));
     if (httpCode != HTTP_CODE_OK) {
         http.end();
         return false;
@@ -148,7 +147,7 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     String requestBody;
     serializeJson(doc, requestBody);
 
-    int httpCode = http.POST(requestBody);
+    int httpCode = http.POST(String(requestBody.c_str()));
     http.end();
 
     if (httpCode == 401) {
@@ -236,7 +235,7 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
     String requestBody;
     serializeJson(doc, requestBody);
 
-    int httpCode = http.POST(requestBody);
+    int httpCode = http.POST(String(requestBody.c_str()));
     http.end();
 
     if (httpCode == 401) {
@@ -247,16 +246,7 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
     return (httpCode == HTTP_CODE_OK);
 }
 
-bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& input) {
-    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        return false;
-    }
-
-    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/telemetry";
-    HTTPClient http;
-    http.begin(url.c_str());
-    appendAuthHeader(http);
-
+std::string HttpCloudClient::buildTelemetryBatchJson(const IngestTelemetryBatchInput& input) {
     JsonDocument doc;
     doc["inspection_source_event_id"] = input.inspection_source_event_id.c_str();
     doc["inspection_type"] = input.inspection_type.c_str();
@@ -316,10 +306,24 @@ bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& inpu
         }
     }
 
-    String requestBody;
+    std::string requestBody;
     serializeJson(doc, requestBody);
+    return requestBody;
+}
 
-    int httpCode = http.POST(requestBody);
+bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& input) {
+    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/telemetry";
+    HTTPClient http;
+    http.begin(url.c_str());
+    appendAuthHeader(http);
+
+    std::string requestBody = buildTelemetryBatchJson(input);
+
+    int httpCode = http.POST(String(requestBody.c_str()));
     http.end();
 
     if (httpCode == 401) {
@@ -334,18 +338,7 @@ bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& inpu
     return (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK);
 }
 
-bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_event_id,
-                                        const FinalizeInspectionInput& input) {
-    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        return false;
-    }
-
-    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/inspections/" +
-                      inspection_source_event_id + "/finalize";
-    HTTPClient http;
-    http.begin(url.c_str());
-    appendAuthHeader(http);
-
+std::string HttpCloudClient::buildFinalizeJson(const FinalizeInspectionInput& input) {
     JsonDocument doc;
     if (input.finished_at_epoch > 0) {
         doc["finished_at"] = formatEpochToRFC3339(input.finished_at_epoch);
@@ -370,30 +363,52 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
         }
     }
 
-    String requestBody;
+    std::string requestBody;
     serializeJson(doc, requestBody);
-
-    int httpCode = http.POST(requestBody);
-    http.end();
-
-    if (httpCode == 401) {
-        auth_error_ = true;
-        return false;
-    }
-
-    return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
+    return requestBody;
 }
 
-bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) {
+bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_event_id,
+                                        const FinalizeInspectionInput& input) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
         return false;
     }
 
-    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/cleanings";
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/inspections/" +
+                      inspection_source_event_id + "/finalize";
     HTTPClient http;
     http.begin(url.c_str());
     appendAuthHeader(http);
 
+    std::string requestBody = buildFinalizeJson(input);
+
+    int httpCode = http.POST(String(requestBody.c_str()));
+    if (httpCode == 401) {
+        auth_error_ = true;
+        http.end();
+        return false;
+    }
+
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+        String response = http.getString();
+        http.end();
+
+        JsonDocument resDoc;
+        if (!deserializeJson(resDoc, response)) {
+            if (resDoc["confirmed_anomalies"].is<JsonArray>() && resDoc["confirmed_anomalies"].size() > 0) {
+                if (resDoc["confirmed_anomalies"][0]["id"].is<const char*>()) {
+                    last_confirmed_anomaly_id_ = resDoc["confirmed_anomalies"][0]["id"].as<std::string>();
+                }
+            }
+        }
+        return true;
+    }
+
+    http.end();
+    return false;
+}
+
+std::string HttpCloudClient::buildCleaningReportJson(const CleaningReportInput& input) {
     JsonDocument doc;
     if (!input.anomaly_event_id.empty()) {
         doc["anomaly_event_id"] = input.anomaly_event_id.c_str();
@@ -414,10 +429,24 @@ bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std
     }
     doc["post_cleaning_result"] = "pending";
 
-    String requestBody;
+    std::string requestBody;
     serializeJson(doc, requestBody);
+    return requestBody;
+}
 
-    int httpCode = http.POST(requestBody);
+bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) {
+    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/cleanings";
+    HTTPClient http;
+    http.begin(url.c_str());
+    appendAuthHeader(http);
+
+    std::string requestBody = buildCleaningReportJson(input);
+
+    int httpCode = http.POST(String(requestBody.c_str()));
     if (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK) {
         String response = http.getString();
         http.end();
@@ -481,7 +510,7 @@ bool HttpCloudClient::ingestTelemetryDetailed(float x_pos_cm,
     String requestBody;
     serializeJson(doc, requestBody);
 
-    int httpCode = http.POST(requestBody);
+    int httpCode = http.POST(String(requestBody.c_str()));
     http.end();
 
     return (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK);
@@ -514,12 +543,10 @@ bool HttpCloudClient::ingestCleaning(const CleaningPayload& cleaning) {
     String requestBody;
     serializeJson(doc, requestBody);
 
-    int httpCode = http.POST(requestBody);
+    int httpCode = http.POST(String(requestBody.c_str()));
     http.end();
 
     return (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK);
 }
 
 } // namespace hal_esp32
-
-#endif // ARDUINO || ESP32

@@ -91,7 +91,9 @@ void ThermoscanApp::saveCurrentStateToNvs() {
     s.baseline_temp_c = baseline_temp_c_;
     s.cleaning_operation_id = current_cleaning_op_id_;
     s.inspection_source_event_id = inspection_source_event_id_;
-    if (active_hotspot_.confirmed) {
+    if (!active_anomaly_id_.empty()) {
+        s.anomaly_event_id = active_anomaly_id_;
+    } else if (active_hotspot_.confirmed) {
         s.anomaly_event_id = active_hotspot_.origin_measurement_event_id;
     }
     storage_->saveAll(s);
@@ -106,6 +108,7 @@ void ThermoscanApp::restoreStateFromNvs() {
         active_hotspot_.target_x_cm = s.active_hotspot_x_cm;
         active_hotspot_.confirmed = s.pending_verification;
         active_hotspot_.origin_measurement_event_id = s.anomaly_event_id;
+        active_anomaly_id_ = s.anomaly_event_id;
         baseline_temp_c_ = s.baseline_temp_c;
         current_cleaning_op_id_ = s.cleaning_operation_id;
         inspection_source_event_id_ = s.inspection_source_event_id;
@@ -392,6 +395,7 @@ void ThermoscanApp::handleAnalyzing() {
 
     if (cloud_ != nullptr) {
         cloud_->finalizeInspection(inspection_source_event_id_, fin);
+        active_anomaly_id_ = cloud_->getLastConfirmedAnomalyId();
     }
 
     utils::HeapTracker::stop();
@@ -430,7 +434,7 @@ void ThermoscanApp::handleCleaning() {
     if (!cleaning_sm_.evaluateBeforeSpray(baseline_temp_c_, water_ok)) {
         // Interlock refused spray: status refused, pump_actuated false, attempt not consumed
         CleaningReportInput cr;
-        cr.anomaly_event_id = active_hotspot_.origin_measurement_event_id;
+        cr.anomaly_event_id = active_anomaly_id_;
         cr.target_x_position_cm = active_hotspot_.target_x_cm;
         cr.pump_actuated = false;
         cr.attempt_number = 0;
@@ -494,7 +498,7 @@ void ThermoscanApp::handleCleaning() {
 
     // Report cleaning actuation record to cloud
     CleaningReportInput cr;
-    cr.anomaly_event_id = active_hotspot_.origin_measurement_event_id;
+    cr.anomaly_event_id = active_anomaly_id_;
     cr.target_x_position_cm = active_hotspot_.target_x_cm;
     cr.pump_actuated = true;
     cr.attempt_number = cleaning_sm_.getEffectiveAttempts();
@@ -535,85 +539,110 @@ void ThermoscanApp::handleWaitingVerification() {
 }
 
 void ThermoscanApp::handleVerifying() {
-    // Re-position at target coordinate
-    if (motion_ != nullptr) {
-        motion_->moveToXCm(active_hotspot_.target_x_cm);
-    }
-
-    ThermalFrame frame;
-    bool valid = false;
-    if (camera_ != nullptr) {
-        valid = camera_->captureFrame(frame);
-    }
-
-    PowerSnapshot power;
-    if (power_meter_ != nullptr) {
-        power_meter_->readSnapshot(power);
-    }
+    float x1 = active_hotspot_.target_x_cm;
+    float x2 = (x1 + 2.0f <= config_.panel_length_cm) ? (x1 + 2.0f) : (x1 - 2.0f);
+    if (x2 < 0.0f) x2 = 0.0f;
 
     std::string verif_insp_id = utils::generateUUIDv4();
     uint32_t now = getCurrentTime();
 
-    if (cloud_ != nullptr && valid) {
-        IngestTelemetryBatchInput batch_input;
-        batch_input.inspection_source_event_id = verif_insp_id;
-        batch_input.inspection_type = "verification";
-        batch_input.cleaning_operation_id = current_cleaning_op_id_;
-        batch_input.started_at_epoch = now;
-        batch_input.scheduled_for_epoch = now;
+    IngestTelemetryBatchInput batch_input;
+    batch_input.inspection_source_event_id = verif_insp_id;
+    batch_input.inspection_type = "verification";
+    batch_input.cleaning_operation_id = current_cleaning_op_id_;
+    batch_input.started_at_epoch = now;
+    batch_input.scheduled_for_epoch = now;
 
-        TelemetryMeasurementItem item;
-        item.source_event_id = utils::generateUUIDv4();
-        item.measured_at_epoch = now;
-        item.x_position_cm = active_hotspot_.target_x_cm;
+    // Measurement 1
+    if (motion_ != nullptr) motion_->moveToXCm(x1);
+    ThermalFrame frame1;
+    bool valid1 = (camera_ != nullptr) ? camera_->captureFrame(frame1) : false;
+    PowerSnapshot power1;
+    if (power_meter_ != nullptr) power_meter_->readSnapshot(power1);
 
-        float max_t = -999.0f;
+    TelemetryMeasurementItem item1;
+    item1.source_event_id = utils::generateUUIDv4();
+    item1.measured_at_epoch = now;
+    item1.x_position_cm = x1;
+    float max_t1 = -999.0f;
+    if (valid1) {
         for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-            if (frame.pixels[i] > max_t) max_t = frame.pixels[i];
+            if (frame1.pixels[i] > max_t1) max_t1 = frame1.pixels[i];
         }
-        item.max_temperature_c = max_t;
+    }
+    item1.max_temperature_c = max_t1;
+    if (power1.valid) {
+        item1.voltage_v = &power1.voltage_v;
+        item1.current_a = &power1.current_a;
+        item1.power_w = &power1.power_w;
+    } else {
+        item1.voltage_v = nullptr;
+        item1.current_a = nullptr;
+        item1.power_w = nullptr;
+    }
+    item1.thermal_frame = frame1.pixels;
+    item1.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
+    batch_input.batch.push_back(item1);
 
-        if (power.valid) {
-            item.voltage_v = &power.voltage_v;
-            item.current_a = &power.current_a;
-            item.power_w = &power.power_w;
-        } else {
-            item.voltage_v = nullptr;
-            item.current_a = nullptr;
-            item.power_w = nullptr;
+    // Measurement 2
+    if (motion_ != nullptr) motion_->moveToXCm(x2);
+    ThermalFrame frame2;
+    bool valid2 = (camera_ != nullptr) ? camera_->captureFrame(frame2) : false;
+    PowerSnapshot power2;
+    if (power_meter_ != nullptr) power_meter_->readSnapshot(power2);
+
+    TelemetryMeasurementItem item2;
+    item2.source_event_id = utils::generateUUIDv4();
+    item2.measured_at_epoch = now + 1;
+    item2.x_position_cm = x2;
+    float max_t2 = -999.0f;
+    if (valid2) {
+        for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+            if (frame2.pixels[i] > max_t2) max_t2 = frame2.pixels[i];
         }
-        item.thermal_frame = frame.pixels;
-        item.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
-        batch_input.batch.push_back(item);
+    }
+    item2.max_temperature_c = max_t2;
+    if (power2.valid) {
+        item2.voltage_v = &power2.voltage_v;
+        item2.current_a = &power2.current_a;
+        item2.power_w = &power2.power_w;
+    } else {
+        item2.voltage_v = nullptr;
+        item2.current_a = nullptr;
+        item2.power_w = nullptr;
+    }
+    item2.thermal_frame = frame2.pixels;
+    item2.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
+    batch_input.batch.push_back(item2);
 
+    if (cloud_ != nullptr && (valid1 || valid2)) {
         cloud_->ingestTelemetryBatch(batch_input);
     }
 
     bool hotspot_still_present = false;
-    if (valid) {
-        float max_t = -999.0f;
-        for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-            if (frame.pixels[i] > max_t) max_t = frame.pixels[i];
-        }
-        hotspot_still_present = (max_t - baseline_temp_c_) >= HOTSPOT_THRESHOLD_DELTA_C;
+    if (valid1 && (max_t1 - baseline_temp_c_) >= HOTSPOT_THRESHOLD_DELTA_C) {
+        hotspot_still_present = true;
+    }
+    if (valid2 && (max_t2 - baseline_temp_c_) >= HOTSPOT_THRESHOLD_DELTA_C) {
+        hotspot_still_present = true;
     }
 
-    domain::AnomalyResult result = cleaning_sm_.processVerificationResult(hotspot_still_present, valid);
+    domain::AnomalyResult result = cleaning_sm_.processVerificationResult(hotspot_still_present, (valid1 || valid2));
 
     // Finalize verification inspection on cloud (this allows the backend to update cleaning & anomaly)
     if (cloud_ != nullptr) {
         FinalizeInspectionInput vfin;
-        vfin.finished_at_epoch = now;
+        vfin.finished_at_epoch = now + 2;
         vfin.baseline_temperature_c = baseline_temp_c_;
         if (hotspot_still_present) {
             ConfirmedHotspotOutput ho;
             ho.source_event_id = utils::generateUUIDv4();
-            ho.global_x_position_cm = active_hotspot_.target_x_cm;
-            ho.max_temperature_c = active_hotspot_.max_temp_c;
-            ho.detected_at_epoch = now;
-            ho.origin_measurement_event_id = active_hotspot_.origin_measurement_event_id;
-            ho.confirming_event_ids.push_back(active_hotspot_.origin_measurement_event_id);
-            ho.confirming_event_ids.push_back(ho.source_event_id);
+            ho.global_x_position_cm = x1;
+            ho.max_temperature_c = (max_t1 > max_t2) ? max_t1 : max_t2;
+            ho.detected_at_epoch = now + 1;
+            ho.origin_measurement_event_id = item1.source_event_id;
+            ho.confirming_event_ids.push_back(item1.source_event_id);
+            ho.confirming_event_ids.push_back(item2.source_event_id);
             vfin.confirmed_hotspots.push_back(ho);
         }
         cloud_->finalizeInspection(verif_insp_id, vfin);
@@ -626,6 +655,7 @@ void ThermoscanApp::handleVerifying() {
 
     if (result == domain::AnomalyResult::RESOLVED) {
         active_hotspot_ = domain::HotspotEvent{};
+        active_anomaly_id_.clear();
         saveCurrentStateToNvs();
         state_ = AppState::SYNCING;
     } else if (result == domain::AnomalyResult::UNRESOLVED) {

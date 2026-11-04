@@ -52,20 +52,20 @@ public:
     bool clear() override;
 
     // Additional configuration & authentication storage helpers
-    bool saveDeviceToken(const std::string& token);
-    bool getDeviceToken(std::string& out);
+    bool saveDeviceToken(const std::string& token) override;
+    bool getDeviceToken(std::string& out) override;
 
-    bool saveGeometry(float length_cm, float width_cm, int32_t panel_count, float spacing_cm);
-    bool getGeometry(float& length_cm, float& width_cm, int32_t& panel_count, float& spacing_cm);
+    bool saveGeometry(float length_cm, float width_cm, int32_t panel_count, float spacing_cm) override;
+    bool getGeometry(float& length_cm, float& width_cm, int32_t& panel_count, float& spacing_cm) override;
 
-    bool saveMinSolarAngle(float angle_deg);
-    bool getMinSolarAngle(float& out);
+    bool saveMinSolarAngle(float angle_deg) override;
+    bool getMinSolarAngle(float& out) override;
 
-    bool saveIntervalDays(int32_t days);
-    bool getIntervalDays(int32_t& out);
+    bool saveIntervalDays(int32_t days) override;
+    bool getIntervalDays(int32_t& out) override;
 
-    bool savePingIntervalSeconds(int32_t seconds);
-    bool getPingIntervalSeconds(int32_t& out);
+    bool savePingIntervalSeconds(int32_t seconds) override;
+    bool getPingIntervalSeconds(int32_t& out) override;
 
 private:
     Preferences preferences_;

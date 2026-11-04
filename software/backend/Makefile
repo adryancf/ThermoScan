@@ -21,7 +21,7 @@ DATABASE_URL ?= postgres://thermoscan:thermoscan@localhost:5432/thermoscan?sslmo
 API_PORT ?= 8080
 JWT_SECRET ?= dev-thermoscan-jwt-secret-9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c
 
-.PHONY: help build run dev test clean docker-up docker-down docker-logs db-up
+.PHONY: help build run dev test clean docker-up docker-down docker-logs db-up reset-admin
 
 help: ## Exibe a lista de comandos disponíveis
 	@echo "=================================================="
@@ -79,3 +79,8 @@ clean: ## Remove binários compilados
 	@echo "==> Limpando binários..."
 	@rm -rf $(BIN_DIR)
 	@echo "==> Limpeza concluída."
+
+reset-admin: ## Redefine a senha do system_admin gerando uma nova senha temporária
+	@echo "==> Redefinindo senha do system_admin..."
+	@DATABASE_URL="$(DATABASE_URL)" API_PORT="$(API_PORT)" JWT_SECRET="$(JWT_SECRET)" go run $(MAIN_SRC) -reset-admin
+

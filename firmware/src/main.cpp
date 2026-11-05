@@ -9,7 +9,7 @@
 #include "hal_esp32/drv8825_stepper.h"
 #include "hal_esp32/pump_servo_spray.h"
 #include "hal_esp32/mlx90640_camera.h"
-#include "hal_esp32/ina219_meter.h"
+#include "hal_esp32/ina228_meter.h"
 #include "hal_esp32/esp32_time_provider.h"
 #include "hal_esp32/http_cloud_client.h"
 #include "app/thermoscan_app.h"
@@ -35,13 +35,13 @@ static hal_esp32::CapacitiveWaterSensor g_water(WATER_SENSOR_PIN);
 static hal_esp32::Drv8825Stepper g_stepper(STEPPER_STEP_PIN, STEPPER_DIR_PIN, STEPPER_EN_PIN, STEPPER_LIMIT_MIN_PIN, STEPPER_LIMIT_MAX_PIN, DEFAULT_STEPS_PER_CM, HOME_OFFSET_CM);
 static hal_esp32::PumpServoSpray g_spray(PUMP_MOSFET_PIN, SERVO_PWM_PIN, &g_water);
 static hal_esp32::Mlx90640Camera g_camera(I2C_SDA_PIN, I2C_SCL_PIN, 0x33, CAMERA_SERVO_PWM_PIN);
-static hal_esp32::Ina219Meter g_ina219(getInaAddressForPanel(1));
+static hal_esp32::Ina228Meter g_ina228(getInaAddressForPanel(1));
 static hal_esp32::Esp32TimeProvider g_time_provider("pool.ntp.org", "time.nist.gov");
 static hal_esp32::HttpCloudClient g_cloud(BACKEND_URL, &g_storage, &g_water, &g_stepper, &g_camera);
 
 // Application Domain Orchestrator Instantiation
 static app::ThermoscanApp g_app(&g_camera,
-                                &g_ina219,
+                                &g_ina228,
                                 &g_stepper,
                                 &g_spray,
                                 &g_water,
@@ -50,21 +50,26 @@ static app::ThermoscanApp g_app(&g_camera,
                                 &g_time_provider);
 
 // Bench Diagnostics Console & Engine Instantiation
-static diagnostics::WebBufferedConsole g_console(Serial);
+static diagnostics::DualSerialProxy g_dual_serial(Serial);
+static diagnostics::WebBufferedConsole g_console(g_dual_serial);
 static diagnostics::BenchDiagnostics g_diagnostics(&g_storage,
                                                    &g_time_provider,
                                                    &g_cloud,
                                                    &g_camera,
                                                    &g_stepper,
-                                                   &g_ina219,
+                                                   &g_ina228,
                                                    &g_water,
                                                    &g_spray,
                                                    &g_app,
                                                    &g_console);
 static diagnostics::WebDiagnosticsServer g_web_server(&g_diagnostics, &g_console);
 
+// Route all direct Serial.print / printf in main.cpp to g_dual_serial (Hardware + Web Buffer)
+#define Serial g_dual_serial
+
 void setup() {
-    Serial.begin(115200);
+    g_dual_serial.begin(115200);
+    diagnostics::installEspLogHook();
     delay(500);
 
     Serial.println();

@@ -237,6 +237,17 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                     return Column(
                       children: [
                         ...filteredAlerts.map((alert) {
+                          String effectiveMeta = alert.metaText;
+                          if (alert.panelIndex != null) {
+                            final posStr = alert.xPositionCm != null
+                                ? ' • X: ${alert.xPositionCm!.toStringAsFixed(1)} cm'
+                                : '';
+                            final locStr = alert.localXPositionCm != null
+                                ? ' (Local: ${alert.localXPositionCm!.toStringAsFixed(1)} cm)'
+                                : '';
+                            effectiveMeta =
+                                '${alert.moduleName} • Painel ${alert.panelIndex}$posStr$locStr';
+                          }
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 14),
                             child: _buildAlertCard(
@@ -251,7 +262,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                               iconColor: alert.isCritical ? AppColors.error : AppColors.warning,
                               borderColor: alert.isCritical ? AppColors.error : AppColors.warning,
                               description: alert.description,
-                              metaText: alert.metaText,
+                              metaText: effectiveMeta,
                               actionLabel: alert.type == 'reservoir_low' ? 'Check Status' : 'View Module Details',
                               onTap: () {
                                 if (alert.moduleId.isNotEmpty) {

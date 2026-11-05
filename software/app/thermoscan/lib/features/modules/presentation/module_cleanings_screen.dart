@@ -215,7 +215,14 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
     Color statusText = AppColors.success;
     String statusLabel = 'VERIFIED POST-CLEAN';
 
-    if (c.status == 'refused') {
+    final isTargetInGap = c.failureReason == 'target_in_gap';
+
+    if (isTargetInGap) {
+      statusBg = AppColors.warningBackground;
+      statusBorder = AppColors.warningBorder;
+      statusText = AppColors.warning;
+      statusLabel = 'RECUSADA (NO GAP)';
+    } else if (c.status == 'refused') {
       statusBg = AppColors.warningBackground;
       statusBorder = AppColors.warningBorder;
       statusText = AppColors.warning;
@@ -239,6 +246,8 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
         ? '${c.estimatedWaterVolumeMl!.toStringAsFixed(0)} mL'
         : 'N/A';
 
+    final panelPrefix = c.panelIndex != null ? 'Painel ${c.panelIndex} • ' : '';
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -259,8 +268,8 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                   children: [
                     Text(
                       c.attemptNumber != null
-                          ? 'Wash Attempt #${c.attemptNumber} • Localized Traverse'
-                          : 'Wash Request • Localized Traverse',
+                          ? '${panelPrefix}Wash Attempt #${c.attemptNumber} • Localized Traverse'
+                          : '${panelPrefix}Wash Request • Localized Traverse',
                       style: AppTypography.h3.copyWith(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -316,7 +325,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Associated Hotspot: X = ${c.targetXPositionCm.toStringAsFixed(1)} cm (Anomaly ${c.anomalyEventId.length > 8 ? c.anomalyEventId.substring(0, 8) : c.anomalyEventId})',
+                    'Associated Hotspot: ${panelPrefix}X = ${c.targetXPositionCm.toStringAsFixed(1)} cm${c.localXPositionCm != null ? " (Local: ${c.localXPositionCm!.toStringAsFixed(1)} cm)" : ""} (Anomaly ${c.anomalyEventId.length > 8 ? c.anomalyEventId.substring(0, 8) : c.anomalyEventId})',
                     style: AppTypography.caption.copyWith(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w600,
@@ -338,7 +347,9 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                 border: Border.all(color: AppColors.border),
               ),
               child: Text(
-                'Safety Reason: ${c.failureReason}',
+                isTargetInGap
+                    ? 'Safety Reason: Target located in inter-panel gap (${c.targetXPositionCm.toStringAsFixed(1)} cm). Spray aborted to preserve water.'
+                    : 'Safety Reason: ${c.failureReason}',
                 style: AppTypography.caption.copyWith(
                   color: AppColors.warning,
                   fontWeight: FontWeight.w600,
@@ -354,7 +365,9 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
               Expanded(
                 child: _buildMetricCol(
                   'Position',
-                  'X: ${c.targetXPositionCm.toStringAsFixed(1)} cm',
+                  c.panelIndex != null
+                      ? 'P${c.panelIndex} • X: ${c.targetXPositionCm.toStringAsFixed(1)} cm'
+                      : 'X: ${c.targetXPositionCm.toStringAsFixed(1)} cm',
                   AppColors.textPrimary,
                 ),
               ),

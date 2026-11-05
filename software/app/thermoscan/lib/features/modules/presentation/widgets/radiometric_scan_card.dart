@@ -26,6 +26,7 @@ class RadiometricScanCard extends StatefulWidget {
 class _RadiometricScanCardState extends State<RadiometricScanCard> {
   bool _fitToScan = true;
   int? _selectedFrameIndex;
+  int? _focusedPanelIndex;
 
   @override
   Widget build(BuildContext context) {
@@ -83,43 +84,73 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     }
 
     final confirmedAnomalies = insp?.confirmedAnomalies ?? const [];
-    final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
+    final visibleAnomalies = _focusedPanelIndex == null
+        ? confirmedAnomalies
+        : confirmedAnomalies
+            .where((a) => a.panelIndex == null || a.panelIndex == _focusedPanelIndex)
+            .toList();
+    final hasConfirmedHotspots = visibleAnomalies.isNotEmpty;
 
     final panorama = ThermalPanoramaData.fromMeasurements(
       measurements: rawMeasurements,
-      confirmedAnomalies: confirmedAnomalies,
+      confirmedAnomalies: visibleAnomalies,
       panelLengthCm: widget.module.panelLengthCm,
+      panelCount: widget.module.panelCount,
+      panelSpacingCm: widget.module.panelSpacingCm,
+      focusedPanelIndex: _focusedPanelIndex,
       totalInspectionMeasurements: insp?.totalMeasurements,
       fitToScannedRange: _fitToScan,
     );
     final sortedMeasurements = panorama.sortedMeasurements;
+    final displayedMeasurements = _focusedPanelIndex == null
+        ? sortedMeasurements
+        : sortedMeasurements.where((meas) {
+            if (meas.panelIndex != null) {
+              return meas.panelIndex == _focusedPanelIndex;
+            }
+            if (_focusedPanelIndex! <= panorama.panelBounds.length) {
+              return panorama.panelBounds[_focusedPanelIndex! - 1]
+                  .contains(meas.xPositionCm);
+            }
+            return true;
+          }).toList();
+
     final coverage = panorama.coverageInfo;
 
-    final peakTemp = sortedMeasurements.isNotEmpty
-        ? sortedMeasurements
-              .map((e) => e.maxTemperatureC)
-              .reduce((a, b) => a > b ? a : b)
+    final peakTemp = displayedMeasurements.isNotEmpty
+        ? displayedMeasurements
+            .map((e) => e.maxTemperatureC)
+            .reduce((a, b) => a > b ? a : b)
         : (m?.maxTemperatureC ?? 0.0);
-    final baselineTemp = insp?.inspection.baselineTemperatureC;
-    final double? voltage =
-        m?.voltageV ??
-        (sortedMeasurements.isNotEmpty
-            ? sortedMeasurements.first.voltageV
+
+    InspectionPanelResult? focusedPanelResult;
+    final pResults = insp?.panelResults;
+    if (_focusedPanelIndex != null && pResults != null) {
+      for (final pr in pResults) {
+        if (pr.panelIndex == _focusedPanelIndex) {
+          focusedPanelResult = pr;
+          break;
+        }
+      }
+    }
+    final baselineTemp = focusedPanelResult?.baselineTemperatureC ??
+        insp?.inspection.baselineTemperatureC;
+
+    final double? voltage = m?.voltageV ??
+        (displayedMeasurements.isNotEmpty
+            ? displayedMeasurements.first.voltageV
             : null);
-    final double? current =
-        m?.currentA ??
-        (sortedMeasurements.isNotEmpty
-            ? sortedMeasurements.first.currentA
+    final double? current = m?.currentA ??
+        (displayedMeasurements.isNotEmpty
+            ? displayedMeasurements.first.currentA
             : null);
-    final double? power =
-        m?.powerW ??
-        (sortedMeasurements.isNotEmpty
-            ? sortedMeasurements.first.powerW
+    final double? power = m?.powerW ??
+        (displayedMeasurements.isNotEmpty
+            ? displayedMeasurements.first.powerW
             : (voltage != null && current != null ? voltage * current : null));
-    final xPos =
-        m?.xPositionCm ??
-        (sortedMeasurements.isNotEmpty
-            ? sortedMeasurements.first.xPositionCm
+    final xPos = m?.xPositionCm ??
+        (displayedMeasurements.isNotEmpty
+            ? displayedMeasurements.first.xPositionCm
             : 0.0);
 
     final delta = (peakTemp > 0 && baselineTemp != null && baselineTemp > 0)
@@ -203,11 +234,18 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           ),
           const SizedBox(height: 10),
 
+          // Multi-Panel String Selector Pills
+          if (widget.module.panelCount != null &&
+              widget.module.panelCount! > 1) ...[
+            _buildPanelSelector(widget.module.panelCount!),
+            const SizedBox(height: 8),
+          ],
+
           // Scale / Zoom Controls & Position Overview on the Rail
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              if (sortedMeasurements.isNotEmpty)
+              if (displayedMeasurements.isNotEmpty)
                 Text(
                   'Range: ${panorama.minDomainX.toStringAsFixed(1)} to ${panorama.maxDomainX.toStringAsFixed(1)} cm (${panorama.domainSpanCm.toStringAsFixed(1)} cm)',
                   style: AppTypography.caption.copyWith(
@@ -242,7 +280,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       ),
                       const SizedBox(width: 4),
                       Text(
-                        _fitToScan ? 'Zoom: Scan Area' : 'Zoom: Full Panel',
+                        _fitToScan
+                            ? 'Zoom: Scan Area'
+                            : (_focusedPanelIndex != null
+                                ? 'Zoom: Painel $_focusedPanelIndex'
+                                : 'Zoom: Full Panel'),
                         style: AppTypography.caption.copyWith(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -258,13 +300,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           const SizedBox(height: 6),
 
           // Mini Rail Progress Bar
-          if (sortedMeasurements.isNotEmpty &&
+          if (displayedMeasurements.isNotEmpty &&
               widget.module.panelLengthCm != null &&
               widget.module.panelLengthCm! > 0)
             _buildRailProgressOverview(
-              minFrameX: sortedMeasurements.first.xPositionCm,
-              maxFrameX: sortedMeasurements.last.xPositionCm,
+              minFrameX: displayedMeasurements.first.xPositionCm,
+              maxFrameX: displayedMeasurements.last.xPositionCm,
               panelLengthCm: widget.module.panelLengthCm!,
+              panelCount: widget.module.panelCount,
+              panelSpacingCm: widget.module.panelSpacingCm,
             ),
 
           const SizedBox(height: 6),
@@ -376,6 +420,78 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                     xToPx: xToPx,
                                     maxWidth: w,
                                   ),
+                                  // Panel & Gap indicators along the top ruler
+                                  if (_focusedPanelIndex == null &&
+                                      panorama.panelBounds.length > 1) ...[
+                                    ...panorama.panelBounds.map((pb) {
+                                      final centerPx =
+                                          xToPx((pb.startXCm + pb.endXCm) / 2.0);
+                                      return Positioned(
+                                        left: (centerPx - 16).clamp(
+                                          padLeft,
+                                          w - padLeft - 32.0,
+                                        ),
+                                        top: 0,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 1,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primary.withValues(
+                                              alpha: 0.85,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(3),
+                                          ),
+                                          child: Text(
+                                            'P${pb.panelIndex}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 7.5,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                    ...panorama.gapIntervals.map((gap) {
+                                      final centerPx =
+                                          xToPx((gap.startXCm + gap.endXCm) / 2.0);
+                                      return Positioned(
+                                        left: (centerPx - 12).clamp(
+                                          padLeft,
+                                          w - padLeft - 24.0,
+                                        ),
+                                        top: 1,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 3,
+                                            vertical: 0.5,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.8,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(2),
+                                            border: Border.all(
+                                              color: Colors.white24,
+                                              width: 0.5,
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'GAP',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 6.5,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }),
+                                  ],
                                 ],
                               ),
                             ),
@@ -387,7 +503,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             left: 0,
                             right: 0,
                             bottom: 34,
-                            child: sortedMeasurements.isEmpty
+                            child: displayedMeasurements.isEmpty
                                 ? Center(
                                     child: Text(
                                       'Awaiting physical frames from carriage scan',
@@ -400,7 +516,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                     ),
                                   )
                                 : Stack(
-                                    children: sortedMeasurements
+                                    children: displayedMeasurements
                                         .asMap()
                                         .entries
                                         .map((entry) {
@@ -413,7 +529,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                           final associatedAnomalies =
                                               getFrameAssociatedAnomalies(
                                                 meas,
-                                                confirmedAnomalies,
+                                                visibleAnomalies,
                                               );
                                           final isFrameConfirmed =
                                               associatedAnomalies.isNotEmpty;
@@ -539,12 +655,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                           ),
 
                           // Confirmed Hotspot Target Markers
-                          ...confirmedAnomalies.asMap().entries.map((entry) {
+                          ...visibleAnomalies.asMap().entries.map((entry) {
                             final anomIdx = entry.key;
                             final anomaly = entry.value;
                             final anomalyPx = xToPx(
                               anomaly.xPositionCm,
                             ).clamp(14.0, w - 24.0);
+                            final panelLabel = anomaly.panelIndex != null
+                                ? 'P${anomaly.panelIndex} • '
+                                : '';
                             return Positioned(
                               key: Key('rail_hotspot_marker_${anomIdx + 1}'),
                               top: 28,
@@ -595,7 +714,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                       ),
                                     ),
                                     child: Text(
-                                      'HOTSPOT ${anomaly.xPositionCm.toStringAsFixed(1)}cm',
+                                      '${panelLabel}HOTSPOT ${anomaly.xPositionCm.toStringAsFixed(1)}cm',
                                       style: const TextStyle(
                                         fontFamily: 'monospace',
                                         fontSize: 8,
@@ -702,8 +821,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           if (hasConfirmedHotspots) ...[
             const SizedBox(height: 10),
             _buildHotspotConfirmationSummary(
-              confirmedAnomalies: confirmedAnomalies,
-              sortedMeasurements: sortedMeasurements,
+              confirmedAnomalies: visibleAnomalies,
+              sortedMeasurements: displayedMeasurements,
             ),
           ],
 
@@ -748,7 +867,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
-              children: sortedMeasurements.isEmpty
+              children: displayedMeasurements.isEmpty
                   ? [
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -768,12 +887,12 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                         ),
                       ),
                     ]
-                  : sortedMeasurements.asMap().entries.map((entry) {
+                  : displayedMeasurements.asMap().entries.map((entry) {
                       final idx = entry.key;
                       final f = entry.value;
                       final anomalyLabels = getFrameAnomalyLabels(
                         f,
-                        confirmedAnomalies,
+                        visibleAnomalies,
                       );
                       final isConfirmed = anomalyLabels.isNotEmpty;
                       final isSelected = _selectedFrameIndex == idx;
@@ -856,6 +975,28 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                           : AppColors.textPrimary,
                                     ),
                                   ),
+                                  if (widget.module.panelCount != null &&
+                                      widget.module.panelCount! > 1) ...[
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 4,
+                                        vertical: 1,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primarySoft,
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                      child: Text(
+                                        'Painel ${f.panelIndex ?? 1}',
+                                        style: const TextStyle(
+                                          color: AppColors.primary,
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                   if (isConfirmed) ...[
                                     const SizedBox(width: 4),
                                     Container(
@@ -933,13 +1074,13 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
 
           // Selected Single-Frame 32x24 Inspector
           if (_selectedFrameIndex != null &&
-              _selectedFrameIndex! < sortedMeasurements.length) ...[
+              _selectedFrameIndex! < displayedMeasurements.length) ...[
             const SizedBox(height: 12),
             _buildSelectedFrameInspector(
               frameIndex: _selectedFrameIndex!,
-              measurement: sortedMeasurements[_selectedFrameIndex!],
+              measurement: displayedMeasurements[_selectedFrameIndex!],
               panorama: panorama,
-              confirmedAnomalies: confirmedAnomalies,
+              confirmedAnomalies: visibleAnomalies,
             ),
           ],
 
@@ -1011,9 +1152,20 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     required double minFrameX,
     required double maxFrameX,
     required double panelLengthCm,
+    int? panelCount,
+    double? panelSpacingCm,
   }) {
-    final startRatio = ((minFrameX - ThermalCoverageInfo.halfFovCm) / panelLengthCm).clamp(0.0, 1.0);
-    final endRatio = ((maxFrameX + ThermalCoverageInfo.halfFovCm) / panelLengthCm).clamp(0.0, 1.0);
+    final effectiveCount =
+        (panelCount != null && panelCount > 0) ? panelCount : 1;
+    final effectiveSpacing =
+        (panelSpacingCm != null && panelSpacingCm >= 0) ? panelSpacingCm : 0.0;
+    final totalRail = (effectiveCount * panelLengthCm) +
+        ((effectiveCount - 1) * effectiveSpacing);
+
+    final startRatio =
+        ((minFrameX - ThermalCoverageInfo.halfFovCm) / totalRail).clamp(0.0, 1.0);
+    final endRatio =
+        ((maxFrameX + ThermalCoverageInfo.halfFovCm) / totalRail).clamp(0.0, 1.0);
     final widthRatio = (endRatio - startRatio).clamp(0.02, 1.0);
 
     return Container(
@@ -1030,7 +1182,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Rail Scan Coverage: ${minFrameX.toStringAsFixed(1)} to ${maxFrameX.toStringAsFixed(1)} cm of ${panelLengthCm.toStringAsFixed(0)} cm',
+                'Rail Scan Coverage: ${minFrameX.toStringAsFixed(1)} to ${maxFrameX.toStringAsFixed(1)} cm of ${totalRail.toStringAsFixed(0)} cm (${effectiveCount > 1 ? "$effectiveCount painéis" : "Painel único"})',
                 style: AppTypography.caption.copyWith(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
@@ -1077,6 +1229,70 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPanelSelector(int panelCount) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildPanelChip(
+            key: const Key('panel_chip_all'),
+            label: 'String Completa',
+            isSelected: _focusedPanelIndex == null,
+            onTap: () => setState(() {
+              _focusedPanelIndex = null;
+              _selectedFrameIndex = null;
+            }),
+          ),
+          for (var p = 1; p <= panelCount; p++) ...[
+            const SizedBox(width: 6),
+            _buildPanelChip(
+              key: Key('panel_chip_$p'),
+              label: 'Painel $p',
+              isSelected: _focusedPanelIndex == p,
+              onTap: () => setState(() {
+                _focusedPanelIndex = p;
+                _selectedFrameIndex = null;
+              }),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPanelChip({
+    Key? key,
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      key: key,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : AppColors.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : AppColors.border,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Text(
+          label,
+          style: AppTypography.caption.copyWith(
+            fontSize: 11,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? Colors.white : AppColors.textSecondary,
+          ),
+        ),
       ),
     );
   }
@@ -1130,10 +1346,17 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 ? confirmingFrames.join(' and ')
                 : 'Overlapping frames';
 
+            final panelStr = anomaly.panelIndex != null
+                ? 'Painel ${anomaly.panelIndex} • '
+                : '';
+            final localStr = anomaly.localXPositionCm != null
+                ? ' (local: ${anomaly.localXPositionCm!.toStringAsFixed(1)} cm)'
+                : '';
+
             return Padding(
               padding: const EdgeInsets.only(top: 2),
               child: Text(
-                '• H${idx + 1} at X=${anomaly.xPositionCm.toStringAsFixed(1)} cm confirmed by: $framesText',
+                '• ${panelStr}H${idx + 1} at X=${anomaly.xPositionCm.toStringAsFixed(1)} cm$localStr confirmed by: $framesText',
                 style: AppTypography.caption.copyWith(
                   color: AppColors.textPrimary,
                   fontSize: 10.5,

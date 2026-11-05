@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
@@ -377,6 +378,25 @@ class _ModuleMeasurementsScreenState
                   color: AppColors.textPrimary,
                 ),
               ),
+              if (m.panelIndex != null) ...[
+                const SizedBox(width: 6),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    'P${m.panelIndex}${m.localXPositionCm != null ? " • loc: ${m.localXPositionCm!.toStringAsFixed(0)}cm" : ""}',
+                    style: const TextStyle(
+                      color: AppColors.primary,
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
               if (isConfirmed) ...[
                 const SizedBox(width: 8),
                 Container(
@@ -593,6 +613,13 @@ class _ModuleMeasurementsScreenState
         ? _formatShortTimestamp(latestDt.toIso8601String())
         : (measurements.isNotEmpty ? measurements.first.measuredAt : 'N/A');
 
+    final Map<int, List<ModuleMeasurement>> byPanel = {};
+    for (final m in measurements) {
+      final p = m.panelIndex ?? 1;
+      byPanel.putIfAbsent(p, () => []).add(m);
+    }
+    final sortedPanels = byPanel.keys.toList()..sort();
+
     return Container(
       key: Key('history_group_$inspectionId'),
       decoration: BoxDecoration(
@@ -663,25 +690,132 @@ class _ModuleMeasurementsScreenState
             ],
           ),
           const SizedBox(height: 10),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: measurements.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 6),
-            itemBuilder: (ctx, idx) {
-              final m = measurements[idx];
-              final isConfirmed = latestInspection != null &&
-                  latestInspection.confirmedAnomalies.any(
-                    (a) =>
-                        a.originMeasurementId == m.id ||
-                        a.confirmingMeasurementIds.contains(m.id) ||
-                        (a.originMeasurementId.isEmpty &&
-                            a.confirmingMeasurementIds.isEmpty &&
-                            (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
-                  );
-              return _buildPaginatedStepTile(m, isConfirmed);
-            },
-          ),
+          if (sortedPanels.length > 1) ...[
+            ...sortedPanels.map((p) {
+              final panelMeasurements = byPanel[p]!;
+              final pMinX = panelMeasurements
+                  .map((m) => m.xPositionCm)
+                  .reduce(math.min);
+              final pMaxX = panelMeasurements
+                  .map((m) => m.xPositionCm)
+                  .reduce(math.max);
+              final pPeak = panelMeasurements
+                  .map((m) => m.maxTemperatureC)
+                  .reduce(math.max);
+
+              InspectionPanelResult? pRes;
+              final pResults = latestInspection?.panelResults;
+              if (pResults != null) {
+                for (final r in pResults) {
+                  if (r.panelIndex == p) {
+                    pRes = r;
+                    break;
+                  }
+                }
+              }
+              final bTemp = pRes?.baselineTemperatureC;
+              final baselineStr = bTemp != null
+                  ? ' • Baseline: ${bTemp.toStringAsFixed(1)}°C'
+                  : '';
+
+              return Theme(
+                data: Theme.of(context).copyWith(
+                  dividerColor: Colors.transparent,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Material(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: ExpansionTile(
+                        key: Key('panel_accordion_${inspectionId}_$p'),
+                        initiallyExpanded: p == 1,
+                        tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 2,
+                        ),
+                        childrenPadding:
+                            const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                    leading: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.primarySoft,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        'P$p',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      'Painel $p (X: ${pMinX.toStringAsFixed(0)}..${pMaxX.toStringAsFixed(0)} cm)',
+                      style: AppTypography.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${panelMeasurements.length} frames • Peak: ${pPeak.toStringAsFixed(1)}°C$baselineStr',
+                      style: AppTypography.caption.copyWith(
+                        fontSize: 10,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    children: panelMeasurements.map((m) {
+                      final isConfirmed = latestInspection != null &&
+                          latestInspection.confirmedAnomalies.any(
+                            (a) =>
+                                a.originMeasurementId == m.id ||
+                                a.confirmingMeasurementIds.contains(m.id) ||
+                                (a.originMeasurementId.isEmpty &&
+                                    a.confirmingMeasurementIds.isEmpty &&
+                                    (a.xPositionCm - m.xPositionCm).abs() <=
+                                        1.0),
+                          );
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: _buildPaginatedStepTile(m, isConfirmed),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+          ] else ...[
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: measurements.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 6),
+              itemBuilder: (ctx, idx) {
+                final m = measurements[idx];
+                final isConfirmed = latestInspection != null &&
+                    latestInspection.confirmedAnomalies.any(
+                      (a) =>
+                          a.originMeasurementId == m.id ||
+                          a.confirmingMeasurementIds.contains(m.id) ||
+                          (a.originMeasurementId.isEmpty &&
+                              a.confirmingMeasurementIds.isEmpty &&
+                              (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
+                    );
+                return _buildPaginatedStepTile(m, isConfirmed);
+              },
+            ),
+          ],
         ],
       ),
     );

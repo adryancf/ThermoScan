@@ -168,6 +168,9 @@ class ThermalCoverageInfo {
     required this.panelLengthCm,
     required this.loadedMeasurementsCount,
     this.totalInspectionMeasurements,
+    this.panelCount,
+    this.panelSpacingCm,
+    this.focusedPanelIndex,
   });
 
   static const double stepCm = 2.0;
@@ -180,21 +183,38 @@ class ThermalCoverageInfo {
   final double? panelLengthCm;
   final int loadedMeasurementsCount;
   final int? totalInspectionMeasurements;
+  final int? panelCount;
+  final double? panelSpacingCm;
+  final int? focusedPanelIndex;
 
   bool get hasConfiguredPanelLength =>
       panelLengthCm != null && panelLengthCm! > 0;
 
-  /// Expected number of acquisitions for `0..panelLengthCm` at 2 cm step:
-  /// `ceil(panelLengthCm / 2.0) + 1`.
+  int get effectivePanelCount =>
+      (panelCount != null && panelCount! > 0) ? panelCount! : 1;
+
+  double get effectivePanelSpacingCm =>
+      (panelSpacingCm != null && panelSpacingCm! >= 0) ? panelSpacingCm! : 0.0;
+
+  /// Expected number of acquisitions:
+  /// For focused panel: `ceil(panelLengthCm / 2.0) + 1`.
+  /// For full multi-panel string: `panelCount * (ceil(panelLengthCm / 2.0) + 1)`.
   int? get expectedAcquisitions {
     if (!hasConfiguredPanelLength) return null;
-    return (panelLengthCm! / stepCm).ceil() + 1;
+    final perPanel = (panelLengthCm! / stepCm).ceil() + 1;
+    if (focusedPanelIndex != null) return perPanel;
+    return effectivePanelCount * perPanel;
   }
 
-  /// Expected total thermal coverage span in cm (`[-2.5, panelLengthCm + 2.5]` -> `panelLengthCm + 5.0`).
+  /// Expected total thermal coverage span in cm.
+  /// For focused panel: `panelLengthCm + 5.0`.
+  /// For full string: `(panelCount * panelLengthCm) + ((panelCount - 1) * panelSpacingCm) + 5.0`.
   double? get expectedThermalCoverageCm {
     if (!hasConfiguredPanelLength) return null;
-    return panelLengthCm! + fovCm;
+    if (focusedPanelIndex != null) return panelLengthCm! + fovCm;
+    final totalRail = (effectivePanelCount * panelLengthCm!) +
+        ((effectivePanelCount - 1) * effectivePanelSpacingCm);
+    return totalRail + fovCm;
   }
 
   /// True when the inspection reports more total measurements than currently loaded in memory.
@@ -216,6 +236,40 @@ class ThermalCoverageInfo {
     if (expected == null) return false;
     return loadedMeasurementsCount > expected;
   }
+}
+
+/// Boundary coordinates of an individual panel on the continuous mechanical rail.
+class PanelBound {
+  const PanelBound({
+    required this.panelIndex,
+    required this.startXCm,
+    required this.endXCm,
+  });
+
+  final int panelIndex;
+  final double startXCm;
+  final double endXCm;
+
+  double get lengthCm => endXCm - startXCm;
+
+  bool contains(double xCm) => xCm >= startXCm && xCm <= endXCm;
+}
+
+/// Boundary coordinates of an empty mechanical gap between adjacent panels.
+class GapInterval {
+  const GapInterval({
+    required this.afterPanelIndex,
+    required this.startXCm,
+    required this.endXCm,
+  });
+
+  final int afterPanelIndex;
+  final double startXCm;
+  final double endXCm;
+
+  double get widthCm => endXCm - startXCm;
+
+  bool contains(double xCm) => xCm > startXCm && xCm < endXCm;
 }
 
 enum ThermalCellStatus {
@@ -286,27 +340,63 @@ class ThermalPanoramaData {
     required this.minValidTempC,
     required this.maxValidTempC,
     required this.anomaliesWithoutLoadedConfirmingFrames,
+    required this.panelBounds,
+    required this.gapIntervals,
+    this.focusedPanelIndex,
+    required this.panelCount,
+    required this.panelSpacingCm,
+    required this.totalRailLengthCm,
   });
 
   factory ThermalPanoramaData.fromMeasurements({
     required List<ModuleMeasurement> measurements,
     List<ConfirmedAnomaly> confirmedAnomalies = const [],
     double? panelLengthCm,
+    int? panelCount,
+    double? panelSpacingCm,
+    int? focusedPanelIndex,
     int? totalInspectionMeasurements,
     bool fitToScannedRange = false,
   }) {
     final sorted = sortMeasurementsSpatially(measurements);
+
+    final effectivePanelLength =
+        (panelLengthCm != null && panelLengthCm > 0) ? panelLengthCm : 20.0;
+    final effectiveCount =
+        (panelCount != null && panelCount > 0) ? panelCount : 1;
+    final effectiveSpacing =
+        (panelSpacingCm != null && panelSpacingCm >= 0) ? panelSpacingCm : 0.0;
+
+    final bounds = <PanelBound>[];
+    final gaps = <GapInterval>[];
+    for (var p = 1; p <= effectiveCount; p++) {
+      final startX = (p - 1) * (effectivePanelLength + effectiveSpacing);
+      final endX = startX + effectivePanelLength;
+      bounds.add(PanelBound(panelIndex: p, startXCm: startX, endXCm: endX));
+      if (p < effectiveCount && effectiveSpacing > 0) {
+        gaps.add(
+          GapInterval(
+            afterPanelIndex: p,
+            startXCm: endX,
+            endXCm: endX + effectiveSpacing,
+          ),
+        );
+      }
+    }
+    final totalRail = (effectiveCount * effectivePanelLength) +
+        ((effectiveCount - 1) * effectiveSpacing);
+
     final coverage = ThermalCoverageInfo(
       panelLengthCm: panelLengthCm,
       loadedMeasurementsCount: sorted.length,
       totalInspectionMeasurements: totalInspectionMeasurements,
+      panelCount: panelCount,
+      panelSpacingCm: panelSpacingCm,
+      focusedPanelIndex: focusedPanelIndex,
     );
 
-    final effectivePanelLength =
-        (panelLengthCm != null && panelLengthCm > 0) ? panelLengthCm : 20.0;
-
     double minFrameX = 0.0;
-    double maxFrameX = effectivePanelLength;
+    double maxFrameX = totalRail;
     if (sorted.isNotEmpty) {
       minFrameX = sorted.first.xPositionCm;
       maxFrameX = sorted.first.xPositionCm;
@@ -319,7 +409,13 @@ class ThermalPanoramaData {
     final double minDomainX;
     final double maxDomainX;
 
-    if (fitToScannedRange && sorted.isNotEmpty) {
+    if (focusedPanelIndex != null &&
+        focusedPanelIndex >= 1 &&
+        focusedPanelIndex <= bounds.length) {
+      final targetPanel = bounds[focusedPanelIndex - 1];
+      minDomainX = targetPanel.startXCm - ThermalCoverageInfo.halfFovCm;
+      maxDomainX = targetPanel.endXCm + ThermalCoverageInfo.halfFovCm;
+    } else if (fitToScannedRange && sorted.isNotEmpty) {
       minDomainX = minFrameX - ThermalCoverageInfo.halfFovCm;
       maxDomainX = maxFrameX + ThermalCoverageInfo.halfFovCm;
     } else {
@@ -330,9 +426,9 @@ class ThermalPanoramaData {
               minFrameX - ThermalCoverageInfo.halfFovCm,
             );
       maxDomainX = sorted.isEmpty
-          ? effectivePanelLength + ThermalCoverageInfo.halfFovCm
+          ? totalRail + ThermalCoverageInfo.halfFovCm
           : math.max(
-              effectivePanelLength + ThermalCoverageInfo.halfFovCm,
+              totalRail + ThermalCoverageInfo.halfFovCm,
               maxFrameX + ThermalCoverageInfo.halfFovCm,
             );
     }
@@ -410,6 +506,12 @@ class ThermalPanoramaData {
       minValidTempC: minTemp,
       maxValidTempC: maxTemp,
       anomaliesWithoutLoadedConfirmingFrames: unlinkedAnomalies,
+      panelBounds: bounds,
+      gapIntervals: gaps,
+      focusedPanelIndex: focusedPanelIndex,
+      panelCount: effectiveCount,
+      panelSpacingCm: effectiveSpacing,
+      totalRailLengthCm: totalRail,
     );
   }
 
@@ -431,6 +533,13 @@ class ThermalPanoramaData {
   final double? minValidTempC;
   final double? maxValidTempC;
   final List<ConfirmedAnomaly> anomaliesWithoutLoadedConfirmingFrames;
+
+  final List<PanelBound> panelBounds;
+  final List<GapInterval> gapIntervals;
+  final int? focusedPanelIndex;
+  final int panelCount;
+  final double panelSpacingCm;
+  final double totalRailLengthCm;
 
   double get domainSpanCm =>
       (maxDomainX - minDomainX).clamp(5.0, double.infinity);
@@ -574,12 +683,53 @@ class ThermalPanoramaPainter extends CustomPainter {
   /// Dark rail background color for uncovered regions.
   static const Color uncoveredBackgroundColor = Color(0xFF0F1B2D);
 
+  /// Dark slotted color for physical inter-panel gaps.
+  static const Color gapSpacerColor = Color(0xFF060B14);
+  static const Color gapBorderColor = Color(0xFF1E293B);
+
   @override
   void paint(Canvas canvas, Size size) {
     final bgPaint = Paint()
       ..color = uncoveredBackgroundColor
       ..style = PaintingStyle.fill;
     canvas.drawRect(Offset.zero & size, bgPaint);
+
+    final domainSpan = panorama.domainSpanCm;
+    final pxPerCm = size.width / domainSpan;
+
+    // Draw mechanical gap spacers between adjacent panels
+    final gapPaint = Paint()
+      ..color = gapSpacerColor
+      ..style = PaintingStyle.fill;
+    final gapBorderPaint = Paint()
+      ..color = gapBorderColor
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    for (final gap in panorama.gapIntervals) {
+      final left = (gap.startXCm - panorama.minDomainX) * pxPerCm;
+      final right = (gap.endXCm - panorama.minDomainX) * pxPerCm;
+      if (right <= 0 || left >= size.width) continue;
+
+      final rect = Rect.fromLTRB(
+        left.clamp(0.0, size.width),
+        0,
+        right.clamp(0.0, size.width),
+        size.height,
+      );
+      canvas.drawRect(rect, gapPaint);
+      canvas.drawRect(rect, gapBorderPaint);
+
+      // Mechanical slot center marking
+      if (rect.width >= 3.0) {
+        final midX = rect.center.dx;
+        canvas.drawLine(
+          Offset(midX, 4),
+          Offset(midX, size.height - 4),
+          gapBorderPaint,
+        );
+      }
+    }
 
     if (!panorama.hasAnyThermalMatrix || panorama.gridColumns <= 0) {
       return;

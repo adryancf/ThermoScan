@@ -8,6 +8,8 @@ class FieldAlert {
     required this.title,
     required this.description,
     required this.metaText,
+    this.panelIndex,
+    this.localXPositionCm,
     this.xPositionCm,
     this.deltaC,
     required this.createdAt,
@@ -21,6 +23,8 @@ class FieldAlert {
   final String title;
   final String description;
   final String metaText;
+  final int? panelIndex;
+  final double? localXPositionCm;
   final double? xPositionCm;
   final double? deltaC;
   final String createdAt;
@@ -37,6 +41,8 @@ class FieldAlert {
       title: json['title'] as String? ?? 'Field Alert',
       description: json['description'] as String? ?? '',
       metaText: json['meta_text'] as String? ?? '',
+      panelIndex: (json['panel_index'] as num?)?.toInt(),
+      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
       xPositionCm: (json['x_position_cm'] as num?)?.toDouble(),
       deltaC: (json['delta_c'] as num?)?.toDouble(),
       createdAt: json['created_at'] as String? ?? '',

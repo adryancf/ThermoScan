@@ -43,6 +43,8 @@ class PvModule {
     this.panelWidthCm,
     this.panelCount,
     this.panelSpacingCm,
+    this.totalLengthCm,
+    this.powerSensors,
     this.latitude,
     this.longitude,
     this.elevationM,
@@ -79,6 +81,8 @@ class PvModule {
   final double? panelWidthCm;
   final int? panelCount;
   final double? panelSpacingCm;
+  final double? totalLengthCm;
+  final List<dynamic>? powerSensors;
   final double? latitude;
   final double? longitude;
   final double? elevationM;
@@ -118,6 +122,39 @@ class PvModule {
   bool get isPendingConfiguration =>
       monitoringStatus == 'pending_configuration';
   bool get isActiveMonitoring => monitoringStatus == 'active';
+
+  double get calculatedTotalLengthCm {
+    if (totalLengthCm != null && totalLengthCm! > 0) return totalLengthCm!;
+    final count = panelCount ?? 1;
+    final len = panelLengthCm ?? 100.0;
+    final spc = panelSpacingCm ?? 2.0;
+    return (count * len) + ((count - 1) * spc);
+  }
+
+  ({double startCm, double endCm}) getPanelBounds(int panelIndex) {
+    final len = panelLengthCm ?? 100.0;
+    final spc = panelSpacingCm ?? 2.0;
+    final start = (panelIndex - 1) * (len + spc);
+    return (startCm: start, endCm: start + len);
+  }
+
+  ({int panelIndex, double localXCm, bool inGap}) resolvePanelPosition(double xCm) {
+    final count = panelCount ?? 1;
+    final len = panelLengthCm ?? 100.0;
+    final spc = panelSpacingCm ?? 2.0;
+    for (var p = 1; p <= count; p++) {
+      final start = (p - 1) * (len + spc);
+      final end = start + len;
+      if (xCm >= start - 1e-3 && xCm <= end + 1e-3) {
+        final local = (xCm - start).clamp(0.0, len);
+        return (panelIndex: p, localXCm: local, inGap: false);
+      }
+      if (p < count && xCm > end && xCm < start + len + spc) {
+        return (panelIndex: 0, localXCm: xCm - start, inGap: true);
+      }
+    }
+    return (panelIndex: 1, localXCm: xCm, inGap: false);
+  }
 
   String get monitoringStatusLabel {
     switch (monitoringStatus) {
@@ -166,6 +203,8 @@ class PvModule {
       panelWidthCm: (json['panel_width_cm'] as num?)?.toDouble(),
       panelCount: (json['panel_count'] as num?)?.toInt(),
       panelSpacingCm: (json['panel_spacing_cm'] as num?)?.toDouble(),
+      totalLengthCm: (json['total_length_cm'] as num?)?.toDouble(),
+      powerSensors: json['power_sensors'] as List<dynamic>?,
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
       elevationM: (json['elevation_m'] as num?)?.toDouble(),
@@ -219,6 +258,8 @@ class PvModule {
       if (panelWidthCm != null) 'panel_width_cm': panelWidthCm,
       if (panelCount != null) 'panel_count': panelCount,
       if (panelSpacingCm != null) 'panel_spacing_cm': panelSpacingCm,
+      if (totalLengthCm != null) 'total_length_cm': totalLengthCm,
+      if (powerSensors != null) 'power_sensors': powerSensors,
       if (latitude != null) 'latitude': latitude,
       if (longitude != null) 'longitude': longitude,
       if (elevationM != null) 'elevation_m': elevationM,
@@ -537,6 +578,8 @@ class ModuleMeasurement {
     required this.moduleId,
     required this.inspectionId,
     required this.sourceEventId,
+    this.panelIndex,
+    this.localXPositionCm,
     required this.measuredAt,
     required this.xPositionCm,
     required this.maxTemperatureC,
@@ -551,6 +594,8 @@ class ModuleMeasurement {
   final String moduleId;
   final String inspectionId;
   final String sourceEventId;
+  final int? panelIndex;
+  final double? localXPositionCm;
   final String measuredAt;
   final double xPositionCm;
   final double maxTemperatureC;
@@ -577,6 +622,8 @@ class ModuleMeasurement {
       moduleId: json['module_id'] as String? ?? '',
       inspectionId: json['inspection_id'] as String? ?? '',
       sourceEventId: json['source_event_id'] as String? ?? '',
+      panelIndex: (json['panel_index'] as num?)?.toInt(),
+      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
       measuredAt: json['measured_at'] as String? ?? '',
       xPositionCm: double.tryParse(json['x_position_cm']?.toString() ?? '') ?? 0.0,
       maxTemperatureC: double.tryParse(json['max_temperature_c']?.toString() ?? '') ?? 0.0,
@@ -594,6 +641,8 @@ class ModuleMeasurement {
       'module_id': moduleId,
       'inspection_id': inspectionId,
       'source_event_id': sourceEventId,
+      if (panelIndex != null) 'panel_index': panelIndex,
+      if (localXPositionCm != null) 'local_x_position_cm': localXPositionCm,
       'measured_at': measuredAt,
       'x_position_cm': xPositionCm,
       'max_temperature_c': maxTemperatureC,
@@ -663,6 +712,8 @@ class ConfirmedAnomaly {
     required this.originMeasurementId,
     required this.confirmingMeasurementIds,
     required this.sourceEventId,
+    this.panelIndex,
+    this.localXPositionCm,
     required this.xPositionCm,
     required this.detectedAt,
     required this.status,
@@ -676,6 +727,8 @@ class ConfirmedAnomaly {
   final String originMeasurementId;
   final List<String> confirmingMeasurementIds;
   final String sourceEventId;
+  final int? panelIndex;
+  final double? localXPositionCm;
   final double xPositionCm;
   final String detectedAt;
   final String status;
@@ -691,6 +744,8 @@ class ConfirmedAnomaly {
       originMeasurementId: json['origin_measurement_id'] as String? ?? '',
       confirmingMeasurementIds: rawConfirming.map((e) => e.toString()).toList(),
       sourceEventId: json['source_event_id'] as String? ?? '',
+      panelIndex: (json['panel_index'] as num?)?.toInt(),
+      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
       xPositionCm: (json['x_position_cm'] as num?)?.toDouble() ?? 0.0,
       detectedAt: json['detected_at'] as String? ?? '',
       status: json['status'] as String? ?? 'open',
@@ -701,25 +756,64 @@ class ConfirmedAnomaly {
   }
 }
 
+class InspectionPanelResult {
+  const InspectionPanelResult({
+    required this.inspectionId,
+    required this.moduleId,
+    required this.panelIndex,
+    required this.baselineTemperatureC,
+    required this.truncatedByMemory,
+    required this.finishedAt,
+    required this.createdAt,
+  });
+
+  final String inspectionId;
+  final String moduleId;
+  final int panelIndex;
+  final double baselineTemperatureC;
+  final bool truncatedByMemory;
+  final String finishedAt;
+  final String createdAt;
+
+  factory InspectionPanelResult.fromJson(Map<String, dynamic> json) {
+    return InspectionPanelResult(
+      inspectionId: json['inspection_id'] as String? ?? '',
+      moduleId: json['module_id'] as String? ?? '',
+      panelIndex: (json['panel_index'] as num?)?.toInt() ?? 1,
+      baselineTemperatureC: double.tryParse(json['baseline_temperature_c']?.toString() ?? '') ?? 0.0,
+      truncatedByMemory: json['truncated_by_memory'] as bool? ?? false,
+      finishedAt: json['finished_at'] as String? ?? '',
+      createdAt: json['created_at'] as String? ?? '',
+    );
+  }
+}
+
 class LatestInspection {
   const LatestInspection({
     required this.inspection,
     required this.totalMeasurements,
     required this.confirmedAnomalies,
+    this.panelResults,
   });
 
   final ModuleInspection inspection;
   final int totalMeasurements;
   final List<ConfirmedAnomaly> confirmedAnomalies;
+  final List<InspectionPanelResult>? panelResults;
 
   factory LatestInspection.fromJson(Map<String, dynamic> json) {
     final inspJson = json['inspection'] as Map<String, dynamic>? ?? {};
     final anomsJson = json['confirmed_anomalies'] as List<dynamic>? ?? [];
+    final panelsJson = json['panel_results'] as List<dynamic>?;
     return LatestInspection(
       inspection: ModuleInspection.fromJson(inspJson),
       totalMeasurements: (json['total_measurements'] as num?)?.toInt() ?? 0,
       confirmedAnomalies: anomsJson
           .map((a) => ConfirmedAnomaly.fromJson(a as Map<String, dynamic>))
+          .toList(),
+      panelResults: panelsJson
+          ?.whereType<Map<String, dynamic>>()
+          .map(InspectionPanelResult.fromJson)
           .toList(),
     );
   }
@@ -764,6 +858,8 @@ class ModuleCleaning {
     required this.moduleId,
     required this.anomalyEventId,
     required this.sourceEventId,
+    this.panelIndex,
+    this.localXPositionCm,
     required this.targetXPositionCm,
     required this.pumpActuated,
     this.attemptNumber,
@@ -781,6 +877,8 @@ class ModuleCleaning {
   final String moduleId;
   final String anomalyEventId;
   final String sourceEventId;
+  final int? panelIndex;
+  final double? localXPositionCm;
   final double targetXPositionCm;
   final bool pumpActuated;
   final int? attemptNumber;
@@ -799,6 +897,8 @@ class ModuleCleaning {
       moduleId: json['module_id'] as String? ?? '',
       anomalyEventId: json['anomaly_event_id'] as String? ?? '',
       sourceEventId: json['source_event_id'] as String? ?? '',
+      panelIndex: (json['panel_index'] as num?)?.toInt(),
+      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
       targetXPositionCm: double.tryParse(json['target_x_position_cm']?.toString() ?? '') ?? 0.0,
       pumpActuated: json['pump_actuated'] as bool? ?? false,
       attemptNumber: (json['attempt_number'] as num?)?.toInt(),

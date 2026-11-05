@@ -278,7 +278,7 @@ CREATE TABLE cleaning_operations (
     CHECK (status NOT IN ('refused', 'failed') OR failure_reason IS NOT NULL)
 );
 CREATE INDEX cleaning_operations_module_time_idx ON cleaning_operations(module_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS cleaning_operations_module_panel_idx ON cleaning_operations(module_id, panel_index, created_at DESC);
+CREATE INDEX cleaning_operations_module_panel_idx ON cleaning_operations(module_id, panel_index, created_at DESC);
 CREATE INDEX cleaning_operations_anomaly_time_idx ON cleaning_operations(anomaly_event_id, created_at ASC);
 CREATE UNIQUE INDEX cleaning_operations_anomaly_attempt_idx
     ON cleaning_operations(anomaly_event_id, attempt_number)

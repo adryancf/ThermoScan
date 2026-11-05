@@ -14,6 +14,7 @@
 #include "hal_esp32/http_cloud_client.h"
 #include "app/thermoscan_app.h"
 #include "diagnostics/bench_diagnostics.h"
+#include "diagnostics/web_diagnostics.h"
 
 // WiFi Configuration (overridable via compiler build flags)
 #ifndef WIFI_SSID
@@ -49,7 +50,7 @@ static app::ThermoscanApp g_app(&g_camera,
                                 &g_time_provider);
 
 // Bench Diagnostics Console & Engine Instantiation
-static diagnostics::SerialConsole g_console(Serial);
+static diagnostics::WebBufferedConsole g_console(Serial);
 static diagnostics::BenchDiagnostics g_diagnostics(&g_storage,
                                                    &g_time_provider,
                                                    &g_cloud,
@@ -60,6 +61,7 @@ static diagnostics::BenchDiagnostics g_diagnostics(&g_storage,
                                                    &g_spray,
                                                    &g_app,
                                                    &g_console);
+static diagnostics::WebDiagnosticsServer g_web_server(&g_diagnostics, &g_console);
 
 void setup() {
     Serial.begin(115200);
@@ -100,6 +102,10 @@ void setup() {
         // SNTP Clock Synchronization
         Serial.println(F("[SNTP] Synchronizing UTC wall clock..."));
         g_time_provider.syncNtp();
+
+        // Web Diagnostics Server initialization
+        g_web_server.begin("thermoscan");
+        Serial.printf("[WEB] Acesse o painel de bancada em: http://%s ou http://thermoscan.local\n", WiFi.localIP().toString().c_str());
     } else {
         Serial.println(F("[WIFI] Warning: WiFi not connected. Operating in standalone offline mode."));
     }
@@ -133,6 +139,8 @@ void setup() {
 }
 
 void loop() {
+    g_web_server.tick();
+
     // Process incoming serial commands for bench diagnostics
     if (Serial.available()) {
         String line = Serial.readStringUntil('\n');

@@ -52,6 +52,22 @@ func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal
 		return nil, err
 	}
 
+	pLen := numericToFloatPtr(row.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
+	pSpc := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
 	out := make([]MeasurementDTO, 0, len(rows))
 	for _, m := range rows {
 		var thermalFrameData any
@@ -59,19 +75,33 @@ func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal
 			_ = json.Unmarshal(m.ThermalFrame, &thermalFrameData)
 		}
 
+		var localXStr *string
+		if lenCm > 0 {
+			if xVal, pErr := strconv.ParseFloat(m.XPositionCm, 64); pErr == nil {
+				posRes := ResolvePanelPosition(cnt, lenCm, spcCm, xVal)
+				if !posRes.InGap {
+					s := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
+					localXStr = &s
+				}
+			}
+		}
+		pIdx := m.PanelIndex
+
 		out = append(out, MeasurementDTO{
-			ID:            auth.FormatUUID(m.ID),
-			ModuleID:      auth.FormatUUID(m.ModuleID),
-			InspectionID:  auth.FormatUUID(m.InspectionID),
-			SourceEventID: auth.FormatUUID(m.SourceEventID),
-			MeasuredAt:    m.MeasuredAt.UTC().Format(time.RFC3339),
-			XPositionCM:   m.XPositionCm,
-			MaxTempC:      m.MaxTemperatureC,
-			VoltageV:      numericToStringPtr(m.VoltageV),
-			CurrentA:      numericToStringPtr(m.CurrentA),
-			PowerW:        numericToStringPtr(m.PowerW),
-			ThermalFrame:  thermalFrameData,
-			ReceivedAt:    m.ReceivedAt.UTC().Format(time.RFC3339),
+			ID:               auth.FormatUUID(m.ID),
+			ModuleID:         auth.FormatUUID(m.ModuleID),
+			InspectionID:     auth.FormatUUID(m.InspectionID),
+			SourceEventID:    auth.FormatUUID(m.SourceEventID),
+			PanelIndex:       &pIdx,
+			MeasuredAt:       m.MeasuredAt.UTC().Format(time.RFC3339),
+			XPositionCM:      m.XPositionCm,
+			LocalXPositionCM: localXStr,
+			MaxTempC:         m.MaxTemperatureC,
+			VoltageV:         numericToStringPtr(m.VoltageV),
+			CurrentA:         numericToStringPtr(m.CurrentA),
+			PowerW:           numericToStringPtr(m.PowerW),
+			ThermalFrame:     thermalFrameData,
+			ReceivedAt:       m.ReceivedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return out, nil
@@ -133,6 +163,22 @@ func (s *Service) ListInspectionMeasurementsPaged(
 		return nil, err
 	}
 
+	pLen := numericToFloatPtr(row.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
+	pSpc := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
 	items := make([]MeasurementDTO, 0, len(rows))
 	for _, m := range rows {
 		var thermalFrameData any
@@ -140,19 +186,33 @@ func (s *Service) ListInspectionMeasurementsPaged(
 			_ = json.Unmarshal(m.ThermalFrame, &thermalFrameData)
 		}
 
+		var localXStr *string
+		if lenCm > 0 {
+			if xVal, pErr := strconv.ParseFloat(m.XPositionCm, 64); pErr == nil {
+				posRes := ResolvePanelPosition(cnt, lenCm, spcCm, xVal)
+				if !posRes.InGap {
+					s := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
+					localXStr = &s
+				}
+			}
+		}
+		pIdx := m.PanelIndex
+
 		items = append(items, MeasurementDTO{
-			ID:            auth.FormatUUID(m.ID),
-			ModuleID:      auth.FormatUUID(m.ModuleID),
-			InspectionID:  auth.FormatUUID(m.InspectionID),
-			SourceEventID: auth.FormatUUID(m.SourceEventID),
-			MeasuredAt:    m.MeasuredAt.UTC().Format(time.RFC3339),
-			XPositionCM:   m.XPositionCm,
-			MaxTempC:      m.MaxTemperatureC,
-			VoltageV:      numericToStringPtr(m.VoltageV),
-			CurrentA:      numericToStringPtr(m.CurrentA),
-			PowerW:        numericToStringPtr(m.PowerW),
-			ThermalFrame:  thermalFrameData,
-			ReceivedAt:    m.ReceivedAt.UTC().Format(time.RFC3339),
+			ID:               auth.FormatUUID(m.ID),
+			ModuleID:         auth.FormatUUID(m.ModuleID),
+			InspectionID:     auth.FormatUUID(m.InspectionID),
+			SourceEventID:    auth.FormatUUID(m.SourceEventID),
+			PanelIndex:       &pIdx,
+			MeasuredAt:       m.MeasuredAt.UTC().Format(time.RFC3339),
+			XPositionCM:      m.XPositionCm,
+			LocalXPositionCM: localXStr,
+			MaxTempC:         m.MaxTemperatureC,
+			VoltageV:         numericToStringPtr(m.VoltageV),
+			CurrentA:         numericToStringPtr(m.CurrentA),
+			PowerW:           numericToStringPtr(m.PowerW),
+			ThermalFrame:     thermalFrameData,
+			ReceivedAt:       m.ReceivedAt.UTC().Format(time.RFC3339),
 		})
 	}
 
@@ -244,6 +304,22 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 		verifResult = &inspRow.VerificationResult.String
 	}
 
+	pLen := numericToFloatPtr(row.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
+	pSpc := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
 	anomalies := make([]ConfirmedAnomalyDTO, 0, len(anomRows))
 	for _, a := range anomRows {
 		xPos, _ := strconv.ParseFloat(a.XPositionCm, 64)
@@ -258,19 +334,51 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 			closedAtStr = &c
 		}
 
+		var localXPtr *float64
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, xPos)
+			if !posRes.InGap {
+				localXPtr = &posRes.LocalXCm
+			}
+		}
+		pIdx := a.PanelIndex
+
 		anomalies = append(anomalies, ConfirmedAnomalyDTO{
 			ID:                       auth.FormatUUID(a.ID),
 			ModuleID:                 auth.FormatUUID(a.ModuleID),
 			OriginMeasurementID:      auth.FormatUUID(a.OriginMeasurementID),
 			ConfirmingMeasurementIDs: confirmingIDs,
 			SourceEventID:            auth.FormatUUID(a.SourceEventID),
+			PanelIndex:               &pIdx,
 			XPositionCM:              xPos,
+			LocalXPositionCM:         localXPtr,
 			DetectedAt:               a.DetectedAt.UTC().Format(time.RFC3339),
 			Status:                   a.Status,
 			ActuatedAttemptsCount:    a.ActuatedAttemptsCount,
 			RetryPending:             a.RetryPending,
 			ClosedAt:                 closedAtStr,
 		})
+	}
+
+	panelResultsRows, err := s.queries.ListInspectionPanelResults(ctx, db.ListInspectionPanelResultsParams{
+		InspectionID: inspRow.ID,
+		ModuleID:     moduleID,
+	})
+	var panelResults []InspectionPanelResultDTO
+	if err == nil && len(panelResultsRows) > 0 {
+		panelResults = make([]InspectionPanelResultDTO, 0, len(panelResultsRows))
+		for _, pr := range panelResultsRows {
+			bVal, _ := strconv.ParseFloat(pr.BaselineTemperatureC, 64)
+			panelResults = append(panelResults, InspectionPanelResultDTO{
+				InspectionID:          auth.FormatUUID(pr.InspectionID),
+				ModuleID:              auth.FormatUUID(pr.ModuleID),
+				PanelIndex:            pr.PanelIndex,
+				BaselineTemperatureC: bVal,
+				TruncatedByMemory:     pr.TruncatedByMemory,
+				FinishedAt:            pr.FinishedAt.UTC().Format(time.RFC3339),
+				CreatedAt:             pr.CreatedAt.UTC().Format(time.RFC3339),
+			})
+		}
 	}
 
 	return &LatestInspectionDTO{
@@ -291,6 +399,7 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 		},
 		TotalMeasurements:  totalMeas,
 		ConfirmedAnomalies: anomalies,
+		PanelResults:       panelResults,
 	}, nil
 }
 
@@ -380,12 +489,37 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 
 	// Validate bounds and finite values
 	panelLength := numericToFloatPtr(row.PanelLengthCm)
+	panelCount := pgInt4ToInt32Ptr(row.PanelCount)
+	panelSpacing := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if panelCount != nil && *panelCount > 0 {
+		cnt = *panelCount
+	}
+	lenCm := 0.0
+	if panelLength != nil {
+		lenCm = *panelLength
+	}
+	spcCm := 0.0
+	if panelSpacing != nil && *panelSpacing > 0 {
+		spcCm = *panelSpacing
+	}
+
 	for _, f := range items {
 		if f.XPositionCm < 0 {
 			return nil, fmt.Errorf("%w: x_position_cm (%.1f) cannot be negative", ErrInvalidInput, f.XPositionCm)
 		}
-		if panelLength != nil && f.XPositionCm > *panelLength {
-			return nil, fmt.Errorf("%w: x_position_cm (%.1f) exceeds module panel_length_cm (%.1f)", ErrInvalidInput, f.XPositionCm, *panelLength)
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, f.XPositionCm)
+			if !posRes.WithinBounds {
+				maxLen := CalculateTotalStringLength(cnt, lenCm, spcCm)
+				return nil, fmt.Errorf("%w: x_position_cm (%.1f) exceeds module string length (%.1f)", ErrInvalidInput, f.XPositionCm, maxLen)
+			}
+			if posRes.InGap {
+				return nil, fmt.Errorf("%w: x_position_cm (%.1f) falls inside inter-panel gap", ErrMeasurementInGap, f.XPositionCm)
+			}
+			if f.PanelIndex != nil && *f.PanelIndex != posRes.PanelIndex {
+				return nil, fmt.Errorf("%w: item panel_index %d does not match rail position panel %d", ErrInvalidInput, *f.PanelIndex, posRes.PanelIndex)
+			}
 		}
 		if !isFinite(f.XPositionCm) || !isFinite(f.MaxTemperatureC) {
 			return nil, fmt.Errorf("%w: x_position_cm and max_temperature_c must be finite numbers", ErrInvalidInput)
@@ -507,10 +641,19 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			measSourceUUID = newRandomUUID()
 		}
 
+		itemPanelIndex := int32(1)
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, f.XPositionCm)
+			itemPanelIndex = posRes.PanelIndex
+		} else if f.PanelIndex != nil && *f.PanelIndex > 0 {
+			itemPanelIndex = *f.PanelIndex
+		}
+
 		meas, err := qtx.CreateMeasurement(ctx, db.CreateMeasurementParams{
 			ModuleID:        moduleID,
 			InspectionID:    inspID,
 			SourceEventID:   measSourceUUID,
+			PanelIndex:      itemPanelIndex,
 			MeasuredAt:      fMeasuredAt,
 			XPositionCm:     floatPtrToNumeric(&f.XPositionCm),
 			MaxTemperatureC: floatPtrToNumeric(&f.MaxTemperatureC),
@@ -588,11 +731,17 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 					}
 				}
 
+				// 7. panel_index: exact match
+				if existingMeas.PanelIndex != itemPanelIndex {
+					return nil, ErrConflict
+				}
+
 				meas = db.CreateMeasurementRow{
 					ID:              existingMeas.ID,
 					ModuleID:        existingMeas.ModuleID,
 					InspectionID:    existingMeas.InspectionID,
 					SourceEventID:   existingMeas.SourceEventID,
+					PanelIndex:      existingMeas.PanelIndex,
 					MeasuredAt:      existingMeas.MeasuredAt,
 					XPositionCm:     existingMeas.XPositionCm,
 					MaxTemperatureC: existingMeas.MaxTemperatureC,
@@ -627,19 +776,33 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		_ = json.Unmarshal(meas.ThermalFrame, &thermalFrameData)
 	}
 
+	var localXStr *string
+	if lenCm > 0 {
+		if xVal, pErr := strconv.ParseFloat(meas.XPositionCm, 64); pErr == nil {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, xVal)
+			if !posRes.InGap {
+				s := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
+				localXStr = &s
+			}
+		}
+	}
+	pIdx := meas.PanelIndex
+
 	return &MeasurementDTO{
-		ID:            auth.FormatUUID(meas.ID),
-		ModuleID:      auth.FormatUUID(meas.ModuleID),
-		InspectionID:  auth.FormatUUID(meas.InspectionID),
-		SourceEventID: auth.FormatUUID(meas.SourceEventID),
-		MeasuredAt:    meas.MeasuredAt.UTC().Format(time.RFC3339),
-		XPositionCM:   meas.XPositionCm,
-		MaxTempC:      meas.MaxTemperatureC,
-		VoltageV:      numericToStringPtr(meas.VoltageV),
-		CurrentA:      numericToStringPtr(meas.CurrentA),
-		PowerW:        numericToStringPtr(meas.PowerW),
-		ThermalFrame:  thermalFrameData,
-		ReceivedAt:    meas.ReceivedAt.UTC().Format(time.RFC3339),
+		ID:               auth.FormatUUID(meas.ID),
+		ModuleID:         auth.FormatUUID(meas.ModuleID),
+		InspectionID:     auth.FormatUUID(meas.InspectionID),
+		SourceEventID:    auth.FormatUUID(meas.SourceEventID),
+		PanelIndex:       &pIdx,
+		MeasuredAt:       meas.MeasuredAt.UTC().Format(time.RFC3339),
+		XPositionCM:      meas.XPositionCm,
+		LocalXPositionCM: localXStr,
+		MaxTempC:         meas.MaxTemperatureC,
+		VoltageV:         numericToStringPtr(meas.VoltageV),
+		CurrentA:         numericToStringPtr(meas.CurrentA),
+		PowerW:           numericToStringPtr(meas.PowerW),
+		ThermalFrame:     thermalFrameData,
+		ReceivedAt:       meas.ReceivedAt.UTC().Format(time.RFC3339),
 	}, nil
 }
 
@@ -696,6 +859,20 @@ func (s *Service) FinalizeInspection(
 	}
 
 	panelLength := numericToFloatPtr(row.PanelLengthCm)
+	panelCount := pgInt4ToInt32Ptr(row.PanelCount)
+	panelSpacing := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if panelCount != nil && *panelCount > 0 {
+		cnt = *panelCount
+	}
+	lenCm := 0.0
+	if panelLength != nil {
+		lenCm = *panelLength
+	}
+	spcCm := 0.0
+	if panelSpacing != nil && *panelSpacing > 0 {
+		spcCm = *panelSpacing
+	}
 
 	// Validate confirmed hotspots input
 	for _, ch := range input.ConfirmedHotspots {
@@ -733,8 +910,17 @@ func (s *Service) FinalizeInspection(
 		if ch.GlobalXPositionCm < 0 || !isFinite(ch.GlobalXPositionCm) || !isFinite(ch.MaxTemperatureC) {
 			return nil, ErrInvalidInput
 		}
-		if panelLength != nil && ch.GlobalXPositionCm > *panelLength {
-			return nil, ErrInvalidInput
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, ch.GlobalXPositionCm)
+			if !posRes.WithinBounds {
+				return nil, fmt.Errorf("%w: hotspot position outside string bounds", ErrInvalidInput)
+			}
+			if posRes.InGap {
+				return nil, fmt.Errorf("%w: hotspot position falls inside inter-panel gap", ErrHotspotInGap)
+			}
+			if ch.PanelIndex != nil && *ch.PanelIndex != posRes.PanelIndex {
+				return nil, fmt.Errorf("%w: hotspot panel_index %d does not match position panel %d", ErrInvalidInput, *ch.PanelIndex, posRes.PanelIndex)
+			}
 		}
 		if ch.SourceEventID != "" {
 			if _, err := auth.ParseUUID(ch.SourceEventID); err != nil {
@@ -860,10 +1046,26 @@ func (s *Service) FinalizeInspection(
 		}
 	}
 
+	baselineTemp := input.BaselineTemperatureC
+	if baselineTemp <= 0 {
+		panelResults, _ := qtx.ListInspectionPanelResults(ctx, db.ListInspectionPanelResultsParams{
+			InspectionID: insp.ID,
+			ModuleID:     moduleID,
+		})
+		if len(panelResults) > 0 {
+			sum := 0.0
+			for _, pr := range panelResults {
+				val, _ := strconv.ParseFloat(pr.BaselineTemperatureC, 64)
+				sum += val
+			}
+			baselineTemp = sum / float64(len(panelResults))
+		}
+	}
+
 	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{
 		Status:               "completed",
 		FinishedAt:           &finAt,
-		BaselineTemperatureC: floatPtrToNumeric(&input.BaselineTemperatureC),
+		BaselineTemperatureC: floatPtrToNumeric(&baselineTemp),
 		VerificationResult:   verifResultPg,
 		ID:                   insp.ID,
 		ModuleID:             moduleID,
@@ -937,11 +1139,20 @@ func (s *Service) FinalizeInspection(
 			anomSourceUUID = newRandomUUID()
 		}
 
+		anomPanelIndex := origMeasRow.PanelIndex
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, ch.GlobalXPositionCm)
+			anomPanelIndex = posRes.PanelIndex
+		} else if ch.PanelIndex != nil && *ch.PanelIndex > 0 {
+			anomPanelIndex = *ch.PanelIndex
+		}
+
 		_, err = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
 			ModuleID:                 moduleID,
 			OriginMeasurementID:      originMeasID,
 			ConfirmingMeasurementIds: confirmingUUIDs,
 			SourceEventID:            anomSourceUUID,
+			PanelIndex:               anomPanelIndex,
 			XPositionCm:              floatPtrToNumeric(&ch.GlobalXPositionCm),
 			DetectedAt:               detectedAt,
 			Status:                   "open",
@@ -962,4 +1173,311 @@ func (s *Service) FinalizeInspection(
 	}
 
 	return s.GetLatestInspection(ctx, principal, moduleID)
+}
+
+func (s *Service) RecordPanelThermalResult(
+	ctx context.Context,
+	principal auth.Principal,
+	moduleID pgtype.UUID,
+	inspSourceEventID pgtype.UUID,
+	panelIndex int32,
+	input RecordPanelResultInput,
+) (*InspectionPanelResultDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid || !inspSourceEventID.Valid {
+		return nil, ErrForbidden
+	}
+	if panelIndex < 1 {
+		return nil, ErrInvalidPanelIndex
+	}
+
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	row, err := qtx.GetModuleByIDForUpdate(ctx, db.GetModuleByIDForUpdateParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, qtx, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	maxPanels := int32(1)
+	if row.PanelCount.Valid && row.PanelCount.Int32 > 0 {
+		maxPanels = row.PanelCount.Int32
+	}
+	if panelIndex > maxPanels {
+		return nil, ErrInvalidPanelIndex
+	}
+
+	insp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
+		ModuleID:      moduleID,
+		SourceEventID: inspSourceEventID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if insp.Status == "completed" {
+		return nil, ErrInspectionCompleted
+	}
+
+	pLen := numericToFloatPtr(row.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
+	pSpc := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
+	// Validate hotspots for this panel
+	for _, ch := range input.ConfirmedHotspots {
+		if ch.OriginMeasurementEventID == "" || len(ch.ConfirmingEventIDs) < 2 {
+			return nil, ErrInvalidInput
+		}
+		if _, err := auth.ParseUUID(ch.OriginMeasurementEventID); err != nil {
+			return nil, ErrInvalidInput
+		}
+		for _, cidStr := range ch.ConfirmingEventIDs {
+			if _, err := auth.ParseUUID(cidStr); err != nil {
+				return nil, ErrInvalidInput
+			}
+		}
+		if ch.RowIndex != nil && (*ch.RowIndex < 0 || *ch.RowIndex > 23) {
+			return nil, ErrInvalidInput
+		}
+		if !isFinite(ch.GlobalXPositionCm) || !isFinite(ch.MaxTemperatureC) {
+			return nil, ErrInvalidInput
+		}
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, ch.GlobalXPositionCm)
+			if !posRes.WithinBounds {
+				return nil, ErrPositionOutOfBounds
+			}
+			if posRes.InGap {
+				return nil, ErrHotspotInGap
+			}
+			if posRes.PanelIndex != panelIndex {
+				return nil, ErrPanelIndexMismatch
+			}
+		}
+	}
+
+	finAt := time.Now().UTC()
+	if input.FinishedAt != nil && !input.FinishedAt.IsZero() {
+		finAt = input.FinishedAt.UTC()
+	}
+
+	panelResultRow, err := qtx.UpsertInspectionPanelResult(ctx, db.UpsertInspectionPanelResultParams{
+		InspectionID:         insp.ID,
+		ModuleID:             moduleID,
+		PanelIndex:           panelIndex,
+		BaselineTemperatureC: floatPtrToNumeric(&input.BaselineTemperatureC),
+		TruncatedByMemory:    input.TruncatedByMemory,
+		FinishedAt:           finAt,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Record confirmed hotspots for this panel
+	for _, ch := range input.ConfirmedHotspots {
+		origSourceUUID, err := auth.ParseUUID(ch.OriginMeasurementEventID)
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+		origMeasRow, err := qtx.GetMeasurementBySourceEventID(ctx, db.GetMeasurementBySourceEventIDParams{
+			ModuleID:      moduleID,
+			SourceEventID: origSourceUUID,
+		})
+		if err != nil || origMeasRow.InspectionID.Bytes != insp.ID.Bytes {
+			return nil, ErrInvalidInput
+		}
+
+		confirmingUUIDs := make([]pgtype.UUID, 0, len(ch.ConfirmingEventIDs))
+		distinctMeasIDs := make(map[[16]byte]struct{}, len(ch.ConfirmingEventIDs))
+		var maxMeasuredAt time.Time
+
+		for _, cidStr := range ch.ConfirmingEventIDs {
+			cidUUID, err := auth.ParseUUID(cidStr)
+			if err != nil {
+				return nil, ErrInvalidInput
+			}
+			mRow, err := qtx.GetMeasurementBySourceEventID(ctx, db.GetMeasurementBySourceEventIDParams{
+				ModuleID:      moduleID,
+				SourceEventID: cidUUID,
+			})
+			if err != nil || mRow.InspectionID.Bytes != insp.ID.Bytes {
+				return nil, ErrInvalidInput
+			}
+			confirmingUUIDs = append(confirmingUUIDs, mRow.ID)
+			distinctMeasIDs[mRow.ID.Bytes] = struct{}{}
+			if maxMeasuredAt.IsZero() || mRow.MeasuredAt.After(maxMeasuredAt) {
+				maxMeasuredAt = mRow.MeasuredAt
+			}
+		}
+
+		if len(distinctMeasIDs) < 2 {
+			return nil, ErrInvalidInput
+		}
+
+		detectedAt := maxMeasuredAt
+		if ch.DetectedAt != nil && !ch.DetectedAt.IsZero() {
+			detectedAt = ch.DetectedAt.UTC()
+		}
+
+		var anomSourceUUID pgtype.UUID
+		if ch.SourceEventID != "" {
+			anomSourceUUID, err = auth.ParseUUID(ch.SourceEventID)
+			if err != nil {
+				return nil, ErrInvalidInput
+			}
+		} else {
+			anomSourceUUID = newRandomUUID()
+		}
+
+		_, err = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
+			ModuleID:                 moduleID,
+			OriginMeasurementID:      origMeasRow.ID,
+			ConfirmingMeasurementIds: confirmingUUIDs,
+			SourceEventID:            anomSourceUUID,
+			PanelIndex:               panelIndex,
+			XPositionCm:              floatPtrToNumeric(&ch.GlobalXPositionCm),
+			DetectedAt:               detectedAt,
+			Status:                   "open",
+			ActuatedAttemptsCount:    0,
+			RetryPending:             false,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+		ID: moduleID,
+	})
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	bTemp, _ := strconv.ParseFloat(panelResultRow.BaselineTemperatureC, 64)
+	return &InspectionPanelResultDTO{
+		InspectionID:          auth.FormatUUID(panelResultRow.InspectionID),
+		ModuleID:              auth.FormatUUID(panelResultRow.ModuleID),
+		PanelIndex:            panelResultRow.PanelIndex,
+		BaselineTemperatureC: bTemp,
+		TruncatedByMemory:     panelResultRow.TruncatedByMemory,
+		FinishedAt:            panelResultRow.FinishedAt.UTC().Format(time.RFC3339),
+		CreatedAt:             panelResultRow.CreatedAt.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func (s *Service) ListInspections(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, limit, offset int32) ([]InspectionDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return nil, err
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := s.queries.ListInspectionsByModule(ctx, db.ListInspectionsByModuleParams{
+		ModuleID: moduleID,
+		Limit:    limit,
+		Offset:   offset,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]InspectionDTO, 0, len(rows))
+	for _, inspRow := range rows {
+		var baseTempPtr *float64
+		if inspRow.BaselineTemperatureC != "" {
+			if bVal, err := strconv.ParseFloat(inspRow.BaselineTemperatureC, 64); err == nil {
+				baseTempPtr = &bVal
+			}
+		}
+
+		var startedAtStr, finishedAtStr, cleanOpIDStr *string
+		if inspRow.StartedAt != nil {
+			s := inspRow.StartedAt.UTC().Format(time.RFC3339)
+			startedAtStr = &s
+		}
+		if inspRow.FinishedAt != nil {
+			f := inspRow.FinishedAt.UTC().Format(time.RFC3339)
+			finishedAtStr = &f
+		}
+		if inspRow.CleaningOperationID.Valid {
+			c := auth.FormatUUID(inspRow.CleaningOperationID)
+			cleanOpIDStr = &c
+		}
+		var verifResult *string
+		if inspRow.VerificationResult.Valid {
+			verifResult = &inspRow.VerificationResult.String
+		}
+
+		out = append(out, InspectionDTO{
+			ID:                   auth.FormatUUID(inspRow.ID),
+			ModuleID:             auth.FormatUUID(inspRow.ModuleID),
+			SourceEventID:        auth.FormatUUID(inspRow.SourceEventID),
+			Type:                 inspRow.Type,
+			CleaningOperationID:  cleanOpIDStr,
+			BaselineTemperatureC: baseTempPtr,
+			ScheduledFor:         inspRow.ScheduledFor.UTC().Format(time.RFC3339),
+			StartedAt:            startedAtStr,
+			FinishedAt:           finishedAtStr,
+			Status:               inspRow.Status,
+			VerificationResult:   verifResult,
+			CreatedAt:            inspRow.CreatedAt.UTC().Format(time.RFC3339),
+			UpdatedAt:            inspRow.UpdatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out, nil
 }

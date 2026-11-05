@@ -61,7 +61,8 @@ func (s *Service) ListActiveAlerts(ctx context.Context, principal auth.Principal
 
 		xPosRounded := math.Round(xPos*10.0) / 10.0
 		metaText := "Delta: +" + strconv.FormatFloat(delta, 'f', 1, 64) + "°C vs Baseline"
-		desc := "Thermal anomaly confirmed at coordinate X=" + strconv.FormatFloat(xPosRounded, 'f', 1, 64) + " cm. Wash attempts registered: " + strconv.Itoa(int(a.ActuatedAttemptsCount)) + " of 3."
+		desc := "Thermal anomaly confirmed on panel " + strconv.Itoa(int(a.PanelIndex)) + " at coordinate X=" + strconv.FormatFloat(xPosRounded, 'f', 1, 64) + " cm. Wash attempts registered: " + strconv.Itoa(int(a.ActuatedAttemptsCount)) + " of 3."
+		panelIdx := a.PanelIndex
 
 		alerts = append(alerts, AlertDTO{
 			ID:          auth.FormatUUID(a.ID),
@@ -72,6 +73,7 @@ func (s *Service) ListActiveAlerts(ctx context.Context, principal auth.Principal
 			Title:       "Hotspot Unresolved: " + a.ModuleName,
 			Description: desc,
 			MetaText:    metaText,
+			PanelIndex:  &panelIdx,
 			XPositionCm: &xPosRounded,
 			DeltaC:      &delta,
 			CreatedAt:   a.DetectedAt.UTC().Format(time.RFC3339),

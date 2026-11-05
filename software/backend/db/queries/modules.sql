@@ -97,6 +97,7 @@ RETURNING
     minimum_solar_angle_deg,
     inspection_interval_days,
     reservoir_nominal_capacity_ml,
+    power_sensors,
     configured_at,
     created_at,
     updated_at,
@@ -130,6 +131,7 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.power_sensors,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -168,6 +170,7 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.power_sensors,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -208,6 +211,7 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.power_sensors,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -249,6 +253,7 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.power_sensors,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -356,6 +361,7 @@ RETURNING
     minimum_solar_angle_deg,
     inspection_interval_days,
     reservoir_nominal_capacity_ml,
+    power_sensors,
     configured_at,
     created_at,
     updated_at,
@@ -584,6 +590,10 @@ WHERE module_id = $1;
 
 -- name: DeleteAllMeasurementsForModule :exec
 DELETE FROM measurements
+WHERE module_id = $1;
+
+-- name: DeleteAllInspectionPanelResultsForModule :exec
+DELETE FROM inspection_panel_results
 WHERE module_id = $1;
 
 -- name: DeleteAllInspectionsForModule :exec

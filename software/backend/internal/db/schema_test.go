@@ -29,7 +29,7 @@ func TestSchemaTablesAndQueries(t *testing.T) {
 	}
 	defer conn.Close(ctx)
 
-	// 1. Verify all 16 tables exist in public schema
+	// 1. Verify all 17 tables exist in public schema
 	var tableCount int
 	err = conn.QueryRow(ctx, `
 		SELECT count(*)
@@ -40,8 +40,8 @@ func TestSchemaTablesAndQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to count tables: %v", err)
 	}
-	if tableCount != 16 {
-		t.Fatalf("expected 16 tables in public schema, got %d", tableCount)
+	if tableCount != 17 {
+		t.Fatalf("expected 17 tables in public schema, got %d", tableCount)
 	}
 
 	// 2. Run transactional tests using sqlc Queries and roll back at the end

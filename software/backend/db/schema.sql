@@ -87,6 +87,7 @@ CREATE TABLE modules (
     minimum_solar_angle_deg numeric(6,3) CHECK (minimum_solar_angle_deg BETWEEN 0 AND 90),
     inspection_interval_days integer NOT NULL DEFAULT 1 CHECK (inspection_interval_days >= 1),
     reservoir_nominal_capacity_ml numeric(12,3) CHECK (reservoir_nominal_capacity_ml > 0),
+    power_sensors jsonb NULL CHECK (power_sensors IS NULL OR jsonb_typeof(power_sensors) = 'array'),
     configured_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
@@ -182,11 +183,26 @@ CREATE TABLE inspections (
 CREATE INDEX inspections_module_time_idx ON inspections(module_id, scheduled_for DESC);
 CREATE INDEX inspections_pending_idx ON inspections(scheduled_for) WHERE status = 'scheduled';
 
+CREATE TABLE inspection_panel_results (
+    inspection_id uuid NOT NULL,
+    module_id uuid NOT NULL,
+    panel_index integer NOT NULL CHECK (panel_index >= 1),
+    baseline_temperature_c numeric(8,3) NOT NULL,
+    truncated_by_memory boolean NOT NULL DEFAULT false,
+    finished_at timestamptz NOT NULL DEFAULT now(),
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (inspection_id, panel_index),
+    FOREIGN KEY (module_id, inspection_id) REFERENCES inspections(module_id, id) ON DELETE RESTRICT
+);
+CREATE INDEX inspection_panel_results_module_idx ON inspection_panel_results(module_id, inspection_id);
+
 CREATE TABLE measurements (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     module_id uuid NOT NULL,
     inspection_id uuid NOT NULL,
     source_event_id uuid NOT NULL,
+    panel_index integer NOT NULL DEFAULT 1 CHECK (panel_index >= 1),
     measured_at timestamptz NOT NULL,
     x_position_cm numeric(12,3) NOT NULL CHECK (x_position_cm >= 0),
     max_temperature_c numeric(8,3) NOT NULL,
@@ -200,6 +216,7 @@ CREATE TABLE measurements (
     FOREIGN KEY (module_id, inspection_id) REFERENCES inspections(module_id, id) ON DELETE RESTRICT
 );
 CREATE INDEX measurements_inspection_idx ON measurements(inspection_id, x_position_cm);
+CREATE INDEX measurements_inspection_panel_idx ON measurements(inspection_id, panel_index, x_position_cm);
 CREATE INDEX measurements_module_time_idx ON measurements(module_id, measured_at DESC);
 
 CREATE TABLE anomaly_events (
@@ -208,6 +225,7 @@ CREATE TABLE anomaly_events (
     origin_measurement_id uuid NOT NULL,
     confirming_measurement_ids uuid[] NOT NULL CHECK (array_length(confirming_measurement_ids, 1) >= 2),
     source_event_id uuid NOT NULL,
+    panel_index integer NOT NULL DEFAULT 1 CHECK (panel_index >= 1),
     x_position_cm numeric(12,3) NOT NULL CHECK (x_position_cm >= 0),
     detected_at timestamptz NOT NULL,
     status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'unresolved')),
@@ -227,12 +245,14 @@ CREATE TABLE anomaly_events (
     CHECK (retry_pending OR retry_reason IS NULL)
 );
 CREATE INDEX anomaly_events_module_time_idx ON anomaly_events(module_id, detected_at DESC);
+CREATE INDEX anomaly_events_module_panel_idx ON anomaly_events(module_id, panel_index, detected_at DESC);
 
 CREATE TABLE cleaning_operations (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     module_id uuid NOT NULL,
     anomaly_event_id uuid NOT NULL,
     source_event_id uuid NOT NULL,
+    panel_index integer NULL CHECK (panel_index IS NULL OR panel_index >= 1),
     target_x_position_cm numeric(12,3) NOT NULL CHECK (target_x_position_cm >= 0),
     pump_actuated boolean NOT NULL DEFAULT false,
     attempt_number integer CHECK (attempt_number BETWEEN 1 AND 3),

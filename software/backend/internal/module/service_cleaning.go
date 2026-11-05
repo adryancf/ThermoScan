@@ -3,6 +3,7 @@ package module
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,22 @@ func (s *Service) ListCleanings(ctx context.Context, principal auth.Principal, m
 		return nil, err
 	}
 
+	pLen := numericToFloatPtr(row.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
+	pSpc := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
 	out := make([]CleaningDTO, 0, len(rows))
 	for _, c := range rows {
 		var startedAtStr, endedAtStr *string
@@ -55,22 +72,35 @@ func (s *Service) ListCleanings(ctx context.Context, principal auth.Principal, m
 			endedAtStr = &e
 		}
 
+		var localTargetXStr *string
+		if lenCm > 0 {
+			if targetX, err := strconv.ParseFloat(c.TargetXPositionCm, 64); err == nil {
+				posRes := ResolvePanelPosition(cnt, lenCm, spcCm, targetX)
+				if !posRes.InGap {
+					s := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
+					localTargetXStr = &s
+				}
+			}
+		}
+
 		out = append(out, CleaningDTO{
-			ID:                 auth.FormatUUID(c.ID),
-			ModuleID:           auth.FormatUUID(c.ModuleID),
-			AnomalyEventID:     auth.FormatUUID(c.AnomalyEventID),
-			SourceEventID:      auth.FormatUUID(c.SourceEventID),
-			TargetXPositionCM:  c.TargetXPositionCm,
-			PumpActuated:       c.PumpActuated,
-			AttemptNumber:      pgInt4ToInt32Ptr(c.AttemptNumber),
-			StartedAt:          startedAtStr,
-			EndedAt:            endedAtStr,
-			DurationSeconds:    c.DurationSeconds,
-			EstimatedWaterML:   c.EstimatedWaterVolumeMl,
-			Status:             c.Status,
-			FailureReason:      pgTextToStringPtr(c.FailureReason),
-			PostCleaningResult: c.PostCleaningResult,
-			CreatedAt:          c.CreatedAt.UTC().Format(time.RFC3339),
+			ID:                     auth.FormatUUID(c.ID),
+			ModuleID:               auth.FormatUUID(c.ModuleID),
+			AnomalyEventID:         auth.FormatUUID(c.AnomalyEventID),
+			SourceEventID:          auth.FormatUUID(c.SourceEventID),
+			PanelIndex:             pgInt4ToInt32Ptr(c.PanelIndex),
+			TargetXPositionCM:      c.TargetXPositionCm,
+			LocalTargetXPositionCM: localTargetXStr,
+			PumpActuated:           c.PumpActuated,
+			AttemptNumber:          pgInt4ToInt32Ptr(c.AttemptNumber),
+			StartedAt:              startedAtStr,
+			EndedAt:                endedAtStr,
+			DurationSeconds:        c.DurationSeconds,
+			EstimatedWaterML:       c.EstimatedWaterVolumeMl,
+			Status:                 c.Status,
+			FailureReason:          pgTextToStringPtr(c.FailureReason),
+			PostCleaningResult:     c.PostCleaningResult,
+			CreatedAt:              c.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
 	return out, nil
@@ -150,6 +180,50 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		}
 	}
 
+	pLen := numericToFloatPtr(row.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
+	pSpc := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
+	var resolvedPanelIndex pgtype.Int4
+	var localTargetX *string
+	if input.PanelIndex != nil && *input.PanelIndex > 0 {
+		resolvedPanelIndex = pgtype.Int4{Int32: *input.PanelIndex, Valid: true}
+	}
+
+	var failReason pgtype.Text
+	if input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) != "" {
+		failReason = pgtype.Text{String: strings.TrimSpace(*input.FailureReason), Valid: true}
+	} else if status == "refused" || status == "failed" {
+		failReason = pgtype.Text{String: "Water reservoir depleted", Valid: true}
+	}
+
+	if lenCm > 0 {
+		posRes := ResolvePanelPosition(cnt, lenCm, spcCm, input.TargetXPositionCm)
+		if posRes.InGap {
+			status = "refused"
+			input.PumpActuated = false
+			failReason = pgtype.Text{String: "target_in_gap", Valid: true}
+		} else {
+			if !resolvedPanelIndex.Valid {
+				resolvedPanelIndex = pgtype.Int4{Int32: posRes.PanelIndex, Valid: true}
+			}
+			lStr := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
+			localTargetX = &lStr
+		}
+	}
+
 	var attemptNum pgtype.Int4
 	if input.PumpActuated {
 		num := int32(1)
@@ -169,17 +243,12 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	}
 
 	cleanEventID := newRandomUUID()
-	var failReason pgtype.Text
-	if input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) != "" {
-		failReason = pgtype.Text{String: strings.TrimSpace(*input.FailureReason), Valid: true}
-	} else if status == "refused" || status == "failed" {
-		failReason = pgtype.Text{String: "Water reservoir depleted", Valid: true}
-	}
 
 	clean, err := qtx.CreateCleaningOperation(ctx, db.CreateCleaningOperationParams{
 		ModuleID:               moduleID,
 		AnomalyEventID:         anomID,
 		SourceEventID:          cleanEventID,
+		PanelIndex:             resolvedPanelIndex,
 		TargetXPositionCm:      floatPtrToNumeric(&input.TargetXPositionCm),
 		PumpActuated:           input.PumpActuated,
 		AttemptNumber:          attemptNum,
@@ -232,20 +301,22 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	}
 
 	return &CleaningDTO{
-		ID:                 auth.FormatUUID(clean.ID),
-		ModuleID:           auth.FormatUUID(clean.ModuleID),
-		AnomalyEventID:     auth.FormatUUID(clean.AnomalyEventID),
-		SourceEventID:      auth.FormatUUID(clean.SourceEventID),
-		TargetXPositionCM:  clean.TargetXPositionCm,
-		PumpActuated:       clean.PumpActuated,
-		AttemptNumber:      attPtr,
-		StartedAt:          startStr,
-		EndedAt:            endStr,
-		DurationSeconds:    clean.DurationSeconds,
-		EstimatedWaterML:   clean.EstimatedWaterVolumeMl,
-		Status:             clean.Status,
-		FailureReason:      fReason,
-		PostCleaningResult: clean.PostCleaningResult,
-		CreatedAt:          clean.CreatedAt.UTC().Format(time.RFC3339),
+		ID:                     auth.FormatUUID(clean.ID),
+		ModuleID:               auth.FormatUUID(clean.ModuleID),
+		AnomalyEventID:         auth.FormatUUID(clean.AnomalyEventID),
+		SourceEventID:          auth.FormatUUID(clean.SourceEventID),
+		PanelIndex:             pgInt4ToInt32Ptr(clean.PanelIndex),
+		TargetXPositionCM:      clean.TargetXPositionCm,
+		LocalTargetXPositionCM: localTargetX,
+		PumpActuated:           clean.PumpActuated,
+		AttemptNumber:          attPtr,
+		StartedAt:              startStr,
+		EndedAt:                endStr,
+		DurationSeconds:        clean.DurationSeconds,
+		EstimatedWaterML:       clean.EstimatedWaterVolumeMl,
+		Status:                 clean.Status,
+		FailureReason:          fReason,
+		PostCleaningResult:     clean.PostCleaningResult,
+		CreatedAt:              clean.CreatedAt.UTC().Format(time.RFC3339),
 	}, nil
 }

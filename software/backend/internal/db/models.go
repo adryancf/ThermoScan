@@ -17,6 +17,7 @@ type AnomalyEvent struct {
 	OriginMeasurementID      pgtype.UUID
 	ConfirmingMeasurementIds []pgtype.UUID
 	SourceEventID            pgtype.UUID
+	PanelIndex               int32
 	XPositionCm              pgtype.Numeric
 	DetectedAt               time.Time
 	Status                   string
@@ -43,6 +44,7 @@ type CleaningOperation struct {
 	ModuleID               pgtype.UUID
 	AnomalyEventID         pgtype.UUID
 	SourceEventID          pgtype.UUID
+	PanelIndex             pgtype.Int4
 	TargetXPositionCm      pgtype.Numeric
 	PumpActuated           bool
 	AttemptNumber          pgtype.Int4
@@ -83,6 +85,17 @@ type Inspection struct {
 	UpdatedAt            time.Time
 }
 
+type InspectionPanelResult struct {
+	InspectionID         pgtype.UUID
+	ModuleID             pgtype.UUID
+	PanelIndex           int32
+	BaselineTemperatureC pgtype.Numeric
+	TruncatedByMemory    bool
+	FinishedAt           time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
 type IntervalChangeLog struct {
 	ID                   pgtype.UUID
 	CompanyID            pgtype.UUID
@@ -98,6 +111,7 @@ type Measurement struct {
 	ModuleID        pgtype.UUID
 	InspectionID    pgtype.UUID
 	SourceEventID   pgtype.UUID
+	PanelIndex      int32
 	MeasuredAt      time.Time
 	XPositionCm     pgtype.Numeric
 	MaxTemperatureC pgtype.Numeric
@@ -141,6 +155,7 @@ type Module struct {
 	InspectionIntervalDays int32
 	// Optional descriptive metadata. The binary sensor does not measure remaining volume.
 	ReservoirNominalCapacityMl pgtype.Numeric
+	PowerSensors               []byte
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time

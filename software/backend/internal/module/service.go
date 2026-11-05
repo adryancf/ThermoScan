@@ -2,6 +2,7 @@ package module
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -892,6 +893,11 @@ func (s *Service) DeleteModule(ctx context.Context, principal auth.Principal, mo
 		return err
 	}
 
+	// 7. Delete all inspection panel results for module
+	if err := qtx.DeleteAllInspectionPanelResultsForModule(ctx, moduleID); err != nil {
+		return err
+	}
+
 	// 8. Delete all inspections for module
 	if err := qtx.DeleteAllInspectionsForModule(ctx, moduleID); err != nil {
 		return err
@@ -966,6 +972,28 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		}
 	}
 
+	pLen := numericToFloatPtr(r.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(r.PanelCount)
+	pSpc := numericToFloatPtr(r.PanelSpacingCm)
+	var totalLengthCm *float64
+	if pLen != nil {
+		cnt := int32(1)
+		if pCnt != nil && *pCnt > 0 {
+			cnt = *pCnt
+		}
+		spc := 0.0
+		if pSpc != nil && *pSpc > 0 {
+			spc = *pSpc
+		}
+		tl := CalculateTotalStringLength(cnt, *pLen, spc)
+		totalLengthCm = &tl
+	}
+
+	var powerSensorsData any
+	if len(r.PowerSensors) > 0 {
+		_ = json.Unmarshal(r.PowerSensors, &powerSensorsData)
+	}
+
 	return ModuleDTO{
 		ID:                         auth.FormatUUID(r.ID),
 		CompanyID:                  auth.FormatUUID(r.CompanyID),
@@ -976,10 +1004,10 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		MacAddress:                 strings.ToUpper(r.MacAddress),
 		IsActive:                   r.IsActive,
 		MonitoringStatus:           r.MonitoringStatus,
-		PanelLengthCm:              numericToFloatPtr(r.PanelLengthCm),
+		PanelLengthCm:              pLen,
 		PanelWidthCm:               numericToFloatPtr(r.PanelWidthCm),
-		PanelCount:                 pgInt4ToInt32Ptr(r.PanelCount),
-		PanelSpacingCm:             numericToFloatPtr(r.PanelSpacingCm),
+		PanelCount:                 pCnt,
+		PanelSpacingCm:             pSpc,
 		Latitude:                   pgFloat8ToFloatPtr(r.Latitude),
 		Longitude:                  pgFloat8ToFloatPtr(r.Longitude),
 		ElevationM:                 pgFloat8ToFloatPtr(r.ElevationM),
@@ -990,6 +1018,8 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		MinimumSolarAngleDeg:       numericToFloatPtr(r.MinimumSolarAngleDeg),
 		InspectionIntervalDays:     r.InspectionIntervalDays,
 		ReservoirNominalCapacityMl: numericToFloatPtr(r.ReservoirNominalCapacityMl),
+		TotalLengthCm:              totalLengthCm,
+		PowerSensors:               powerSensorsData,
 		ConfiguredAt:               configuredAtStr,
 		CreatedAt:                  r.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:                  r.UpdatedAt.UTC().Format(time.RFC3339),

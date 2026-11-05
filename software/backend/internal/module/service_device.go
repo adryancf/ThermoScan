@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net"
 	"os"
@@ -337,17 +338,41 @@ func (s *Service) GetDeviceConfiguration(ctx context.Context, moduleID pgtype.UU
 		return nil, ErrForbidden
 	}
 
+	pLen := numericToFloatPtr(mod.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(mod.PanelCount)
+	pSpc := numericToFloatPtr(mod.PanelSpacingCm)
+	var totalLengthCm *float64
+	if pLen != nil {
+		cnt := int32(1)
+		if pCnt != nil && *pCnt > 0 {
+			cnt = *pCnt
+		}
+		spc := 0.0
+		if pSpc != nil && *pSpc > 0 {
+			spc = *pSpc
+		}
+		tl := CalculateTotalStringLength(cnt, *pLen, spc)
+		totalLengthCm = &tl
+	}
+
+	var powerSensorsData any
+	if len(mod.PowerSensors) > 0 {
+		_ = json.Unmarshal(mod.PowerSensors, &powerSensorsData)
+	}
+
 	return &DeviceConfigurationDTO{
 		ConfigVersion: mod.ConfigVersion,
 		Geometry: DeviceGeometryDTO{
-			PanelLengthCm:  numericToFloatPtr(mod.PanelLengthCm),
+			PanelLengthCm:  pLen,
 			PanelWidthCm:   numericToFloatPtr(mod.PanelWidthCm),
-			PanelCount:     pgInt4ToInt32Ptr(mod.PanelCount),
-			PanelSpacingCm: numericToFloatPtr(mod.PanelSpacingCm),
+			PanelCount:     pCnt,
+			PanelSpacingCm: pSpc,
+			TotalLengthCm:  totalLengthCm,
 		},
 		MinSolarAngle:       numericToFloatPtr(mod.MinimumSolarAngleDeg),
 		IntervalDays:        mod.InspectionIntervalDays,
 		PingIntervalSeconds: s.PingIntervalSeconds(),
+		PowerSensors:        powerSensorsData,
 	}, nil
 }
 

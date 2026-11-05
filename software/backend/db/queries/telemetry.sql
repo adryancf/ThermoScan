@@ -4,6 +4,7 @@ SELECT
     m.module_id,
     m.inspection_id,
     m.source_event_id,
+    m.panel_index,
     m.measured_at,
     m.x_position_cm::text AS x_position_cm,
     m.max_temperature_c::text AS max_temperature_c,
@@ -23,6 +24,7 @@ SELECT
     m.module_id,
     m.inspection_id,
     m.source_event_id,
+    m.panel_index,
     m.measured_at,
     m.x_position_cm::text AS x_position_cm,
     m.max_temperature_c::text AS max_temperature_c,
@@ -47,6 +49,7 @@ SELECT
     c.module_id,
     c.anomaly_event_id,
     c.source_event_id,
+    c.panel_index,
     c.target_x_position_cm::text AS target_x_position_cm,
     c.pump_actuated,
     c.attempt_number,
@@ -191,6 +194,7 @@ INSERT INTO measurements (
     module_id,
     inspection_id,
     source_event_id,
+    panel_index,
     measured_at,
     x_position_cm,
     max_temperature_c,
@@ -202,6 +206,7 @@ INSERT INTO measurements (
     sqlc.arg('module_id'),
     sqlc.arg('inspection_id'),
     sqlc.arg('source_event_id'),
+    sqlc.arg('panel_index'),
     sqlc.arg('measured_at'),
     sqlc.arg('x_position_cm'),
     sqlc.arg('max_temperature_c'),
@@ -211,10 +216,10 @@ INSERT INTO measurements (
     sqlc.arg('thermal_frame')
 )
 ON CONFLICT (module_id, source_event_id) DO NOTHING
-RETURNING id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, voltage_v, current_a, power_w, thermal_frame, received_at;
+RETURNING id, module_id, inspection_id, source_event_id, panel_index, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, voltage_v, current_a, power_w, thermal_frame, received_at;
 
 -- name: GetMeasurementBySourceEventID :one
-SELECT id, module_id, inspection_id, source_event_id, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, voltage_v, current_a, power_w, thermal_frame, received_at
+SELECT id, module_id, inspection_id, source_event_id, panel_index, measured_at, x_position_cm::text AS x_position_cm, max_temperature_c::text AS max_temperature_c, voltage_v, current_a, power_w, thermal_frame, received_at
 FROM measurements
 WHERE module_id = $1 AND source_event_id = $2;
 
@@ -224,6 +229,7 @@ INSERT INTO anomaly_events (
     origin_measurement_id,
     confirming_measurement_ids,
     source_event_id,
+    panel_index,
     x_position_cm,
     detected_at,
     status,
@@ -234,6 +240,7 @@ INSERT INTO anomaly_events (
     sqlc.arg('origin_measurement_id'),
     sqlc.arg('confirming_measurement_ids'),
     sqlc.arg('source_event_id'),
+    sqlc.arg('panel_index'),
     sqlc.arg('x_position_cm'),
     sqlc.arg('detected_at'),
     sqlc.arg('status'),
@@ -242,10 +249,10 @@ INSERT INTO anomaly_events (
 )
 ON CONFLICT (module_id, source_event_id) DO UPDATE
 SET updated_at = anomaly_events.updated_at
-RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
 
 -- name: ListAnomaliesByInspection :many
-SELECT a.id, a.module_id, a.origin_measurement_id, a.confirming_measurement_ids, a.source_event_id, a.x_position_cm::text AS x_position_cm, a.detected_at, a.status, a.actuated_attempts_count, a.retry_pending, a.closed_at, a.created_at, a.updated_at
+SELECT a.id, a.module_id, a.origin_measurement_id, a.confirming_measurement_ids, a.source_event_id, a.panel_index, a.x_position_cm::text AS x_position_cm, a.detected_at, a.status, a.actuated_attempts_count, a.retry_pending, a.closed_at, a.created_at, a.updated_at
 FROM anomaly_events a
 JOIN measurements m ON m.id = a.origin_measurement_id
 WHERE m.inspection_id = $1 AND a.module_id = $2
@@ -256,6 +263,7 @@ INSERT INTO cleaning_operations (
     module_id,
     anomaly_event_id,
     source_event_id,
+    panel_index,
     target_x_position_cm,
     pump_actuated,
     attempt_number,
@@ -270,6 +278,7 @@ INSERT INTO cleaning_operations (
     sqlc.arg('module_id'),
     sqlc.arg('anomaly_event_id'),
     sqlc.arg('source_event_id'),
+    sqlc.narg('panel_index'),
     sqlc.arg('target_x_position_cm'),
     sqlc.arg('pump_actuated'),
     sqlc.arg('attempt_number'),
@@ -281,7 +290,7 @@ INSERT INTO cleaning_operations (
     sqlc.arg('failure_reason'),
     sqlc.arg('post_cleaning_result')
 )
-RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
+RETURNING id, module_id, anomaly_event_id, source_event_id, panel_index, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
 
 -- name: GetCleaningOperationByID :one
 SELECT
@@ -289,6 +298,7 @@ SELECT
     c.module_id,
     c.anomaly_event_id,
     c.source_event_id,
+    c.panel_index,
     c.target_x_position_cm::text AS target_x_position_cm,
     c.pump_actuated,
     c.attempt_number,
@@ -309,15 +319,15 @@ UPDATE cleaning_operations
 SET post_cleaning_result = $1,
     updated_at = now()
 WHERE id = $2 AND module_id = $3
-RETURNING id, module_id, anomaly_event_id, source_event_id, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
+RETURNING id, module_id, anomaly_event_id, source_event_id, panel_index, target_x_position_cm::text AS target_x_position_cm, pump_actuated, attempt_number, started_at, ended_at, duration_seconds::text AS duration_seconds, estimated_water_volume_ml::text AS estimated_water_volume_ml, status, failure_reason, post_cleaning_result, created_at, updated_at;
 
 -- name: GetAnomalyEventByID :one
-SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 FROM anomaly_events
 WHERE id = $1 AND module_id = $2;
 
 -- name: GetLatestOpenAnomalyEventByModule :one
-SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 FROM anomaly_events
 WHERE module_id = $1 AND status = 'open'
 ORDER BY detected_at DESC
@@ -330,7 +340,7 @@ SET status = $1,
     closed_at = $3,
     updated_at = now()
 WHERE id = $4 AND module_id = $5
-RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
 
 -- name: UpdateAnomalyEventVerification :one
 UPDATE anomaly_events
@@ -340,17 +350,18 @@ SET status = $1,
     closed_at = $4,
     updated_at = now()
 WHERE id = $5 AND module_id = $6
-RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
 
 -- name: ListActiveAnomaliesForCompany :many
-SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.x_position_cm::text AS x_position_cm,
+SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.panel_index, a.x_position_cm::text AS x_position_cm,
        a.detected_at, a.status, a.actuated_attempts_count,
        meas.max_temperature_c::text AS max_temperature_c,
-       COALESCE(insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c
+       COALESCE(ipr.baseline_temperature_c::text, insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c
 FROM anomaly_events a
 JOIN modules m ON m.id = a.module_id
 JOIN measurements meas ON meas.id = a.origin_measurement_id
 JOIN inspections insp ON insp.id = meas.inspection_id
+LEFT JOIN inspection_panel_results ipr ON ipr.inspection_id = insp.id AND ipr.panel_index = a.panel_index
 WHERE m.company_id = $1 AND a.status IN ('open', 'unresolved')
 ORDER BY a.detected_at DESC;
 
@@ -364,3 +375,57 @@ FROM (
 JOIN modules m ON m.id = r.module_id
 WHERE m.company_id = $1 AND m.is_active = true AND r.water_available = false
 ORDER BY r.measured_at DESC;
+
+-- name: UpsertInspectionPanelResult :one
+INSERT INTO inspection_panel_results (
+    inspection_id,
+    module_id,
+    panel_index,
+    baseline_temperature_c,
+    truncated_by_memory,
+    finished_at
+) VALUES (
+    sqlc.arg('inspection_id'),
+    sqlc.arg('module_id'),
+    sqlc.arg('panel_index'),
+    sqlc.arg('baseline_temperature_c'),
+    sqlc.arg('truncated_by_memory'),
+    sqlc.arg('finished_at')
+)
+ON CONFLICT (inspection_id, panel_index) DO UPDATE
+SET baseline_temperature_c = EXCLUDED.baseline_temperature_c,
+    truncated_by_memory = EXCLUDED.truncated_by_memory,
+    finished_at = EXCLUDED.finished_at,
+    updated_at = now()
+RETURNING inspection_id, module_id, panel_index, baseline_temperature_c::text AS baseline_temperature_c, truncated_by_memory, finished_at, created_at, updated_at;
+
+-- name: ListInspectionPanelResults :many
+SELECT inspection_id, module_id, panel_index, baseline_temperature_c::text AS baseline_temperature_c, truncated_by_memory, finished_at, created_at, updated_at
+FROM inspection_panel_results
+WHERE inspection_id = $1 AND module_id = $2
+ORDER BY panel_index ASC;
+
+-- name: GetInspectionPanelResult :one
+SELECT inspection_id, module_id, panel_index, baseline_temperature_c::text AS baseline_temperature_c, truncated_by_memory, finished_at, created_at, updated_at
+FROM inspection_panel_results
+WHERE inspection_id = $1 AND module_id = $2 AND panel_index = $3;
+
+-- name: ListInspectionsByModule :many
+SELECT
+    i.id,
+    i.module_id,
+    i.source_event_id,
+    i.type,
+    i.cleaning_operation_id,
+    COALESCE(i.baseline_temperature_c::text, '')::text AS baseline_temperature_c,
+    i.scheduled_for,
+    i.started_at,
+    i.finished_at,
+    i.status,
+    i.verification_result,
+    i.created_at,
+    i.updated_at
+FROM inspections i
+WHERE i.module_id = $1
+ORDER BY i.scheduled_for DESC, i.created_at DESC
+LIMIT $2 OFFSET $3;

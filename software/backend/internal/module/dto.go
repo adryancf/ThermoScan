@@ -46,6 +46,8 @@ type ModuleDTO struct {
 	MinimumSolarAngleDeg       *float64             `json:"minimum_solar_angle_deg"`
 	InspectionIntervalDays     int32                `json:"inspection_interval_days"`
 	ReservoirNominalCapacityMl *float64             `json:"reservoir_nominal_capacity_ml"`
+	TotalLengthCm              *float64             `json:"total_length_cm,omitempty"`
+	PowerSensors               any                  `json:"power_sensors,omitempty"`
 	ConfiguredAt               *string              `json:"configured_at"`
 	CreatedAt                  string               `json:"created_at"`
 	UpdatedAt                  string               `json:"updated_at"`
@@ -159,36 +161,40 @@ type UpdateConfigurationInput struct {
 }
 
 type MeasurementDTO struct {
-	ID            string  `json:"id"`
-	ModuleID      string  `json:"module_id"`
-	InspectionID  string  `json:"inspection_id"`
-	SourceEventID string  `json:"source_event_id"`
-	MeasuredAt    string  `json:"measured_at"`
-	XPositionCM   string  `json:"x_position_cm"`
-	MaxTempC      string  `json:"max_temperature_c"`
-	VoltageV      *string `json:"voltage_v"`
-	CurrentA      *string `json:"current_a"`
-	PowerW        *string `json:"power_w"`
-	ThermalFrame  any     `json:"thermal_frame,omitempty"`
-	ReceivedAt    string  `json:"received_at"`
+	ID                string  `json:"id"`
+	ModuleID          string  `json:"module_id"`
+	InspectionID      string  `json:"inspection_id"`
+	SourceEventID     string  `json:"source_event_id"`
+	PanelIndex        *int32  `json:"panel_index,omitempty"`
+	MeasuredAt        string  `json:"measured_at"`
+	XPositionCM       string  `json:"x_position_cm"`
+	LocalXPositionCM  *string `json:"local_x_position_cm,omitempty"`
+	MaxTempC          string  `json:"max_temperature_c"`
+	VoltageV          *string `json:"voltage_v"`
+	CurrentA          *string `json:"current_a"`
+	PowerW            *string `json:"power_w"`
+	ThermalFrame      any     `json:"thermal_frame,omitempty"`
+	ReceivedAt        string  `json:"received_at"`
 }
 
 type CleaningDTO struct {
-	ID                 string  `json:"id"`
-	ModuleID           string  `json:"module_id"`
-	AnomalyEventID     string  `json:"anomaly_event_id"`
-	SourceEventID      string  `json:"source_event_id"`
-	TargetXPositionCM  string  `json:"target_x_position_cm"`
-	PumpActuated       bool    `json:"pump_actuated"`
-	AttemptNumber      *int32  `json:"attempt_number,omitempty"`
-	StartedAt          *string `json:"started_at,omitempty"`
-	EndedAt            *string `json:"ended_at,omitempty"`
-	DurationSeconds    string  `json:"duration_seconds"`
-	EstimatedWaterML   string  `json:"estimated_water_volume_ml"`
-	Status             string  `json:"status"`
-	FailureReason      *string `json:"failure_reason,omitempty"`
-	PostCleaningResult string  `json:"post_cleaning_result"`
-	CreatedAt          string  `json:"created_at"`
+	ID                      string  `json:"id"`
+	ModuleID                string  `json:"module_id"`
+	AnomalyEventID          string  `json:"anomaly_event_id"`
+	SourceEventID           string  `json:"source_event_id"`
+	PanelIndex              *int32  `json:"panel_index,omitempty"`
+	TargetXPositionCM       string  `json:"target_x_position_cm"`
+	LocalTargetXPositionCM  *string `json:"local_target_x_position_cm,omitempty"`
+	PumpActuated            bool    `json:"pump_actuated"`
+	AttemptNumber           *int32  `json:"attempt_number,omitempty"`
+	StartedAt               *string `json:"started_at,omitempty"`
+	EndedAt                 *string `json:"ended_at,omitempty"`
+	DurationSeconds         string  `json:"duration_seconds"`
+	EstimatedWaterML        string  `json:"estimated_water_volume_ml"`
+	Status                  string  `json:"status"`
+	FailureReason           *string `json:"failure_reason,omitempty"`
+	PostCleaningResult      string  `json:"post_cleaning_result"`
+	CreatedAt               string  `json:"created_at"`
 }
 
 type AlertDTO struct {
@@ -200,7 +206,9 @@ type AlertDTO struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description"`
 	MetaText    string   `json:"meta_text"`
+	PanelIndex  *int32   `json:"panel_index,omitempty"`
 	XPositionCm *float64 `json:"x_position_cm,omitempty"`
+	LocalXCm    *float64 `json:"local_x_cm,omitempty"`
 	DeltaC      *float64 `json:"delta_c,omitempty"`
 	CreatedAt   string   `json:"created_at"`
 }
@@ -234,7 +242,9 @@ type ConfirmedAnomalyDTO struct {
 	OriginMeasurementID      string   `json:"origin_measurement_id"`
 	ConfirmingMeasurementIDs []string `json:"confirming_measurement_ids"`
 	SourceEventID            string   `json:"source_event_id"`
+	PanelIndex               *int32   `json:"panel_index,omitempty"`
 	XPositionCM              float64  `json:"x_position_cm"`
+	LocalXPositionCM         *float64 `json:"local_x_position_cm,omitempty"`
 	DetectedAt               string   `json:"detected_at"`
 	Status                   string   `json:"status"`
 	ActuatedAttemptsCount    int32    `json:"actuated_attempts_count"`
@@ -242,10 +252,21 @@ type ConfirmedAnomalyDTO struct {
 	ClosedAt                 *string  `json:"closed_at,omitempty"`
 }
 
+type InspectionPanelResultDTO struct {
+	InspectionID          string  `json:"inspection_id"`
+	ModuleID              string  `json:"module_id"`
+	PanelIndex            int32   `json:"panel_index"`
+	BaselineTemperatureC float64 `json:"baseline_temperature_c"`
+	TruncatedByMemory     bool    `json:"truncated_by_memory"`
+	FinishedAt            string  `json:"finished_at"`
+	CreatedAt             string  `json:"created_at"`
+}
+
 type LatestInspectionDTO struct {
-	Inspection         InspectionDTO         `json:"inspection"`
-	TotalMeasurements  int64                 `json:"total_measurements"`
-	ConfirmedAnomalies []ConfirmedAnomalyDTO `json:"confirmed_anomalies"`
+	Inspection         InspectionDTO              `json:"inspection"`
+	TotalMeasurements  int64                      `json:"total_measurements"`
+	ConfirmedAnomalies []ConfirmedAnomalyDTO      `json:"confirmed_anomalies"`
+	PanelResults       []InspectionPanelResultDTO `json:"panel_results,omitempty"`
 }
 
 type PaginationMetadataDTO struct {
@@ -307,6 +328,7 @@ type DeviceGeometryDTO struct {
 	PanelWidthCm   *float64 `json:"panel_width_cm"`
 	PanelCount     *int32   `json:"panel_count"`
 	PanelSpacingCm *float64 `json:"panel_spacing_cm"`
+	TotalLengthCm  *float64 `json:"total_length_cm,omitempty"`
 }
 
 type DeviceConfigurationDTO struct {
@@ -315,6 +337,7 @@ type DeviceConfigurationDTO struct {
 	MinSolarAngle       *float64          `json:"min_solar_angle"`
 	IntervalDays        int32             `json:"interval_days"`
 	PingIntervalSeconds int               `json:"ping_interval_seconds"`
+	PowerSensors        any               `json:"power_sensors,omitempty"`
 }
 
 type AcknowledgeDeviceConfigurationInput struct {
@@ -326,6 +349,7 @@ type AcknowledgeDeviceConfigurationInput struct {
 
 type IngestMeasurementItemInput struct {
 	SourceEventID   string     `json:"source_event_id"`
+	PanelIndex      *int32     `json:"panel_index,omitempty"`
 	MeasuredAt      *time.Time `json:"measured_at"`
 	XPositionCm     float64    `json:"x_position_cm"`
 	MaxTemperatureC float64    `json:"max_temperature_c"`
@@ -345,6 +369,7 @@ type IngestTelemetryInput struct {
 	CleaningOperationID     *string                      `json:"cleaning_operation_id"`
 	// Single item shorthand:
 	SourceEventID           *string                      `json:"source_event_id"`
+	PanelIndex              *int32                       `json:"panel_index,omitempty"`
 	MeasuredAt              *time.Time                   `json:"measured_at"`
 	XPositionCm             float64                      `json:"x_position_cm"`
 	MaxTemperatureC         float64                      `json:"max_temperature_c"`
@@ -363,8 +388,16 @@ type FinalizeInspectionInput struct {
 	ConfirmedHotspots     []ConfirmedHotspotInput `json:"confirmed_hotspots"`
 }
 
+type RecordPanelResultInput struct {
+	BaselineTemperatureC float64                 `json:"baseline_temperature_c"`
+	TruncatedByMemory     bool                    `json:"truncated_by_memory"`
+	FinishedAt            *time.Time              `json:"finished_at,omitempty"`
+	ConfirmedHotspots     []ConfirmedHotspotInput `json:"confirmed_hotspots,omitempty"`
+}
+
 type ConfirmedHotspotInput struct {
 	SourceEventID            string     `json:"source_event_id"`
+	PanelIndex               *int32     `json:"panel_index,omitempty"`
 	GlobalXPositionCm        float64    `json:"global_x_position_cm"`
 	RowIndex                 *int       `json:"row_index"`
 	MaxTemperatureC          float64    `json:"max_temperature_c"`
@@ -375,6 +408,7 @@ type ConfirmedHotspotInput struct {
 
 type IngestCleaningInput struct {
 	AnomalyEventID         *string `json:"anomaly_event_id"`
+	PanelIndex             *int32  `json:"panel_index,omitempty"`
 	TargetXPositionCm      float64 `json:"target_x_position_cm"`
 	PumpActuated           bool    `json:"pump_actuated"`
 	AttemptNumber          *int    `json:"attempt_number"`

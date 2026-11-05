@@ -38,7 +38,7 @@ services:
       - traefik
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.${APP_NAME:-thermoscan-api}.rule=Host(`${HOST:-api.thermoscan.realan.space}`)"
+      - "traefik.http.routers.${APP_NAME:-thermoscan-api}.rule=Host(`${HOST:-api-thermoscan.realan.space}`)"
       - "traefik.http.routers.${APP_NAME:-thermoscan-api}.entrypoints=web"
       - "traefik.http.services.${APP_NAME:-thermoscan-api}.loadbalancer.server.port=8080"
 

@@ -26,13 +26,13 @@
 #endif
 
 #ifndef BACKEND_URL
-#define BACKEND_URL "http://10.117.39.58:8000/"
+#define BACKEND_URL "https://api-thermoscan.realan.space/"
 #endif
 
 // Hardware Drivers & Infrastructure Layer Instantiation
 static hal_esp32::NvsStorage g_storage;
 static hal_esp32::CapacitiveWaterSensor g_water(WATER_SENSOR_PIN);
-static hal_esp32::Drv8825Stepper g_stepper(STEPPER_STEP_PIN, STEPPER_DIR_PIN, STEPPER_EN_PIN, STEPPER_LIMIT_NC_PIN);
+static hal_esp32::Drv8825Stepper g_stepper(STEPPER_STEP_PIN, STEPPER_DIR_PIN, STEPPER_EN_PIN, STEPPER_LIMIT_MIN_PIN, STEPPER_LIMIT_MAX_PIN, DEFAULT_STEPS_PER_CM, HOME_OFFSET_CM);
 static hal_esp32::PumpServoSpray g_spray(PUMP_MOSFET_PIN, SERVO_PWM_PIN, &g_water);
 static hal_esp32::Mlx90640Camera g_camera(I2C_SDA_PIN, I2C_SCL_PIN, 0x33, CAMERA_SERVO_PWM_PIN);
 static hal_esp32::Ina219Meter g_ina219(getInaAddressForPanel(1));

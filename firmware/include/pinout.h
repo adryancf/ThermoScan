@@ -82,32 +82,50 @@ static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
 #define PIN_STEPPER_EN 5
 #endif
 
-// Fim de curso (Limit switch) NC (Normally Closed) logic:
-// Set to GPIO 23 by default to avoid conflict with I2C SCL (GPIO 22).
-// Set to 22 if using legacy bench wiring with remapped I2C pins.
+// ----------------------------------------------------------------------------
+// Fins de Curso (Endstops) do Trilho Linear
+// Configuração de dois fins de curso: Começo (X=0) e Final (X=Xmax)
+// Lógica física: Quando apertado fica 0 (LOW), em repouso fica 1 (HIGH)
+// ----------------------------------------------------------------------------
+#ifndef PIN_STEPPER_LIMIT_MIN
+#define PIN_STEPPER_LIMIT_MIN 35  // Fim de curso inicial (Começo X = 0 cm)
+#endif
+
+#ifndef PIN_STEPPER_LIMIT_MAX
+#define PIN_STEPPER_LIMIT_MAX 34  // Fim de curso final (Fim de curso X = X_max)
+#endif
+
+#ifndef STEPPER_LIMIT_TRIGGERED_LEVEL
+#define STEPPER_LIMIT_TRIGGERED_LEVEL 0  // Nível lógico quando acionado (apertado = 0 / LOW)
+#endif
+
+// Distância (em cm) que o carrinho avança após acionar o fim de curso de início
+// para se posicionar exatamente na borda inicial do painel solar (X = 0.0 cm).
+// Meça a distância física da chave até o início do painel e ajuste aqui.
+#ifndef STEPPER_HOME_OFFSET_CM
+#define STEPPER_HOME_OFFSET_CM 7.0f
+#endif
+
+// Alias de retrocompatibilidade
 #ifndef PIN_STEPPER_LIMIT_NC
-#define PIN_STEPPER_LIMIT_NC 23
+#define PIN_STEPPER_LIMIT_NC PIN_STEPPER_LIMIT_MIN
 #endif
 
-// Legacy bench aliases for documentation / backward compatibility reference
-#ifndef PIN_STEPPER_EN_LEGACY
-#define PIN_STEPPER_EN_LEGACY 21
-#endif
-
-#ifndef PIN_STEPPER_LIMIT_NC_LEGACY
-#define PIN_STEPPER_LIMIT_NC_LEGACY 22
-#endif
-
-constexpr uint8_t STEPPER_STEP_PIN     = PIN_STEPPER_STEP;
-constexpr uint8_t STEPPER_DIR_PIN      = PIN_STEPPER_DIR;
-constexpr uint8_t STEPPER_EN_PIN       = PIN_STEPPER_EN;
-constexpr uint8_t STEPPER_LIMIT_NC_PIN = PIN_STEPPER_LIMIT_NC;
+constexpr uint8_t STEPPER_STEP_PIN         = PIN_STEPPER_STEP;
+constexpr uint8_t STEPPER_DIR_PIN          = PIN_STEPPER_DIR;
+constexpr uint8_t STEPPER_EN_PIN           = PIN_STEPPER_EN;
+constexpr uint8_t STEPPER_LIMIT_MIN_PIN    = PIN_STEPPER_LIMIT_MIN;
+constexpr uint8_t STEPPER_LIMIT_MAX_PIN    = PIN_STEPPER_LIMIT_MAX;
+constexpr uint8_t STEPPER_LIMIT_NC_PIN     = STEPPER_LIMIT_MIN_PIN;
+constexpr uint8_t STEPPER_LIMIT_ACTIVE_VAL = STEPPER_LIMIT_TRIGGERED_LEVEL;
+constexpr float   HOME_OFFSET_CM           = STEPPER_HOME_OFFSET_CM;
+constexpr float   STEPPER_HOMING_OFFSET_CM = STEPPER_HOME_OFFSET_CM;
 
 // ----------------------------------------------------------------------------
 // Water Sensor (Binary Capacitive Liquid Level)
 // ----------------------------------------------------------------------------
 #ifndef PIN_WATER_SENSOR
-#define PIN_WATER_SENSOR 34  // Capacitive liquid level sensor (Input-only GPIO 34)
+#define PIN_WATER_SENSOR 17
 #endif
 
 constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;
@@ -120,11 +138,11 @@ constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;
 #endif
 
 #ifndef PIN_SERVO_PWM
-#define PIN_SERVO_PWM 26     // Nozzle tilt angle adjustment servo PWM
+#define PIN_SERVO_PWM 13     // Nozzle tilt angle adjustment servo PWM
 #endif
 
 #ifndef PIN_CAMERA_SERVO_PWM
-#define PIN_CAMERA_SERVO_PWM 27 // Thermal camera orientation / tilt servo PWM
+#define PIN_CAMERA_SERVO_PWM 32 // Thermal camera orientation / tilt servo PWM
 #endif
 
 #ifndef CAMERA_SERVO_DEFAULT_ANGLE_DEG

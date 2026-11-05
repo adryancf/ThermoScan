@@ -87,7 +87,9 @@ void BenchDiagnostics::printList() {
     console_->println("  diag motor        - Movimenta carro +2cm/-2cm (requer confirmacao)");
     console_->println("  diag homing       - Referencia carro ate batente NC (requer confirmacao)");
     console_->println("  diag pump         - Aciona bomba por 500ms (requer confirmacao)");
-    console_->println("  diag camera-servo - Articula servo da camera (GPIO 27) para teste de angulo");
+    console_->println("  diag camera-servo - Articula servo da camera para teste de angulo");
+    console_->println("  diag nozzle-servo - Articula servo da mangueira/bico (45, 135 e 90 graus)");
+    console_->println("  diag scan         - Executa ciclo completo de varredura (motor, MLX90640 e INA219)");
     console_->println("  diag safety       - Testa intertravamentos e parada de emergencia");
     console_->println("==================================================");
 }
@@ -151,6 +153,10 @@ bool BenchDiagnostics::handleCommand(const std::string& cmd_line) {
         printTestResult(testPump(true));
     } else if (arg == "camera-servo" || arg == "cam-servo") {
         printTestResult(testCameraServo());
+    } else if (arg == "nozzle-servo" || arg == "nozzle") {
+        printTestResult(testNozzleServo());
+    } else if (arg == "scan") {
+        printTestResult(testScan());
     } else if (arg == "safety") {
         printTestResult(testSafety());
     } else {
@@ -760,6 +766,152 @@ TestResult BenchDiagnostics::testCameraServo() {
     return r;
 }
 
+TestResult BenchDiagnostics::testNozzleServo() {
+    uint32_t t0 = nowMs();
+    TestResult r;
+    r.name = "nozzle-servo";
+
+    if (!spray_) {
+        r.status = TestStatus::FAIL;
+        r.details = "Driver de atuador de spray/nozzle nulo.";
+        r.failure_cause = "Ponteiro ISprayActuator invalido.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    if (console_) {
+        console_->println("[NOZZLE SERVO] Articulando servo do bico: 45 graus...");
+    }
+    spray_->setNozzleAngle(45.0f);
+    delayMs(350);
+
+    if (console_) {
+        console_->println("[NOZZLE SERVO] Articulando servo do bico: 135 graus...");
+    }
+    spray_->setNozzleAngle(135.0f);
+    delayMs(350);
+
+    if (console_) {
+        console_->println("[NOZZLE SERVO] Centralizando servo do bico: 90 graus...");
+    }
+    spray_->setNozzleAngle(90.0f);
+    delayMs(200);
+
+    r.status = TestStatus::PASS;
+    r.details = "Servo do bico da mangueira articulado com sucesso (45, 135 e 90 graus). Retornado ao centro (90 graus).";
+    r.duration_ms = getElapsedMs(t0);
+    return r;
+}
+
+TestResult BenchDiagnostics::testScan() {
+    uint32_t t0 = nowMs();
+    TestResult r;
+    r.name = "scan";
+
+    if (!camera_) {
+        r.status = TestStatus::FAIL;
+        r.details = "Driver da camera termica nulo.";
+        r.failure_cause = "camera_ == nullptr";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+    if (!motion_) {
+        r.status = TestStatus::FAIL;
+        r.details = "Driver de movimento linear nulo.";
+        r.failure_cause = "motion_ == nullptr";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    float initial_x = motion_->getXPositionCm();
+
+    if (console_) {
+        console_->println(DIVIDER_LIGHT);
+        console_->printf("[SCAN DIAG] Iniciando ciclo de teste de varredura na bancada a partir de X = %.1f cm...\n", initial_x);
+        console_->println("[SCAN DIAG] 1/3: Capturando frame termico e medindo potencia no ponto atual...");
+    }
+
+    // 1. Captura termica no ponto atual
+    ThermalFrame frame1;
+    if (!camera_->captureFrame(frame1) || !frame1.valid) {
+        r.status = TestStatus::FAIL;
+        r.details = "Falha na captura termica da camera MLX90640.";
+        r.failure_cause = "captureFrame retornou falso ou frame invalido.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    float max_temp1 = -999.0f;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+        if (frame1.pixels[i] > max_temp1) max_temp1 = frame1.pixels[i];
+    }
+
+    PowerSnapshot power1{};
+    if (power_meter_) {
+        power_meter_->readSnapshot(power1);
+    }
+
+    if (console_) {
+        console_->printf("  [CAPTURA 1] X=%.1f cm | Tmax=%.2f C | V=%.2f V | I=%.2f A | P=%.2f W\n",
+                         initial_x, max_temp1, power1.voltage_v, power1.current_a, power1.power_w);
+        console_->printf("[SCAN DIAG] 2/3: Avancando o trilho linear em +%.1f cm...\n", STEP_SIZE_CM);
+    }
+
+    // 2. Deslocamento do motor (+2.0 cm)
+    float target_forward = initial_x + STEP_SIZE_CM;
+    if (!motion_->moveToXCm(target_forward)) {
+        r.status = TestStatus::FAIL;
+        r.details = "Falha no deslocamento do motor para X = " + std::to_string(target_forward) + " cm.";
+        r.failure_cause = "moveToXCm falhou durante o avanco de teste do scan.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    // 3. Captura termica no ponto avancado
+    ThermalFrame frame2;
+    if (!camera_->captureFrame(frame2) || !frame2.valid) {
+        motion_->moveToXCm(initial_x);
+        r.status = TestStatus::FAIL;
+        r.details = "Falha na segunda captura termica apos deslocamento.";
+        r.failure_cause = "Segunda captura de frame invalida.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    float max_temp2 = -999.0f;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+        if (frame2.pixels[i] > max_temp2) max_temp2 = frame2.pixels[i];
+    }
+
+    PowerSnapshot power2{};
+    if (power_meter_) {
+        power_meter_->readSnapshot(power2);
+    }
+
+    if (console_) {
+        console_->printf("  [CAPTURA 2] X=%.1f cm | Tmax=%.2f C | V=%.2f V | I=%.2f A | P=%.2f W\n",
+                         target_forward, max_temp2, power2.voltage_v, power2.current_a, power2.power_w);
+        console_->println("[SCAN DIAG] 3/3: Retornando o carro linear a posicao inicial...");
+    }
+
+    // 4. Retorno a posicao original
+    if (!motion_->moveToXCm(initial_x)) {
+        r.status = TestStatus::FAIL;
+        r.details = "Falha ao retornar o carro para a posicao inicial X = " + std::to_string(initial_x) + " cm.";
+        r.failure_cause = "moveToXCm falhou no retorno.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    r.status = TestStatus::PASS;
+    r.details = "Varredura de teste concluida com sucesso! Avanco de " +
+                std::to_string(static_cast<int>(STEP_SIZE_CM)) +
+                " cm, 2 capturas MLX90640 (Tmax=" + std::to_string(static_cast<int>(max_temp2)) +
+                " C) e retorno suave para X=" + std::to_string(static_cast<int>(initial_x)) + " cm.";
+    r.duration_ms = getElapsedMs(t0);
+    return r;
+}
+
 // 12. diag safety
 TestResult BenchDiagnostics::testSafety() {
     uint32_t t0 = nowMs();
@@ -835,6 +987,12 @@ void BenchDiagnostics::runAll() {
     printTestResult(results.back());
 
     results.push_back(testCameraServo());
+    printTestResult(results.back());
+
+    results.push_back(testNozzleServo());
+    printTestResult(results.back());
+
+    results.push_back(testScan());
     printTestResult(results.back());
 
     results.push_back(testSafety());

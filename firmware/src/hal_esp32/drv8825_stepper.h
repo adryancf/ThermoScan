@@ -18,8 +18,10 @@ public:
     Drv8825Stepper(uint8_t step_pin = STEPPER_STEP_PIN,
                    uint8_t dir_pin = STEPPER_DIR_PIN,
                    uint8_t en_pin = STEPPER_EN_PIN,
-                   uint8_t limit_pin = STEPPER_LIMIT_NC_PIN,
-                   float steps_per_cm = DEFAULT_STEPS_PER_CM);
+                   uint8_t limit_min_pin = STEPPER_LIMIT_MIN_PIN,
+                   uint8_t limit_max_pin = STEPPER_LIMIT_MAX_PIN,
+                   float steps_per_cm = DEFAULT_STEPS_PER_CM,
+                   float home_offset_cm = HOME_OFFSET_CM);
     ~Drv8825Stepper() override;
 
     bool init() override;
@@ -33,14 +35,20 @@ public:
     // Helper functions
     bool stepRelativeCm(float delta_cm);
     void enableMotor(bool enable);
-    bool isLimitReached() const;
+    bool isMinLimitReached() const;
+    bool isMaxLimitReached() const;
+    bool isLimitReached() const; // Default returns isMinLimitReached()
+    float getHomeOffsetCm() const { return home_offset_cm_; }
+    void setHomeOffsetCm(float offset_cm) { home_offset_cm_ = offset_cm; }
 
 private:
     uint8_t step_pin_;
     uint8_t dir_pin_;
     uint8_t en_pin_;
-    uint8_t limit_pin_;
+    uint8_t limit_min_pin_;
+    uint8_t limit_max_pin_;
     float steps_per_cm_;
+    float home_offset_cm_{0.0f};
 
     float current_x_cm_{0.0f};
     bool is_homed_{false};

@@ -537,6 +537,54 @@ void test_bench_diag_camera_servo() {
     TEST_ASSERT_TRUE(console.output.find("camera-servo") != std::string::npos);
 }
 
+void test_bench_diag_nozzle_servo() {
+    FakeDiagStorage storage;
+    FakeDiagTimeProvider time_p;
+    FakeDiagCloudClient cloud;
+    FakeDiagThermalCamera camera;
+    FakeDiagMotionController motion;
+    FakeDiagPowerMeter power;
+    FakeDiagWaterSensor water;
+    FakeDiagSprayActuator spray;
+    app::ThermoscanApp app(&camera, &power, &motion, &spray, &water, &storage, &cloud, &time_p);
+    MockConsole console;
+
+    BenchDiagnostics diag(&storage, &time_p, &cloud, &camera, &motion, &power, &water, &spray, &app, &console);
+
+    TestResult r = diag.testNozzleServo();
+    TEST_ASSERT_EQUAL(TestStatus::PASS, r.status);
+    TEST_ASSERT_TRUE(r.details.find("Servo do bico da mangueira") != std::string::npos);
+
+    console.clear();
+    bool handled = diag.handleCommand("diag nozzle-servo");
+    TEST_ASSERT_TRUE(handled);
+    TEST_ASSERT_TRUE(console.output.find("nozzle-servo") != std::string::npos);
+}
+
+void test_bench_diag_scan() {
+    FakeDiagStorage storage;
+    FakeDiagTimeProvider time_p;
+    FakeDiagCloudClient cloud;
+    FakeDiagThermalCamera camera;
+    FakeDiagMotionController motion;
+    FakeDiagPowerMeter power;
+    FakeDiagWaterSensor water;
+    FakeDiagSprayActuator spray;
+    app::ThermoscanApp app(&camera, &power, &motion, &spray, &water, &storage, &cloud, &time_p);
+    MockConsole console;
+
+    BenchDiagnostics diag(&storage, &time_p, &cloud, &camera, &motion, &power, &water, &spray, &app, &console);
+
+    TestResult r = diag.testScan();
+    TEST_ASSERT_EQUAL(TestStatus::PASS, r.status);
+    TEST_ASSERT_TRUE(r.details.find("Varredura de teste concluida") != std::string::npos);
+
+    console.clear();
+    bool handled = diag.handleCommand("diag scan");
+    TEST_ASSERT_TRUE(handled);
+    TEST_ASSERT_TRUE(console.output.find("scan") != std::string::npos);
+}
+
 void test_bench_diag_command_dispatch_and_run_all() {
     FakeDiagStorage storage;
     FakeDiagTimeProvider time_p;
@@ -580,6 +628,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_bench_diag_homing);
     RUN_TEST(test_bench_diag_pump_safety_interlock);
     RUN_TEST(test_bench_diag_camera_servo);
+    RUN_TEST(test_bench_diag_nozzle_servo);
+    RUN_TEST(test_bench_diag_scan);
     RUN_TEST(test_bench_diag_safety_emergency_stop);
     RUN_TEST(test_bench_diag_command_dispatch_and_run_all);
     return UNITY_END();

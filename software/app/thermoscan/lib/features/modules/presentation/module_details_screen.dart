@@ -35,6 +35,40 @@ class ModuleDetailsScreen extends ConsumerStatefulWidget {
 class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   bool _infoExpanded = false;
   bool _updatingEmailPref = false;
+  bool _isTriggeringInspection = false;
+
+  Future<void> _triggerManualScan(String moduleId) async {
+    setState(() => _isTriggeringInspection = true);
+    try {
+      await ref
+          .read(moduleRepositoryProvider)
+          .triggerManualInspection(moduleId: moduleId);
+      ref.invalidate(moduleDeviceStatusProvider(moduleId));
+      ref.invalidate(latestInspectionProvider(moduleId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Inspection requested! The robot will start scanning on next communication.',
+          ),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to request inspection: $err'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isTriggeringInspection = false);
+      }
+    }
+  }
 
   Future<void> _toggleEmailPreference(bool enabled) async {
     setState(() => _updatingEmailPref = true);
@@ -285,7 +319,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 role: user?.role ?? 'technician',
                 showBack: true,
                 onBack: () => context.go('/modules'),
-                trailingAction: perms.canDelete
+                trailingAction: (perms.canDelete || !mod.isPendingConfiguration)
                     ? PopupMenuButton<String>(
                         icon: const Icon(
                           Icons.more_vert,
@@ -297,31 +331,62 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                           side: const BorderSide(color: AppColors.border),
                         ),
                         onSelected: (val) {
-                          if (val == 'delete') {
+                          if (val == 'trigger_scan') {
+                            _triggerManualScan(mod.id);
+                          } else if (val == 'delete') {
                             _confirmAndDeleteModule(mod.name);
                           }
                         },
                         itemBuilder: (ctx) => [
-                          const PopupMenuItem<String>(
-                            value: 'delete',
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.delete_forever_outlined,
-                                  size: 18,
-                                  color: AppColors.error,
-                                ),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Delete Module',
-                                  style: TextStyle(
-                                    color: AppColors.error,
-                                    fontWeight: FontWeight.w600,
+                          if (!mod.isPendingConfiguration)
+                            PopupMenuItem<String>(
+                              value: 'trigger_scan',
+                              enabled: !_isTriggeringInspection,
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.radar_rounded,
+                                    size: 18,
+                                    color: _isTriggeringInspection
+                                        ? AppColors.textSecondary
+                                        : AppColors.primary,
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _isTriggeringInspection
+                                        ? 'Sending Scan Request...'
+                                        : 'Trigger Inspection Scan',
+                                    style: TextStyle(
+                                      color: _isTriggeringInspection
+                                          ? AppColors.textSecondary
+                                          : AppColors.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
+                          if (perms.canDelete)
+                            const PopupMenuItem<String>(
+                              value: 'delete',
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.delete_forever_outlined,
+                                    size: 18,
+                                    color: AppColors.error,
+                                  ),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Delete Module',
+                                    style: TextStyle(
+                                      color: AppColors.error,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       )
                     : null,
@@ -367,13 +432,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     Expanded(
                       child: TabBarView(
                         children: [
-                          // Tab 1: Visão Geral
+                          // Tab 1: Overview
                           _buildOverviewTab(context, mod, details, deviceStatus),
-                          // Tab 2: Medições
+                          // Tab 2: Measurements
                           ModuleMeasurementsView(moduleId: mod.id),
-                          // Tab 3: Limpezas
+                          // Tab 3: Cleanings
                           ModuleCleaningsView(moduleId: mod.id),
-                          // Tab 4: Configuração (if not pending)
+                          // Tab 4: Configuration (if not pending)
                           if (!isPendingConfig)
                             ModuleConfigurationView(moduleId: mod.id),
                         ],
@@ -541,7 +606,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 6. Radiometric Scan & Thermal Matrix (SCR-10)
+            // 5. Radiometric Scan & Thermal Matrix (SCR-10)
             if (!mod.isPendingConfiguration) ...[
               RadiometricScanCard(
                 module: mod,

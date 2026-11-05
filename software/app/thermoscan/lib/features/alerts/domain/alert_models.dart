@@ -46,13 +46,13 @@ class FieldAlert {
   String get formattedPanelLocation {
     final parts = <String>['Array $moduleName'];
     if (panelIndex != null) {
-      parts.add('Painel $panelIndex');
+      parts.add('Panel $panelIndex');
     }
     if (xPositionCm != null) {
       final locSuffix = localXPositionCm != null
           ? ' (Local: ${localXPositionCm!.toStringAsFixed(1)} cm)'
           : '';
-      parts.add('Posição ${xPositionCm!.toStringAsFixed(1)} cm$locSuffix');
+      parts.add('Position ${xPositionCm!.toStringAsFixed(1)} cm$locSuffix');
     }
     return parts.join(' • ');
   }

@@ -303,10 +303,10 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                         _fitToScan
                             ? 'Zoom: Scan Area'
                             : (_focusedPanelIndex != null
-                                ? 'Zoom: Painel $_focusedPanelIndex'
+                                ? 'Zoom: Panel $_focusedPanelIndex'
                                 : ((widget.module.panelCount != null &&
                                         widget.module.panelCount! > 1)
-                                    ? 'Zoom: String Inteira'
+                                    ? 'Zoom: Entire String'
                                     : 'Zoom: Full Panel')),
                         style: AppTypography.caption.copyWith(
                           fontSize: 10,
@@ -459,7 +459,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                       final String headerText;
                                       if (panelPxW >= 95) {
                                         headerText =
-                                            'PAINEL ${pb.panelIndex} (${pb.startXCm.toStringAsFixed(0)}–${pb.endXCm.toStringAsFixed(0)} cm)';
+                                            'PANEL ${pb.panelIndex} (${pb.startXCm.toStringAsFixed(0)}–${pb.endXCm.toStringAsFixed(0)} cm)';
                                       } else if (panelPxW >= 52) {
                                         headerText =
                                             'P${pb.panelIndex} (${pb.startXCm.toStringAsFixed(0)}–${pb.endXCm.toStringAsFixed(0)}cm)';
@@ -1120,7 +1120,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                         borderRadius: BorderRadius.circular(3),
                                       ),
                                       child: Text(
-                                        'Painel ${f.panelIndex ?? 1}${f.localXPositionCm != null ? " • Local: ${f.localXPositionCm!.toStringAsFixed(1)} cm" : ""}',
+                                        'Panel ${f.panelIndex ?? 1}${f.localXPositionCm != null ? " • Local: ${f.localXPositionCm!.toStringAsFixed(1)} cm" : ""}',
                                         style: const TextStyle(
                                           color: AppColors.primary,
                                           fontSize: 8,
@@ -1316,14 +1316,14 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   panelLengthCm)
               .clamp(0.0, 1.0);
       coverageLabel =
-          'Rail Scan Coverage: ${minFrameX.toStringAsFixed(1)} to ${maxFrameX.toStringAsFixed(1)} cm of ${panelLengthCm.toStringAsFixed(0)} cm (Painel $focusedPanelIndex • ${focusedBound.startXCm.toStringAsFixed(0)}–${focusedBound.endXCm.toStringAsFixed(0)} cm)';
+          'Rail Scan Coverage: ${minFrameX.toStringAsFixed(1)} to ${maxFrameX.toStringAsFixed(1)} cm of ${panelLengthCm.toStringAsFixed(0)} cm (Panel $focusedPanelIndex • ${focusedBound.startXCm.toStringAsFixed(0)}–${focusedBound.endXCm.toStringAsFixed(0)} cm)';
     } else {
       startRatio =
           ((minFrameX - ThermalCoverageInfo.halfFovCm) / totalRail).clamp(0.0, 1.0);
       endRatio =
           ((maxFrameX + ThermalCoverageInfo.halfFovCm) / totalRail).clamp(0.0, 1.0);
       coverageLabel =
-          'Rail Scan Coverage: ${minFrameX.toStringAsFixed(1)} to ${maxFrameX.toStringAsFixed(1)} cm of ${totalRail.toStringAsFixed(0)} cm (${effectiveCount > 1 ? "$effectiveCount painéis" : "Painel único"})';
+          'Rail Scan Coverage: ${minFrameX.toStringAsFixed(1)} to ${maxFrameX.toStringAsFixed(1)} cm of ${totalRail.toStringAsFixed(0)} cm (${effectiveCount > 1 ? "$effectiveCount panels" : "Single panel"})';
     }
     final widthRatio = (endRatio - startRatio).clamp(0.02, 1.0);
 
@@ -1419,7 +1419,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             const SizedBox(width: 6),
             _buildPanelChip(
               key: Key('panel_chip_$p'),
-              label: 'Painel $p',
+              label: 'Panel $p',
               isSelected: _focusedPanelIndex == p,
               hasAnomaly: confirmedAnomalies.any((a) {
                 if (a.panelIndex != null) return a.panelIndex == p;
@@ -1569,7 +1569,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 : 'Overlapping frames';
 
             final panelStr = anomaly.panelIndex != null
-                ? 'Painel ${anomaly.panelIndex} • '
+                ? 'Panel ${anomaly.panelIndex} • '
                 : '';
             final localStr = anomaly.localXPositionCm != null
                 ? ' (local: ${anomaly.localXPositionCm!.toStringAsFixed(1)} cm)'
@@ -1658,7 +1658,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        '${measurement.panelIndex != null ? "Painel ${measurement.panelIndex}" : ""}${measurement.panelIndex != null && measurement.localXPositionCm != null ? " • " : ""}${measurement.localXPositionCm != null ? "Local: ${measurement.localXPositionCm!.toStringAsFixed(1)} cm" : ""}',
+                        '${measurement.panelIndex != null ? "Panel ${measurement.panelIndex}" : ""}${measurement.panelIndex != null && measurement.localXPositionCm != null ? " • " : ""}${measurement.localXPositionCm != null ? "Local: ${measurement.localXPositionCm!.toStringAsFixed(1)} cm" : ""}',
                         style: const TextStyle(
                           color: AppColors.primary,
                           fontSize: 9,

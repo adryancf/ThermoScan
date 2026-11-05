@@ -33,22 +33,48 @@ constexpr uint8_t I2C_SDA_PIN = PIN_I2C_SDA;
 constexpr uint8_t I2C_SCL_PIN = PIN_I2C_SCL;
 
 // ----------------------------------------------------------------------------
-// INA219 Power Meter Fixed Panel I2C Address Mapping
+// INA228 / INA219 Power Meter Fixed Panel I2C Address Mapping
 // ----------------------------------------------------------------------------
+#ifndef INA228_ADDR_PANEL_1
+#define INA228_ADDR_PANEL_1 0x40
+#endif
+
+#ifndef INA228_ADDR_PANEL_2
+#define INA228_ADDR_PANEL_2 0x41
+#endif
+
+#ifndef INA228_ADDR_PANEL_3
+#define INA228_ADDR_PANEL_3 0x42
+#endif
+
+#ifndef INA228_ADDR_DEFAULT
+#define INA228_ADDR_DEFAULT INA228_ADDR_PANEL_1
+#endif
+
+// Backward compatibility defines with legacy INA219 naming
 #ifndef INA219_ADDR_PANEL_1
-#define INA219_ADDR_PANEL_1 0x40
+#define INA219_ADDR_PANEL_1 INA228_ADDR_PANEL_1
 #endif
 
 #ifndef INA219_ADDR_PANEL_2
-#define INA219_ADDR_PANEL_2 0x41
+#define INA219_ADDR_PANEL_2 INA228_ADDR_PANEL_2
 #endif
 
 #ifndef INA219_ADDR_PANEL_3
-#define INA219_ADDR_PANEL_3 0x42
+#define INA219_ADDR_PANEL_3 INA228_ADDR_PANEL_3
 #endif
 
 #ifndef INA219_ADDR_DEFAULT
-#define INA219_ADDR_DEFAULT INA219_ADDR_PANEL_1
+#define INA219_ADDR_DEFAULT INA228_ADDR_DEFAULT
+#endif
+
+// INA228 Shunt & Current Configuration
+#ifndef INA228_DEFAULT_SHUNT_RESISTANCE_OHM
+#define INA228_DEFAULT_SHUNT_RESISTANCE_OHM 0.015f  // Resistor shunt de 15 mOhm (0.015 ohm, padrão do módulo Adafruit INA228)
+#endif
+
+#ifndef INA228_DEFAULT_MAX_CURRENT_A
+#define INA228_DEFAULT_MAX_CURRENT_A 10.0f          // Corrente máxima esperada de 10 A para calibração do ADC
 #endif
 
 /**
@@ -123,11 +149,11 @@ static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
 // Menor valor = Mais rápido | Maior valor = Mais lento
 // ----------------------------------------------------------------------------
 #ifndef STEPPER_SPEED_HOMING_US
-#define STEPPER_SPEED_HOMING_US 1600   // Velocidade durante o homing (busca do início e avanço dos 7 cm)
+#define STEPPER_SPEED_HOMING_US 1800   // Velocidade durante o homing (busca do início e avanço dos 7 cm)
 #endif
 
 #ifndef STEPPER_SPEED_NORMAL_US
-#define STEPPER_SPEED_NORMAL_US 1500   // Velocidade durante deslocamento normal (inspeção e limpeza)
+#define STEPPER_SPEED_NORMAL_US 1200   // Velocidade durante deslocamento normal (inspeção e limpeza)
 #endif
 
 // Alias de retrocompatibilidade
@@ -153,7 +179,7 @@ constexpr uint32_t STEPPER_NORMAL_DELAY_US  = STEPPER_SPEED_NORMAL_US;
 // Water Sensor (Binary Capacitive Liquid Level)
 // ----------------------------------------------------------------------------
 #ifndef PIN_WATER_SENSOR
-#define PIN_WATER_SENSOR 33
+#define PIN_WATER_SENSOR 17
 #endif
 
 constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;
@@ -162,7 +188,7 @@ constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;
 // Actuators: Spray Pump MOSFET & Tilt Servo PWM
 // ----------------------------------------------------------------------------
 #ifndef PIN_PUMP_MOSFET
-#define PIN_PUMP_MOSFET 25   // Gate of 12V spray pump driver MOSFET
+#define PIN_PUMP_MOSFET 4   // Gate of 12V spray pump driver MOSFET
 #endif
 
 #ifndef PIN_SERVO_PWM

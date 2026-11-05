@@ -204,7 +204,7 @@ class PvModule {
           endXCm: end,
           isGap: false,
           lengthCm: len,
-          label: 'Painel $p',
+          label: 'Panel $p',
         ),
       );
       if (p < count && spc > 0) {

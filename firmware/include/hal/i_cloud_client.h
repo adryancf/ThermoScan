@@ -131,6 +131,10 @@ public:
     virtual bool isConfigurationPending() const { return false; }
     virtual void clearConfigurationPending() {}
 
+    // Manual inspection pending query and reset
+    virtual bool isManualInspectionPending() const { return false; }
+    virtual void clearManualInspectionPending() {}
+
     // Legacy backward-compat methods
     virtual bool ingestTelemetry(const TelemetryPayload& telemetry) = 0;
     virtual bool ingestCleaning(const CleaningPayload& cleaning) = 0;

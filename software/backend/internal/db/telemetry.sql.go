@@ -68,6 +68,16 @@ func (q *Queries) AppendConfirmingMeasurementsToAnomaly(ctx context.Context, arg
 	return i, err
 }
 
+const clearPendingScheduledInspections = `-- name: ClearPendingScheduledInspections :exec
+DELETE FROM inspections
+WHERE module_id = $1 AND status = 'scheduled'
+`
+
+func (q *Queries) ClearPendingScheduledInspections(ctx context.Context, moduleID pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearPendingScheduledInspections, moduleID)
+	return err
+}
+
 const countMeasurementsByInspection = `-- name: CountMeasurementsByInspection :one
 SELECT count(*)
 FROM measurements
@@ -369,6 +379,44 @@ func (q *Queries) CreateInspection(ctx context.Context, arg CreateInspectionPara
 		&i.VerificationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const createManualScheduledInspection = `-- name: CreateManualScheduledInspection :one
+INSERT INTO inspections (
+    module_id,
+    type,
+    scheduled_for,
+    status
+) VALUES (
+    $1,
+    'scheduled',
+    now(),
+    'scheduled'
+)
+RETURNING id, module_id, type, scheduled_for, status, created_at
+`
+
+type CreateManualScheduledInspectionRow struct {
+	ID           pgtype.UUID
+	ModuleID     pgtype.UUID
+	Type         string
+	ScheduledFor time.Time
+	Status       string
+	CreatedAt    time.Time
+}
+
+func (q *Queries) CreateManualScheduledInspection(ctx context.Context, moduleID pgtype.UUID) (CreateManualScheduledInspectionRow, error) {
+	row := q.db.QueryRow(ctx, createManualScheduledInspection, moduleID)
+	var i CreateManualScheduledInspectionRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.Type,
+		&i.ScheduledFor,
+		&i.Status,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -1059,6 +1107,20 @@ func (q *Queries) GetMeasurementBySourceEventID(ctx context.Context, arg GetMeas
 		&i.ReceivedAt,
 	)
 	return i, err
+}
+
+const hasPendingScheduledInspection = `-- name: HasPendingScheduledInspection :one
+SELECT EXISTS(
+    SELECT 1 FROM inspections
+    WHERE module_id = $1 AND status = 'scheduled'
+)
+`
+
+func (q *Queries) HasPendingScheduledInspection(ctx context.Context, moduleID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasPendingScheduledInspection, moduleID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const listActiveAnomaliesForCompany = `-- name: ListActiveAnomaliesForCompany :many

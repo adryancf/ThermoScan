@@ -121,6 +121,11 @@ private:
     HardwareSerial& hw_;
 };
 
+inline DualSerialProxy& getGlobalDualSerial() {
+    static DualSerialProxy s_instance(Serial);
+    return s_instance;
+}
+
 // ============================================================================
 // ESP-IDF VFS / Log Hook for automatic capture of ESP_LOG*, log_i, log_e
 // ============================================================================

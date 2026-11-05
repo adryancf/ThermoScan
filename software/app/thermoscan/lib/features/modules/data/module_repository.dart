@@ -345,4 +345,14 @@ class ModuleRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<void> triggerManualInspection({required String moduleId}) async {
+    try {
+      await dio.post<Map<String, dynamic>>(
+        '/modules/$moduleId/trigger-inspection',
+      );
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

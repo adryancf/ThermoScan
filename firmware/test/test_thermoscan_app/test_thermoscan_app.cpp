@@ -623,7 +623,7 @@ void test_invalid_config_retains_previous_and_does_not_ack(void) {
     app.init();
 
     // Malformed/invalid configuration: panel length negative (-100) and solar angle 150 deg (> 90)
-    cloud.config_json_payload = "{\"config_version\":3,\"geometry\":{\"panel_length_cm\":-100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":150.0,\"interval_days\":0,\"ping_interval_seconds\":5}";
+    cloud.config_json_payload = "{\"config_version\":3,\"geometry\":{\"panel_length_cm\":-100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":150.0,\"interval_days\":0,\"ping_interval_seconds\":2}";
     cloud.config_pending = true;
     time.epoch = 1730000305;
 
@@ -788,7 +788,7 @@ void test_invalid_config_does_not_modify_next_inspection_time(void) {
 
     // Invalid config (interval_days = 0, invalid angle = 150)
     cloud.config_json_payload =
-        "{\"config_version\":3,\"geometry\":{\"panel_length_cm\":-100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":150.0,\"interval_days\":0,\"ping_interval_seconds\":5}";
+        "{\"config_version\":3,\"geometry\":{\"panel_length_cm\":-100.0,\"panel_width_cm\":50.0,\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":150.0,\"interval_days\":0,\"ping_interval_seconds\":2}";
     cloud.config_pending = true;
     time.epoch = 1730000305;
 

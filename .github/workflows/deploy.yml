@@ -15,6 +15,7 @@ jobs:
     env:
       APP_NAME: thermoscan-api
       HOST: api-thermoscan.realan.space
+      DEVICE_PING_INTERVAL_SECONDS: "5"
     steps:
       - uses: actions/checkout@v4
 

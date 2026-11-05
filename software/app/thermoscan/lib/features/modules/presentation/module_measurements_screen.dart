@@ -266,13 +266,13 @@ class _ModuleMeasurementsScreenState
               child: Row(
                 children: [
                   _buildPaginatedPanelFilterChip(
-                    label: 'Todos ($panelCount)',
+                    label: 'All ($panelCount)',
                     panelIndex: null,
                   ),
                   for (var p = 1; p <= panelCount; p++) ...[
                     const SizedBox(width: 6),
                     _buildPaginatedPanelFilterChip(
-                      label: 'Painel $p',
+                      label: 'Panel $p',
                       panelIndex: p,
                     ),
                   ],
@@ -646,7 +646,7 @@ class _ModuleMeasurementsScreenState
                           ),
                         ),
                         Text(
-                          '$pCount ${pCount > 1 ? "painéis" : "painel"} (${pLen.toStringAsFixed(0)} cm/painel${pCount > 1 ? " • Gap ${pSpc.toStringAsFixed(0)} cm" : ""} • Trilho ${totalRail.toStringAsFixed(0)} cm)',
+                          '$pCount ${pCount > 1 ? "panels" : "panel"} (${pLen.toStringAsFixed(0)} cm/panel${pCount > 1 ? " • Gap ${pSpc.toStringAsFixed(0)} cm" : ""} • Rail ${totalRail.toStringAsFixed(0)} cm)',
                           style: AppTypography.caption.copyWith(
                             fontSize: 10,
                             color: AppColors.textSecondary,
@@ -808,7 +808,7 @@ class _ModuleMeasurementsScreenState
             ],
           ),
           const SizedBox(height: 10),
-          // Level 3: Panel Accordions (Painel 1..N)
+          // Level 3: Panel Accordions (Panel 1..N)
           ...sortedPanels.map((p) {
             final panelMeasurements = byPanel[p]!;
             final pMinX = panelMeasurements
@@ -919,7 +919,7 @@ class _ModuleMeasurementsScreenState
                         children: [
                           Expanded(
                             child: Text(
-                              'Painel $p (X: ${pMinX.toStringAsFixed(0)}..${pMaxX.toStringAsFixed(0)} cm) • ${pb.startCm.toStringAsFixed(0)}–${pb.endCm.toStringAsFixed(0)} cm',
+                              'Panel $p (X: ${pMinX.toStringAsFixed(0)}..${pMaxX.toStringAsFixed(0)} cm) • ${pb.startCm.toStringAsFixed(0)}–${pb.endCm.toStringAsFixed(0)} cm',
                               style: AppTypography.caption.copyWith(
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.textPrimary,

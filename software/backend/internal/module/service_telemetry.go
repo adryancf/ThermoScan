@@ -630,6 +630,9 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			return nil, err
 		}
 		inspID = newInsp.ID
+		if inspType == "scheduled" {
+			_ = qtx.ClearPendingScheduledInspections(ctx, moduleID)
+		}
 	} else {
 		return nil, err
 	}
@@ -1144,6 +1147,7 @@ func (s *Service) FinalizeInspection(
 	if err != nil {
 		return nil, err
 	}
+	_ = qtx.ClearPendingScheduledInspections(ctx, moduleID)
 
 	// Process confirmed hotspots
 	for _, ch := range input.ConfirmedHotspots {

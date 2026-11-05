@@ -42,7 +42,7 @@ func computeConfigurationSync(configVersion, configAppliedVersion int32, configA
 	}
 }
 
-const DefaultPingIntervalSeconds = 300
+const DefaultPingIntervalSeconds = 5
 
 func getDevicePingIntervalSeconds() int {
 	valStr := os.Getenv("DEVICE_PING_INTERVAL_SECONDS")
@@ -136,6 +136,10 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		ConfigurationSync:   syncDTO,
 		PingIntervalSeconds: s.PingIntervalSeconds(),
 		OnlineWindowSeconds: s.OnlineWindowSeconds(),
+	}
+
+	if hasPending, err := s.queries.HasPendingScheduledInspection(ctx, moduleID); err == nil && hasPending {
+		dto.ManualInspectionPending = true
 	}
 
 	resReading, err := s.queries.GetLatestReservoirReadingByModule(ctx, moduleID)
@@ -433,4 +437,68 @@ func (s *Service) AcknowledgeDeviceConfiguration(ctx context.Context, moduleID p
 	}
 	syncState := computeConfigurationSync(mod.ConfigVersion, appliedVersion, appliedAt, applyErrPtr)
 	return &syncState, nil
+}
+
+func (s *Service) TriggerManualInspection(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) (*TriggerInspectionDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	mod, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if !mod.IsActive {
+		return nil, ErrForbidden
+	}
+
+	if mod.MonitoringStatus == StatusPendingConfiguration || mod.ConfiguredAt == nil {
+		return nil, ErrInvalidInput
+	}
+
+	if _, _, err := s.resolveUserModuleRelationship(ctx, s.queries, principal, mod.ID, mod.InstallerTechnicianID); err != nil {
+		return nil, err
+	}
+
+	// Check if an inspection is already actively in progress
+	latestInsp, err := s.queries.GetLatestInspectionByModule(ctx, moduleID)
+	if err == nil && latestInsp.Status == "in_progress" {
+		return &TriggerInspectionDTO{
+			Success: true,
+			Message: "Inspection is already in progress on this module",
+			Status:  "in_progress",
+		}, nil
+	}
+
+	// Check if an inspection is already pending
+	hasPending, err := s.queries.HasPendingScheduledInspection(ctx, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	if hasPending {
+		return &TriggerInspectionDTO{
+			Success: true,
+			Message: "Inspection is already scheduled and waiting for device check-in",
+			Status:  "scheduled",
+		}, nil
+	}
+
+	// Create new scheduled inspection
+	_, err = s.queries.CreateManualScheduledInspection(ctx, moduleID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TriggerInspectionDTO{
+		Success: true,
+		Message: "Inspection requested successfully. It will start on the next device check-in.",
+		Status:  "scheduled",
+	}, nil
 }

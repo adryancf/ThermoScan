@@ -5,6 +5,10 @@
 
 #if defined(ARDUINO) || defined(ESP32)
 #include <Arduino.h>
+#include "diagnostics/web_diagnostics.h"
+#define Serial diagnostics::getGlobalDualSerial()
+#else
+#include "hal/native_net_compat.h"
 #endif
 
 namespace app {
@@ -128,6 +132,11 @@ void ThermoscanApp::restoreStateFromNvs() {
             config_.panel_count = g_cnt;
             config_.panel_spacing_cm = g_spc;
         }
+    }
+
+    int32_t saved_ping_int = 0;
+    if (storage_->getPingIntervalSeconds(saved_ping_int) && saved_ping_int >= 5) {
+        config_.ping_interval_seconds = saved_ping_int;
     }
 
     StorageState s;
@@ -260,7 +269,28 @@ void ThermoscanApp::triggerManualCleaning(float target_x_cm) {
     manual_cleaning_target_x_ = target_x_cm;
 }
 
+static const char* appStateToString(AppState s) {
+    switch (s) {
+        case AppState::BOOT_INIT: return "BOOT_INIT";
+        case AppState::IDLE: return "IDLE";
+        case AppState::SCANNING: return "SCANNING";
+        case AppState::ANALYZING: return "ANALYZING";
+        case AppState::CLEANING: return "CLEANING";
+        case AppState::WAITING_VERIFICATION: return "WAITING_VERIFICATION (Cooldown 30min)";
+        case AppState::VERIFYING: return "VERIFYING (Confirmando resolucao)";
+        case AppState::SYNCING: return "SYNCING (Sincronizando config)";
+        case AppState::ERROR_HALT: return "ERROR_HALT";
+        default: return "DESCONHECIDO";
+    }
+}
+
 void ThermoscanApp::tick() {
+    if (state_ != last_logged_state_) {
+        Serial.printf("[ESTADO] Mudanca de estado da ESP: %s -> %s\n",
+                      appStateToString(last_logged_state_), appStateToString(state_));
+        last_logged_state_ = state_;
+    }
+
     switch (state_) {
         case AppState::BOOT_INIT:
             handleBootInit();
@@ -296,16 +326,21 @@ void ThermoscanApp::tick() {
 void ThermoscanApp::handleIdle() {
     const uint32_t now = getCurrentTime();
 
-    // Check if cloud client reported pending configuration from startup/claim ping
+    // Check if cloud client reported pending configuration or manual inspection from startup/claim ping
     if (cloud_ != nullptr && cloud_->isConfigurationPending()) {
         config_update_pending_ = true;
         config_sync_failed_waiting_ping_ = false;
     }
+    if (cloud_ != nullptr && cloud_->isManualInspectionPending()) {
+        cloud_->clearManualInspectionPending();
+        Serial.println(F("[APP] Ping detectou solicitacao de varredura manual pendente no backend!"));
+        triggerManualInspection();
+    }
 
-    // Determine ping interval: use fast ping (15s) when initial configuration is not yet synchronized,
-    // otherwise use standard configured interval (default 300s)
+    // Determine ping interval: use fast ping (5s) when initial configuration is not yet synchronized,
+    // otherwise use standard configured interval (default 5s)
     const uint32_t effective_ping_interval = (config_.config_version == 0 || config_update_pending_)
-                                                 ? 15
+                                                 ? 5
                                                  : static_cast<uint32_t>(config_.ping_interval_seconds);
 
     // Periodic telemetry ping (only if clock is synchronized, preventing loop when now == 0)
@@ -319,6 +354,7 @@ void ThermoscanApp::handleIdle() {
         }
         if (cloud_->isManualInspectionPending()) {
             cloud_->clearManualInspectionPending();
+            Serial.println(F("[APP] Ping periodico detectou solicitacao de varredura manual!"));
             triggerManualInspection();
         }
     }
@@ -326,6 +362,7 @@ void ThermoscanApp::handleIdle() {
     // 1. Manual commands have highest priority
     if (manual_inspection_requested_) {
         manual_inspection_requested_ = false;
+        Serial.println(F("[APP] Transicao de estado: IDLE -> SCANNING (Iniciando varredura manual)"));
         state_ = AppState::SCANNING;
         return;
     }
@@ -364,6 +401,7 @@ void ThermoscanApp::handleIdle() {
     // 3. Scheduled inspection evaluation
     if (now > 0 && next_inspection_time_ > 0 && now >= next_inspection_time_) {
         if (checkSolarWindow()) {
+            Serial.println(F("[APP] Transicao de estado: IDLE -> SCANNING (Iniciando varredura agendada)"));
             state_ = AppState::SCANNING;
             return;
         }
@@ -385,10 +423,13 @@ void ThermoscanApp::handleScanning() {
     utils::HeapTracker::start();
 
     const uint8_t total_panels = (config_.panel_count > 0) ? static_cast<uint8_t>(config_.panel_count) : 1;
+    Serial.printf("[SCAN] Iniciando ciclo de varredura. Event ID: %s, Total de Paineis: %u\n",
+                  inspection_source_event_id_.c_str(), total_panels);
 
     for (uint8_t p = 1; p <= total_panels; ++p) {
         float p_start = 0.0f, p_end = 0.0f;
         domain::getPanelBounds(p, config_.panel_length_cm, config_.panel_spacing_cm, p_start, p_end);
+        Serial.printf("[SCAN] Varrendo Painel %u: Faixa X = [%.1f cm -> %.1f cm]\n", p, p_start, p_end);
 
         histogram_.reset();
         quantized_frames_.clear();
@@ -464,6 +505,9 @@ void ThermoscanApp::handleScanning() {
                 item.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
                 current_batch_.push_back(item);
 
+                Serial.printf("[SCAN] Painel %u: X = %.1f cm | T_max = %.1f C | Acumulado lote: %u/5\n",
+                              p, current_x, max_temp, current_batch_.size());
+
                 const bool is_last_step = ((current_x + STEP_SIZE_CM) > (p_end + 1e-3f)) ||
                                           (quantized_frames_.size() >= MAX_PANEL_ACQUISITIONS);
 
@@ -506,6 +550,9 @@ void ThermoscanApp::handleScanning() {
             p_start,
             p_end,
             p);
+
+        Serial.printf("[SCAN] Painel %u concluido: Faixa [%.1f cm -> %.1f cm] | Baseline: %.1f C | Hotspots detectados: %u\n",
+                      p, p_start, p_end, panel_baseline, confirmed.size());
 
         PanelThermalResultInput p_input;
         p_input.panel_index = p;
@@ -585,6 +632,7 @@ void ThermoscanApp::handleScanning() {
 
     utils::HeapTracker::update();
 
+    Serial.println(F("[SCAN] Varredura concluida. Transicao de estado: SCANNING -> ANALYZING."));
     state_ = AppState::ANALYZING;
 }
 
@@ -749,6 +797,9 @@ void ThermoscanApp::handleCleaning() {
                                   qh.attempts,
                                   0);
 
+        Serial.printf("[CLEANING] Avaliando alvo %u/%u: Painel %d, X = %.1f cm (Tentativa %d)...\n",
+                      i + 1, cleaning_queue_.size(), qh.panel_index, qh.target_x_cm, qh.attempts);
+
         // Check if target is in gap
         domain::PanelPositionInfo pos = domain::resolvePanelPosition(
             config_.panel_count, config_.panel_length_cm, config_.panel_spacing_cm, qh.target_x_cm);
@@ -758,6 +809,9 @@ void ThermoscanApp::handleCleaning() {
 
         // Evaluate pre-spray safety interlocks with is_in_gap
         if (!cleaning_sm_.evaluateBeforeSpray(qh.baseline_temp_c, water_ok, is_in_gap)) {
+            Serial.printf("[CLEANING] Lavagem RECUSADA para X = %.1f cm! Motivo: %s (in_gap=%d, water_ok=%d)\n",
+                          qh.target_x_cm, cleaning_sm_.getReason().c_str(), is_in_gap, water_ok);
+
             CleaningReportInput cr;
             cr.anomaly_event_id = qh.anomaly_event_id;
             cr.panel_index = qh.panel_index;
@@ -784,6 +838,8 @@ void ThermoscanApp::handleCleaning() {
             break;
         }
 
+        Serial.printf("[CLEANING] Movendo para X = %.1f cm e alinhando bocal a 90 deg...\n", qh.target_x_cm);
+
         // Position carriage at target X and align nozzle
         if (motion_ != nullptr) {
             motion_->moveToXCm(qh.target_x_cm);
@@ -795,6 +851,7 @@ void ThermoscanApp::handleCleaning() {
 #endif
         }
 
+        Serial.printf("[CLEANING] Disparando spray de agua...\n");
         cleaning_sm_.startSpray();
         const uint32_t start_time = getCurrentTime();
 
@@ -809,6 +866,7 @@ void ThermoscanApp::handleCleaning() {
             if (!cleaning_sm_.monitorDuringSpray(fluid, check_now)) {
                 if (spray_ != nullptr) spray_->stopPump();
                 spray_interrupted = true;
+                Serial.println(F("[CLEANING] Spray interrompido: Falta de agua detectada!"));
                 break;
             }
 #if defined(ARDUINO) || defined(ESP32)
@@ -820,6 +878,7 @@ void ThermoscanApp::handleCleaning() {
         if (!spray_interrupted) {
             if (spray_ != nullptr) spray_->stopPump();
             cleaning_sm_.finishSpray(end_time);
+            Serial.println(F("[CLEANING] Spray concluido com sucesso."));
         }
         last_spray_end = end_time;
         any_sprayed = true;
@@ -1003,6 +1062,10 @@ void ThermoscanApp::handleVerifying() {
             hotspot_still_present = true;
         }
 
+        Serial.printf("[VERIFYING] Ponto X = %.1f cm (Painel %d): T_max1 = %.1f C, T_max2 = %.1f C, Baseline = %.1f C -> %s\n",
+                      qh.target_x_cm, qh.panel_index, max_t1, max_t2, verif_baseline,
+                      hotspot_still_present ? "HOTSPOT AINDA PRESENTE" : "HOTSPOT RESOLVIDO COM SUCESSO");
+
         // Synchronize cleaning_sm_ with THIS hotspot's cleaning status and attempt count
         cleaning_sm_.restoreState(
             qh.spray_interrupted ? domain::CleaningStatus::FAILED : domain::CleaningStatus::COMPLETED,
@@ -1147,9 +1210,9 @@ void ThermoscanApp::handleSyncing() {
         return;
     }
 
-    // 5. Ping interval validation (>= 10 seconds)
+    // 5. Ping interval validation (>= 5 seconds)
     int32_t ping_s = doc["ping_interval_seconds"] | 0;
-    if (ping_s < 10) {
+    if (ping_s < 5) {
         last_config_error_ = "invalid_ping_interval";
         config_sync_failed_waiting_ping_ = true;
         state_ = AppState::IDLE;

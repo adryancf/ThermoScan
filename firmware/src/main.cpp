@@ -50,7 +50,7 @@ static app::ThermoscanApp g_app(&g_camera,
                                 &g_time_provider);
 
 // Bench Diagnostics Console & Engine Instantiation
-static diagnostics::DualSerialProxy g_dual_serial(Serial);
+static diagnostics::DualSerialProxy& g_dual_serial = diagnostics::getGlobalDualSerial();
 static diagnostics::WebBufferedConsole g_console(g_dual_serial);
 static diagnostics::BenchDiagnostics g_diagnostics(&g_storage,
                                                    &g_time_provider,

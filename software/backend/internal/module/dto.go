@@ -311,10 +311,11 @@ type DeviceStatusDTO struct {
 	WaterStatus         string               `json:"water_status"`
 	LimitsCheckPassed   bool                 `json:"limits_check_passed"`
 	ThermalSensorActive bool                 `json:"thermal_sensor_active"`
-	LatestMeasurementAt *string              `json:"latest_measurement_at,omitempty"`
-	ConfigurationSync   ConfigurationSyncDTO `json:"configuration_sync"`
-	PingIntervalSeconds int                  `json:"ping_interval_seconds"`
-	OnlineWindowSeconds int                  `json:"online_window_seconds"`
+	LatestMeasurementAt    *string              `json:"latest_measurement_at,omitempty"`
+	ConfigurationSync      ConfigurationSyncDTO `json:"configuration_sync"`
+	ManualInspectionPending bool                 `json:"manual_inspection_pending"`
+	PingIntervalSeconds    int                  `json:"ping_interval_seconds"`
+	OnlineWindowSeconds    int                  `json:"online_window_seconds"`
 }
 
 type RecordDevicePingInput struct {
@@ -338,6 +339,12 @@ type ClaimDeviceDTO struct {
 	InspectionIntervalDays int32  `json:"inspection_interval_days"`
 	PingIntervalSeconds    int    `json:"ping_interval_seconds"`
 	Message                string `json:"message"`
+}
+
+type TriggerInspectionDTO struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Status  string `json:"status"`
 }
 
 type DeviceGeometryDTO struct {

@@ -403,7 +403,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                             ),
                           ),
                           child: Text(
-                            'Painel $panelIndex',
+                            'Panel $panelIndex',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.primary,
                               fontWeight: FontWeight.w800,

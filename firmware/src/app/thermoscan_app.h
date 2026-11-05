@@ -46,7 +46,7 @@ struct AppConfig {
     float panel_spacing_cm{2.0f};
     float min_solar_angle{30.0f};
     int32_t interval_days{7};
-    int32_t ping_interval_seconds{300};
+    int32_t ping_interval_seconds{5};
 
     // Geographic location (default São Paulo, Brazil)
     float latitude{-23.5505f};
@@ -144,6 +144,7 @@ private:
     bool config_update_pending_{false};
     bool config_sync_failed_waiting_ping_{false};
     std::string last_config_error_{};
+    AppState last_logged_state_{AppState::ERROR_HALT};
 
     // State handlers
     void handleBootInit();

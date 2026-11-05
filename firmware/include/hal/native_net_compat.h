@@ -224,6 +224,29 @@ private:
     }
 };
 
+#ifndef F
+#define F(s) (s)
+#endif
+
+class NativeSerialStub {
+public:
+    void print(const char*) {}
+    void print(int) {}
+    void print(float) {}
+    void println(const char* = "") {}
+    template<typename... Args>
+    void printf(const char*, Args...) {}
+};
+
+inline NativeSerialStub& getGlobalNativeSerial() {
+    static NativeSerialStub s_instance;
+    return s_instance;
+}
+
+#ifndef Serial
+#define Serial getGlobalNativeSerial()
+#endif
+
 #endif // !ARDUINO && !ESP32
 
 #endif // THERMOSCAN_HAL_NATIVE_NET_COMPAT_H

@@ -82,14 +82,14 @@ void BenchDiagnostics::printList() {
     console_->println("  diag backend      - Executa ping HTTP e re-claim se 401");
     console_->println("  diag mlx          - Captura frame MLX90640 e valida 768 pixels");
     console_->println("  diag mlx watch    - Monitoramento continuo de temperatura em tempo real");
-    console_->println("  diag ina          - Le tensao (V), corrente (A) e potencia (W) do INA219");
+    console_->println("  diag ina          - Le tensao (V), corrente (A) e potencia (W) do sensor INA228/INA");
     console_->println("  diag water        - Avalia estabilidade do sensor capacitivo de agua");
     console_->println("  diag motor        - Movimenta carro +2cm/-2cm (requer confirmacao)");
     console_->println("  diag homing       - Referencia carro ate batente NC (requer confirmacao)");
     console_->println("  diag pump         - Aciona bomba por 500ms (requer confirmacao)");
     console_->println("  diag camera-servo - Articula servo da camera para teste de angulo");
     console_->println("  diag nozzle-servo - Articula servo da mangueira/bico (45, 135 e 90 graus)");
-    console_->println("  diag scan         - Executa ciclo completo de varredura (motor, MLX90640 e INA219)");
+    console_->println("  diag scan         - Executa ciclo completo de varredura (motor, MLX90640 e INA228)");
     console_->println("  diag safety       - Testa intertravamentos e parada de emergencia");
     console_->println("==================================================");
 }
@@ -452,7 +452,7 @@ TestResult BenchDiagnostics::testIna() {
 
     if (!power_meter_) {
         r.status = TestStatus::FAIL;
-        r.details = "Driver INA219 nulo.";
+        r.details = "Driver INA nulo.";
         r.failure_cause = "Ponteiro IPowerMeter invalido.";
         r.duration_ms = getElapsedMs(t0);
         return r;
@@ -507,7 +507,7 @@ TestResult BenchDiagnostics::testIna() {
 
     if (!panel1_ok) {
         r.status = TestStatus::FAIL;
-        r.details = "Falha ao ler snapshot do INA219 principal. " + combined_details;
+        r.details = "Falha ao ler snapshot do sensor INA principal. " + combined_details;
         r.failure_cause = "readSnapshotForPanel(1) retornou falso ou snap.valid == false.";
         r.duration_ms = getElapsedMs(t0);
         return r;

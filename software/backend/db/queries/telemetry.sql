@@ -451,3 +451,28 @@ FROM inspections i
 WHERE i.module_id = $1
 ORDER BY i.scheduled_for DESC, i.created_at DESC
 LIMIT $2 OFFSET $3;
+
+-- name: HasPendingScheduledInspection :one
+SELECT EXISTS(
+    SELECT 1 FROM inspections
+    WHERE module_id = $1 AND status = 'scheduled'
+);
+
+-- name: CreateManualScheduledInspection :one
+INSERT INTO inspections (
+    module_id,
+    type,
+    scheduled_for,
+    status
+) VALUES (
+    $1,
+    'scheduled',
+    now(),
+    'scheduled'
+)
+RETURNING id, module_id, type, scheduled_for, status, created_at;
+
+-- name: ClearPendingScheduledInspections :exec
+DELETE FROM inspections
+WHERE module_id = $1 AND status = 'scheduled';
+

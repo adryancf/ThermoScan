@@ -3,32 +3,14 @@
 
 #if defined(ARDUINO) || defined(ESP32)
 
-#include <Arduino.h>
-#include <Wire.h>
-#include <Adafruit_INA219.h>
-#include "pinout.h"
-#include "hal/i_power_meter.h"
+#include "ina228_meter.h"
 
 namespace hal_esp32 {
 
 /**
- * @brief INA219 High-Side DC Voltage & Current Sensor driver.
- * Provides panel power telemetries over shared I2C bus.
+ * @brief Backward compatibility alias: Ina219Meter maps to Ina228Meter.
  */
-class Ina219Meter : public IPowerMeter {
-public:
-    explicit Ina219Meter(uint8_t i2c_addr = getInaAddressForPanel(1));
-    ~Ina219Meter() override = default;
-
-    bool init() override;
-    bool readSnapshot(PowerSnapshot& out) override;
-    bool readSnapshotForPanel(uint8_t panel_index, PowerSnapshot& out) override;
-
-private:
-    uint8_t i2c_addr_;
-    Adafruit_INA219 ina219_;
-    bool initialized_{false};
-};
+using Ina219Meter = Ina228Meter;
 
 } // namespace hal_esp32
 

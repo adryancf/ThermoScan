@@ -297,7 +297,7 @@ bool NvsStorage::savePingIntervalSeconds(int32_t seconds) {
 
 bool NvsStorage::getPingIntervalSeconds(int32_t& out) {
     if (!initialized_ && !init()) return false;
-    out = preferences_.getInt(KEY_PING_INT, 300);
+    out = preferences_.getInt(KEY_PING_INT, 30);
     return true;
 }
 

@@ -221,7 +221,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
       statusBg = AppColors.warningBackground;
       statusBorder = AppColors.warningBorder;
       statusText = AppColors.warning;
-      statusLabel = 'RECUSADA (NO GAP)';
+      statusLabel = 'REFUSED (IN GAP)';
     } else if (c.status == 'refused') {
       statusBg = AppColors.warningBackground;
       statusBorder = AppColors.warningBorder;
@@ -246,7 +246,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
         ? '${c.estimatedWaterVolumeMl!.toStringAsFixed(0)} mL'
         : 'N/A';
 
-    final panelPrefix = c.panelIndex != null ? 'Painel ${c.panelIndex} • ' : '';
+    final panelPrefix = c.panelIndex != null ? 'Panel ${c.panelIndex} • ' : '';
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -366,7 +366,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                 child: _buildMetricCol(
                   'Position',
                   c.panelIndex != null
-                      ? 'Painel ${c.panelIndex} • X: ${c.targetXPositionCm.toStringAsFixed(1)} cm${c.localXPositionCm != null ? " (Local: ${c.localXPositionCm!.toStringAsFixed(1)} cm)" : ""}'
+                      ? 'Panel ${c.panelIndex} • X: ${c.targetXPositionCm.toStringAsFixed(1)} cm${c.localXPositionCm != null ? " (Local: ${c.localXPositionCm!.toStringAsFixed(1)} cm)" : ""}'
                       : 'X: ${c.targetXPositionCm.toStringAsFixed(1)} cm',
                   AppColors.textPrimary,
                 ),

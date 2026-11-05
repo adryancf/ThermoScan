@@ -99,11 +99,35 @@ static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
 #define STEPPER_LIMIT_TRIGGERED_LEVEL 0  // Nível lógico quando acionado (apertado = 0 / LOW)
 #endif
 
+// ----------------------------------------------------------------------------
+// Direção do Motor de Passo (DRV8825)
+// 1 (HIGH) = Direção até o início (X = 0, Fim de curso inicial GPIO 35)
+// 0 (LOW)  = Direção até o final (X = X_max, Fim de curso final GPIO 34)
+// ----------------------------------------------------------------------------
+#ifndef STEPPER_DIR_TOWARDS_START
+#define STEPPER_DIR_TOWARDS_START 1
+#endif
+
+#ifndef STEPPER_DIR_TOWARDS_END
+#define STEPPER_DIR_TOWARDS_END 0
+#endif
+
 // Distância (em cm) que o carrinho avança após acionar o fim de curso de início
 // para se posicionar exatamente na borda inicial do painel solar (X = 0.0 cm).
-// Meça a distância física da chave até o início do painel e ajuste aqui.
 #ifndef STEPPER_HOME_OFFSET_CM
 #define STEPPER_HOME_OFFSET_CM 7.0f
+#endif
+
+// ----------------------------------------------------------------------------
+// Velocidade do Motor de Passo (Intervalo em microssegundos entre pulsos)
+// Menor valor = Mais rápido | Maior valor = Mais lento
+// ----------------------------------------------------------------------------
+#ifndef STEPPER_SPEED_HOMING_US
+#define STEPPER_SPEED_HOMING_US 1600   // Velocidade durante o homing (busca do início e avanço dos 7 cm)
+#endif
+
+#ifndef STEPPER_SPEED_NORMAL_US
+#define STEPPER_SPEED_NORMAL_US 1500   // Velocidade durante deslocamento normal (inspeção e limpeza)
 #endif
 
 // Alias de retrocompatibilidade
@@ -111,21 +135,25 @@ static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
 #define PIN_STEPPER_LIMIT_NC PIN_STEPPER_LIMIT_MIN
 #endif
 
-constexpr uint8_t STEPPER_STEP_PIN         = PIN_STEPPER_STEP;
-constexpr uint8_t STEPPER_DIR_PIN          = PIN_STEPPER_DIR;
-constexpr uint8_t STEPPER_EN_PIN           = PIN_STEPPER_EN;
-constexpr uint8_t STEPPER_LIMIT_MIN_PIN    = PIN_STEPPER_LIMIT_MIN;
-constexpr uint8_t STEPPER_LIMIT_MAX_PIN    = PIN_STEPPER_LIMIT_MAX;
-constexpr uint8_t STEPPER_LIMIT_NC_PIN     = STEPPER_LIMIT_MIN_PIN;
-constexpr uint8_t STEPPER_LIMIT_ACTIVE_VAL = STEPPER_LIMIT_TRIGGERED_LEVEL;
-constexpr float   HOME_OFFSET_CM           = STEPPER_HOME_OFFSET_CM;
-constexpr float   STEPPER_HOMING_OFFSET_CM = STEPPER_HOME_OFFSET_CM;
+constexpr uint8_t  STEPPER_STEP_PIN         = PIN_STEPPER_STEP;
+constexpr uint8_t  STEPPER_DIR_PIN          = PIN_STEPPER_DIR;
+constexpr uint8_t  STEPPER_EN_PIN           = PIN_STEPPER_EN;
+constexpr uint8_t  STEPPER_LIMIT_MIN_PIN    = PIN_STEPPER_LIMIT_MIN;
+constexpr uint8_t  STEPPER_LIMIT_MAX_PIN    = PIN_STEPPER_LIMIT_MAX;
+constexpr uint8_t  STEPPER_LIMIT_NC_PIN     = STEPPER_LIMIT_MIN_PIN;
+constexpr uint8_t  STEPPER_LIMIT_ACTIVE_VAL = STEPPER_LIMIT_TRIGGERED_LEVEL;
+constexpr uint8_t  STEPPER_DIR_START_VAL    = STEPPER_DIR_TOWARDS_START;
+constexpr uint8_t  STEPPER_DIR_END_VAL      = STEPPER_DIR_TOWARDS_END;
+constexpr float    HOME_OFFSET_CM           = STEPPER_HOME_OFFSET_CM;
+constexpr float    STEPPER_HOMING_OFFSET_CM = STEPPER_HOME_OFFSET_CM;
+constexpr uint32_t STEPPER_HOMING_DELAY_US  = STEPPER_SPEED_HOMING_US;
+constexpr uint32_t STEPPER_NORMAL_DELAY_US  = STEPPER_SPEED_NORMAL_US;
 
 // ----------------------------------------------------------------------------
 // Water Sensor (Binary Capacitive Liquid Level)
 // ----------------------------------------------------------------------------
 #ifndef PIN_WATER_SENSOR
-#define PIN_WATER_SENSOR 17
+#define PIN_WATER_SENSOR 33
 #endif
 
 constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;

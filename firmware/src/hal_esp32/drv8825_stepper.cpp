@@ -34,7 +34,7 @@ bool Drv8825Stepper::init() {
     }
 
     digitalWrite(step_pin_, LOW);
-    digitalWrite(dir_pin_, LOW);
+    digitalWrite(dir_pin_, STEPPER_DIR_TOWARDS_END);
     // Disable driver by default on boot to prevent coil heating
     enableMotor(false);
 
@@ -86,28 +86,29 @@ bool Drv8825Stepper::home() {
         init();
     }
     enableMotor(true);
-    delay(10);
+    delay(15);
 
-    // Se o fim de curso inicial (GPIO 35) ja estiver acionado:
-    // Afasta o carrinho +2.0 cm na direcao positiva (+X).
+    // Se o fim de curso inicial (GPIO 35) já estiver pressionado no boot,
+    // afasta suavemente em direção ao final (DIR = LOW) até liberar o sensor.
     if (isMinLimitReached()) {
-        digitalWrite(dir_pin_, LOW); // Direcao de avanco (+X)
-        const int backoffSteps = static_cast<int>(2.0f * steps_per_cm_);
-        for (int i = 0; i < backoffSteps; ++i) {
-            if (isMaxLimitReached()) {
-                enableMotor(false);
-                is_homed_ = false;
-                return false;
+        digitalWrite(dir_pin_, STEPPER_DIR_TOWARDS_END);
+        const int maxReleaseSteps = static_cast<int>(3.0f * steps_per_cm_);
+        for (int i = 0; i < maxReleaseSteps; ++i) {
+            pulseStep(1500);
+            if (!isMinLimitReached()) {
+                // Afasta mais alguns passos para garantir alívio mecânico da chave
+                for (int j = 0; j < static_cast<int>(0.5f * steps_per_cm_); ++j) {
+                    pulseStep(1500);
+                }
+                break;
             }
-            pulseStep(1200);
             if ((i % 50) == 0) {
                 yield();
             }
         }
-        delay(30);
+        delay(50);
 
-        // Se apos 2.0 cm de recuo a chave ainda estiver acionada,
-        // a chave esta travada ou ha problema eletrico. Aborta por seguranca.
+        // Se após o recuo a chave continuar acusando acionada, aborta por segurança
         if (isMinLimitReached()) {
             enableMotor(false);
             is_homed_ = false;
@@ -115,17 +116,21 @@ bool Drv8825Stepper::home() {
         }
     }
 
-    // Move para tras em direcao a X=0 ate o fim de curso inicial (GPIO 35) acionar (LOW)
-    digitalWrite(dir_pin_, HIGH); // Direcao reversa (-X)
-    const uint32_t maxHomingSteps = static_cast<uint32_t>(1000.0f * steps_per_cm_); // 1000 cm (10m) fail-safe
+    // 1. Move em direção ao início (DIR = HIGH) até acionar o fim de curso de início (GPIO 35)
+    digitalWrite(dir_pin_, STEPPER_DIR_TOWARDS_START);
+    const uint32_t maxHomingSteps = static_cast<uint32_t>(1000.0f * steps_per_cm_); // Fail-safe (10m)
     bool hitLimit = false;
 
     for (uint32_t step = 0; step < maxHomingSteps; ++step) {
         if (isMinLimitReached()) {
-            hitLimit = true;
-            break;
+            // Debounce mecânico: aguarda 2ms e reconfirma
+            delayMicroseconds(2000);
+            if (isMinLimitReached()) {
+                hitLimit = true;
+                break;
+            }
         }
-        pulseStep(1000);
+        pulseStep(STEPPER_SPEED_HOMING_US);
         if ((step % 50) == 0) {
             yield();
         }
@@ -137,41 +142,23 @@ bool Drv8825Stepper::home() {
         return false;
     }
 
-    // Pequeno recuo (+0.5 cm) para calibracao fina
-    digitalWrite(dir_pin_, LOW);
-    const int fineBackoff = static_cast<int>(0.5f * steps_per_cm_);
-    for (int i = 0; i < fineBackoff; ++i) {
-        pulseStep(1500);
-        if ((i % 50) == 0) {
-            yield();
-        }
-    }
-    delay(20);
+    // Parada mínima (5 ms) para inversão suave sem atraso perceptível
+    delay(5);
 
-    // Aproximacao lenta em direcao ao fim de curso
-    digitalWrite(dir_pin_, HIGH);
-    for (int i = 0; i < fineBackoff * 2; ++i) {
-        if (isMinLimitReached()) {
-            break;
-        }
-        pulseStep(2000);
-        if ((i % 50) == 0) {
-            yield();
-        }
-    }
-
-    // Se houver home_offset_cm configurado (> 0.0 cm), avanca essa distancia
-    // para afastar da chave e se posicionar exatamente na borda inicial do painel (X = 0.0 cm).
-    if (home_offset_cm_ > 0.0f) {
-        digitalWrite(dir_pin_, LOW); // Direcao positiva (+X) em direcao ao painel
-        const uint32_t offsetSteps = static_cast<uint32_t>(home_offset_cm_ * steps_per_cm_ + 0.5f);
+    // 2. Avança exatamente a constante de offset (STEPPER_HOME_OFFSET_CM = 7.0 cm)
+    // na direção do final (STEPPER_DIR_TOWARDS_END) para posicionar o carrinho no início útil do painel.
+    const float offset_cm = (home_offset_cm_ > 0.0f) ? home_offset_cm_ : STEPPER_HOME_OFFSET_CM;
+    if (offset_cm > 0.0f) {
+        digitalWrite(dir_pin_, STEPPER_DIR_TOWARDS_END);
+        delay(5);
+        const uint32_t offsetSteps = static_cast<uint32_t>(offset_cm * steps_per_cm_ + 0.5f);
         for (uint32_t i = 0; i < offsetSteps; ++i) {
             if (isMaxLimitReached()) {
                 enableMotor(false);
                 is_homed_ = false;
                 return false;
             }
-            pulseStep(1200);
+            pulseStep(STEPPER_SPEED_HOMING_US);
             if ((i % 50) == 0) {
                 yield();
             }
@@ -179,7 +166,7 @@ bool Drv8825Stepper::home() {
         delay(20);
     }
 
-    // Calibracao concluida: define origem X = 0.0 cm (alinhado com o inicio do painel)
+    // Calibração concluída com sucesso: define posição de trabalho X = 0.0 cm
     current_x_cm_ = 0.0f;
     is_homed_ = true;
     enableMotor(false);
@@ -214,24 +201,27 @@ bool Drv8825Stepper::moveToXCm(float target_x_cm) {
     enableMotor(true);
     delay(5);
 
-    bool movingForward = (delta_cm > 0.0f);
-    digitalWrite(dir_pin_, movingForward ? HIGH : LOW);
+    // delta_cm > 0: avançando em direção ao final (+X -> STEPPER_DIR_TOWARDS_END / LOW)
+    // delta_cm < 0: recuando em direção ao início (-X -> STEPPER_DIR_TOWARDS_START / HIGH)
+    bool movingTowardsEnd = (delta_cm > 0.0f);
+    digitalWrite(dir_pin_, movingTowardsEnd ? STEPPER_DIR_TOWARDS_END : STEPPER_DIR_TOWARDS_START);
 
     uint32_t totalSteps = static_cast<uint32_t>(std::abs(delta_cm) * steps_per_cm_ + 0.5f);
     for (uint32_t step = 0; step < totalSteps; ++step) {
-        // If moving backwards and minimum limit switch is triggered (safety hard stop), stop immediately
-        if (!movingForward && isMinLimitReached()) {
-            current_x_cm_ = (home_offset_cm_ > 0.0f) ? -home_offset_cm_ : 0.0f;
+        // Se estiver recuando em direção ao início e atingir o fim de curso inicial (trava de segurança)
+        if (!movingTowardsEnd && isMinLimitReached()) {
+            const float offset_cm = (home_offset_cm_ > 0.0f) ? home_offset_cm_ : STEPPER_HOME_OFFSET_CM;
+            current_x_cm_ = (offset_cm > 0.0f) ? -offset_cm : 0.0f;
             enableMotor(false);
             return true;
         }
-        // If moving forward and maximum limit switch is triggered (end of rail), stop immediately to prevent crash
-        if (movingForward && isMaxLimitReached()) {
+        // Se estiver avançando em direção ao final e atingir o fim de curso final (trava de segurança)
+        if (movingTowardsEnd && isMaxLimitReached()) {
             current_x_cm_ = current_x_cm_ + static_cast<float>(step) / steps_per_cm_;
             enableMotor(false);
             return true;
         }
-        pulseStep(1000);
+        pulseStep(STEPPER_SPEED_NORMAL_US);
         if ((step % 50) == 0) {
             yield();
         }

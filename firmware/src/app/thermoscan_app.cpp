@@ -296,14 +296,30 @@ void ThermoscanApp::tick() {
 void ThermoscanApp::handleIdle() {
     const uint32_t now = getCurrentTime();
 
+    // Check if cloud client reported pending configuration from startup/claim ping
+    if (cloud_ != nullptr && cloud_->isConfigurationPending()) {
+        config_update_pending_ = true;
+        config_sync_failed_waiting_ping_ = false;
+    }
+
+    // Determine ping interval: use fast ping (15s) when initial configuration is not yet synchronized,
+    // otherwise use standard configured interval (default 300s)
+    const uint32_t effective_ping_interval = (config_.config_version == 0 || config_update_pending_)
+                                                 ? 15
+                                                 : static_cast<uint32_t>(config_.ping_interval_seconds);
+
     // Periodic telemetry ping (only if clock is synchronized, preventing loop when now == 0)
     if (cloud_ != nullptr && now > 0 &&
-        (now - last_ping_time_) >= static_cast<uint32_t>(config_.ping_interval_seconds)) {
+        (now - last_ping_time_) >= effective_ping_interval) {
         cloud_->sendPing();
         last_ping_time_ = now;
         if (cloud_->isConfigurationPending()) {
             config_update_pending_ = true;
             config_sync_failed_waiting_ping_ = false;
+        }
+        if (cloud_->isManualInspectionPending()) {
+            cloud_->clearManualInspectionPending();
+            triggerManualInspection();
         }
     }
 
@@ -872,6 +888,10 @@ void ThermoscanApp::handleWaitingVerification() {
         if (cloud_->isConfigurationPending()) {
             config_update_pending_ = true;
             config_sync_failed_waiting_ping_ = false;
+        }
+        if (cloud_->isManualInspectionPending()) {
+            cloud_->clearManualInspectionPending();
+            triggerManualInspection();
         }
     }
 }

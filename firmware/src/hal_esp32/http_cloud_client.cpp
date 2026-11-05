@@ -116,6 +116,8 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
             storage_->savePingIntervalSeconds(ping_int);
             storage_->saveIntervalDays(interval_d);
         }
+        // Immediately perform initial ping to register online presence and fetch config sync state
+        sendPingWithDiagnostics(water_ok, limits_ok, thermal_ok);
         return true;
     }
 
@@ -161,16 +163,27 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
 
         JsonDocument respDoc;
         if (!deserializeJson(respDoc, response.c_str())) {
-            if (respDoc["configuration_sync"].is<JsonObject>()) {
-                JsonObject sync = respDoc["configuration_sync"];
-                bool is_sync = sync["is_synchronized"] | true;
-                uint32_t latest_ver = sync["latest_version"] | 0;
-                uint32_t applied_ver = sync["applied_version"] | 0;
+            JsonObject statusObj = respDoc["device_status"].as<JsonObject>();
+            JsonObject sync = statusObj.isNull()
+                                  ? respDoc["configuration_sync"].as<JsonObject>()
+                                  : statusObj["configuration_sync"].as<JsonObject>();
+
+            if (!sync.isNull()) {
+                const char* state = sync["state"] | "";
+                uint32_t latest_ver = sync["config_version"] | sync["latest_version"] | 0;
+                uint32_t applied_ver = sync["config_applied_version"] | sync["applied_version"] | 0;
+                bool is_sync = (strcmp(state, "synced") == 0) || (sync["is_synchronized"] | false);
+
                 if (!is_sync || (latest_ver > applied_ver)) {
                     config_pending_ = true;
                 } else {
                     config_pending_ = false;
                 }
+            }
+            if (respDoc["manual_inspection_pending"] == true || (!statusObj.isNull() && statusObj["manual_inspection_pending"] == true)) {
+                manual_inspection_pending_ = true;
+            } else {
+                manual_inspection_pending_ = false;
             }
         }
         return true;

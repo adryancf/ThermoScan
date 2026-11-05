@@ -131,6 +131,8 @@ void setup() {
         }
     } else {
         Serial.printf("[CLOUD] Module ID registered in NVS: %s\n", mod_id.c_str());
+        Serial.println(F("[CLOUD] Sending startup ping to announce online presence..."));
+        g_cloud.sendPing();
     }
 
     digitalWrite(STATUS_LED_PIN, LOW);

@@ -77,12 +77,19 @@ firmware/
 │   │   ├── drv8825_stepper.h / .cpp
 │   │   ├── pump_servo_spray.h / .cpp
 │   │   ├── mlx90640_camera.h / .cpp
-│   │   ├── ina219_meter.h / .cpp
+│   │   ├── ina228_meter.h / .cpp
 │   │   ├── esp32_time_provider.h / .cpp
 │   │   ├── nvs_storage.h / .cpp
 │   │   └── http_cloud_client.h / .cpp
-│   ├── MLX90640/                         # Preserved original sensor bench tests
-│   └── NEMA17/                           # Preserved original motor bench tests
+│   ├── diagnostics/                      # Interactive bench test console & web dashboard
+│   │   ├── bench_diagnostics.h / .cpp
+│   │   ├── web_diagnostics.h
+│   │   └── README.md
+│   └── lab/                              # Isolated hardware sandbox & calibration sketches
+│       ├── mlx90640_tests/               # Standalone camera tests & python thermal visualizer
+│       ├── nema17_tests/                 # Stepper & limit switch bench validation
+│       ├── pin_scanner/                  # I2C bus device scanner
+│       └── README.md
 └── test/                                 # 11 Unit test suites executed via pio test
     ├── test_hal_sanity/test_sanity.cpp
     ├── test_thermal_analyzer/test_thermal_analyzer.cpp

@@ -1,32 +1,32 @@
-# Módulo de Diagnósticos de Bancada (Diagnostics)
+# Bench Diagnostics Module (`src/diagnostics/`)
 
-Este diretório contém a infraestrutura de **diagnósticos interativos** e **painel de testes de bancada** do ThermoScan. Ele permite validar individualmente cada sensor e atuador do robô antes da operação autônoma em campo.
+This directory contains the interactive bench diagnostics and diagnostic web server infrastructure for the ThermoScan embedded device. It enables individual validation of all onboard sensors, actuators, and cloud connectivity prior to autonomous field deployment.
 
 ---
 
-## Componentes
+## Components
 
 ### 1. `bench_diagnostics.h` / `bench_diagnostics.cpp`
-Engine central de testes com catálogo executável via comando serial ou interface web.
+Central diagnostic engine implementing an interactive test catalog accessible via the Serial monitor or web terminal.
 
-* **Comandos Disponíveis (`diag <comando>`):**
-  * `diag list`: Lista todos os testes e descrições disponíveis.
-  * `diag all`: Executa todos os testes em sequência com relatório consolidado.
-  * `diag mlx`: Captura frame térmico da câmera MLX90640 e valida sanidade dos 768 pixels.
-  * `diag motor`: Avança o motor NEMA17 (+2.0 cm) e retorna à origem, confirmando acionamento suave.
-  * `diag homing`: Executa ciclo de busca do fim de curso inicial (GPIO 35) e avanço do offset útil (7.0 cm).
-  * `diag pump`: Pulsa a bomba d'água por 500 ms (requer confirmação do operador e nível de água OK).
-  * `diag camera-servo`: Movimenta o servo de inclinação da câmera em 3 ângulos (0°, 45°, 90°).
-  * `diag nozzle-servo`: Movimenta o servo do bico aspersor em 3 posições (-45°, 0°, +45°).
-  * `diag ina`: Varre os endereços I2C dos sensores de potência INA228 e lê $V$, $I$ e $P$.
-  * `diag water`: Lê o sensor capacitivo de nível do reservatório d'água.
-  * `diag scan`: Ciclo unitário de teste de varredura (1 ponto em $X=0$, avanço de $+2.0\text{ cm}$, captura 2 e retorno à base).
-  * `diag safety`: Valida resposta ao comando de parada de emergência e desenergização imediata.
-  * `diag nvs`: Testa leitura e escrita na memória Flash interna.
-  * `diag clock`: Verifica sincronização UTC via NTP.
-  * `diag backend`: Executa ping e verifica resposta da API REST na nuvem.
+* **Available Commands (`diag <command>`):**
+  * `diag list`: Lists all available bench tests and descriptions.
+  * `diag all`: Runs all hardware tests sequentially with a consolidated summary.
+  * `diag mlx`: Captures a frame from the MLX90640 thermal camera and validates 768-pixel sanity.
+  * `diag motor`: Steps the NEMA17 motor (+2.0 cm forward and returns to origin), verifying smooth motion.
+  * `diag homing`: Executes homing routine to find the NC start limit switch (GPIO 35) and advances by the 7.0 cm panel offset.
+  * `diag pump`: Pulses the spray pump for 500 ms (requires operator confirmation and non-empty water reservoir).
+  * `diag camera-servo`: Tests the camera tilt servo at 0°, 45°, and 90°.
+  * `diag nozzle-servo`: Sweeps the spray nozzle servo across -45°, 0°, and +45°.
+  * `diag ina`: Scans I2C addresses for INA228 power monitors and reads voltage ($V$), current ($I$), and power ($W$).
+  * `diag water`: Reads the capacitive water level sensor.
+  * `diag scan`: Bench verification scan cycle (point at $X=0$, advances $+2.0\text{ cm}$, captures second point, and returns to origin).
+  * `diag safety`: Validates emergency stop interlocks and immediate motor/pump de-energization.
+  * `diag nvs`: Tests read and write operations on internal non-volatile storage.
+  * `diag clock`: Verifies UTC wall-clock synchronization via NTP.
+  * `diag backend`: Sends a telemetry ping to the cloud REST API and checks response.
 
 ### 2. `web_diagnostics.h`
-Interface Web embarcada e proxy de transmissão ao vivo de logs:
-* **`WebDiagnosticsServer`:** Servidor HTTP assíncrono acessível na rede local via `http://thermoscan.local` ou pelo IP do ESP32. Oferece botões rápidos para cada teste e console interativo.
-* **`DualSerialProxy`:** Intercepta todas as mensagens enviadas para a Serial física (UART) e as duplica em um buffer circular em RAM, permitindo streaming em tempo real na interface web sem fios.
+Embedded web interface and live serial stream proxy:
+* **`WebDiagnosticsServer`:** Lightweight asynchronous HTTP server accessible on the local network at `http://thermoscan.local` or via the ESP32 IP address. Provides quick-action test buttons and a live interactive console.
+* **`DualSerialProxy`:** Intercepts hardware UART serial output and mirrors all logs into a circular RAM buffer, enabling real-time wireless log streaming in web browsers.

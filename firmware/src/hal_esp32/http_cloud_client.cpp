@@ -75,12 +75,12 @@ bool HttpCloudClient::claimDevice(const std::string& /*claim_token*/) {
 
 bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok) {
     if (!isConnected()) {
-        Serial.println(F("[CLAIM] Abortado: Sem conexao Wi-Fi!"));
+        Serial.println(F("[CLAIM] Aborted: No Wi-Fi connection!"));
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/claim";
-    Serial.printf("[CLAIM] Enviando solicitacao de pareamento para %s (MAC: %s)...\n",
+    Serial.printf("[CLAIM] Sending claim request to %s (MAC: %s)...\n",
                   url.c_str(), WiFi.macAddress().c_str());
 
     HTTPClient http;
@@ -99,7 +99,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
 
     int httpCode = http.POST(String(requestBody.c_str()));
     if (httpCode != HTTP_CODE_OK) {
-        Serial.printf("[CLAIM] Falha no claim! HTTP code: %d\n", httpCode);
+        Serial.printf("[CLAIM] Claim failed! HTTP code: %d\n", httpCode);
         http.end();
         return false;
     }
@@ -110,7 +110,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
     JsonDocument respDoc;
     DeserializationError error = deserializeJson(respDoc, response.c_str());
     if (error) {
-        Serial.println(F("[CLAIM] Falha ao decodificar JSON de resposta do claim!"));
+        Serial.println(F("[CLAIM] Failed to deserialize claim JSON response!"));
         return false;
     }
 
@@ -122,7 +122,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
     if (strlen(mod_id) > 0 && strlen(dev_tok) > 0) {
         module_id_ = mod_id;
         device_token_ = dev_tok;
-        Serial.printf("[CLAIM] Sucesso! Module ID: %s | Device Token salvo | Ping: %d s\n", mod_id, ping_int);
+        Serial.printf("[CLAIM] Success! Module ID: %s | Device Token saved | Ping: %d s\n", mod_id, ping_int);
         if (storage_ != nullptr) {
             storage_->saveModuleId(module_id_);
             storage_->saveDeviceToken(device_token_);
@@ -134,7 +134,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
         return true;
     }
 
-    Serial.println(F("[CLAIM] Resposta sem module_id ou device_token validos!"));
+    Serial.println(F("[CLAIM] Response missing valid module_id or device_token!"));
     return false;
 }
 
@@ -147,15 +147,15 @@ bool HttpCloudClient::sendPing() {
 
 bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        Serial.printf("[PING] Abortado: wifi=%d, module_id=%s, token=%s\n",
+        Serial.printf("[PING] Aborted: wifi=%d, module_id=%s, token=%s\n",
                       isConnected(),
-                      module_id_.empty() ? "VAZIO" : "OK",
-                      device_token_.empty() ? "VAZIO" : "OK");
+                      module_id_.empty() ? "EMPTY" : "OK",
+                      device_token_.empty() ? "EMPTY" : "OK");
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/ping";
-    Serial.printf("[PING] Enviando ping para %s (water=%d, limits=%d, thermal=%d)...\n",
+    Serial.printf("[PING] Sending ping to %s (water=%d, limits=%d, thermal=%d)...\n",
                   url.c_str(), water_ok, limits_ok, thermal_ok);
 
     HTTPClient http;
@@ -173,7 +173,7 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     int httpCode = http.POST(String(requestBody.c_str()));
 
     if (httpCode == 401) {
-        Serial.println(F("[PING] FALHA HTTP 401: Token de dispositivo invalido ou revogado!"));
+        Serial.println(F("[PING] FAILED HTTP 401: Invalid or revoked device token!"));
         auth_error_ = true;
         http.end();
         return false;
@@ -208,24 +208,24 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
                 manual_inspection_pending_ = false;
             }
         }
-        Serial.printf("[PING] Sucesso HTTP 200 | config_pending=%d | manual_pending=%d\n",
+        Serial.printf("[PING] Success HTTP 200 | config_pending=%d | manual_pending=%d\n",
                       config_pending_, manual_inspection_pending_);
         return true;
     }
 
-    Serial.printf("[PING] FALHA HTTP code: %d\n", httpCode);
+    Serial.printf("[PING] FAILED HTTP code: %d\n", httpCode);
     http.end();
     return false;
 }
 
 bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        Serial.println(F("[CONFIG] Abortado: Sem Wi-Fi ou sem credenciais!"));
+        Serial.println(F("[CONFIG] Aborted: No Wi-Fi or credentials!"));
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/configuration";
-    Serial.printf("[CONFIG] Buscando configuracao mais recente em %s...\n", url.c_str());
+    Serial.printf("[CONFIG] Fetching latest configuration from %s...\n", url.c_str());
 
     HTTPClient http;
     http.begin(url.c_str());
@@ -233,7 +233,7 @@ bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
 
     int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
-        Serial.printf("[CONFIG] Falha ao obter configuracao! HTTP code: %d\n", httpCode);
+        Serial.printf("[CONFIG] Failed to get configuration! HTTP code: %d\n", httpCode);
         http.end();
         return false;
     }
@@ -241,7 +241,7 @@ bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
     String response = http.getString();
     http.end();
 
-    Serial.printf("[CONFIG] Configuracao recebida com sucesso! (%u bytes)\n", response.length());
+    Serial.printf("[CONFIG] Configuration received successfully! (%u bytes)\n", response.length());
     out_config_json = response.c_str();
     return true;
 }
@@ -255,12 +255,12 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
                                               const std::string& checksum,
                                               const std::string& error) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        Serial.println(F("[CONFIG_ACK] Abortado: Sem Wi-Fi ou sem credenciais!"));
+        Serial.println(F("[CONFIG_ACK] Aborted: No Wi-Fi or credentials!"));
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/configuration/ack";
-    Serial.printf("[CONFIG_ACK] Enviando confirmacao de config v%u (applied=%d, error=%s)...\n",
+    Serial.printf("[CONFIG_ACK] Sending config v%u confirmation (applied=%d, error=%s)...\n",
                   config_version, applied, error.c_str());
 
     HTTPClient http;
@@ -282,17 +282,17 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
     http.end();
 
     if (httpCode == 401) {
-        Serial.println(F("[CONFIG_ACK] FALHA HTTP 401: Nao autorizado!"));
+        Serial.println(F("[CONFIG_ACK] FAILED HTTP 401: Unauthorized!"));
         auth_error_ = true;
         return false;
     }
 
     if (httpCode == HTTP_CODE_OK) {
-        Serial.printf("[CONFIG_ACK] Sucesso! Configuracao v%u confirmada no backend (HTTP 200)\n", config_version);
+        Serial.printf("[CONFIG_ACK] Success! Configuration v%u confirmed by backend (HTTP 200)\n", config_version);
         return true;
     }
 
-    Serial.printf("[CONFIG_ACK] Falha no ACK de configuracao! HTTP code: %d\n", httpCode);
+    Serial.printf("[CONFIG_ACK] Config ACK failed! HTTP code: %d\n", httpCode);
     return false;
 }
 
@@ -366,12 +366,12 @@ std::string HttpCloudClient::buildTelemetryBatchJson(const IngestTelemetryBatchI
 
 bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& input) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        Serial.println(F("[TELEMETRY] Abortado: Sem conexao ou credenciais!"));
+        Serial.println(F("[TELEMETRY] Aborted: No connection or credentials!"));
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/telemetry";
-    Serial.printf("[TELEMETRY] Enviando lote com %u medicoes (Inspecao: %s, Tipo: %s)...\n",
+    Serial.printf("[TELEMETRY] Sending batch with %u measurements (Inspection: %s, Type: %s)...\n",
                   input.batch.size(), input.inspection_source_event_id.c_str(), input.inspection_type.c_str());
 
     HTTPClient http;
@@ -384,23 +384,23 @@ bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& inpu
     http.end();
 
     if (httpCode == 401) {
-        Serial.println(F("[TELEMETRY] FALHA HTTP 401: Token invalido!"));
+        Serial.println(F("[TELEMETRY] FAILED HTTP 401: Invalid token!"));
         auth_error_ = true;
         return false;
     }
     if (httpCode == 409) {
-        Serial.println(F("[TELEMETRY] Conflito HTTP 409 (medicao duplicada)."));
+        Serial.println(F("[TELEMETRY] Conflict HTTP 409 (duplicate measurement)."));
         conflict_error_ = true;
         return false;
     }
 
     if (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK) {
-        Serial.printf("[TELEMETRY] Lote de %u medicoes gravado com sucesso! (HTTP %d)\n",
+        Serial.printf("[TELEMETRY] Batch of %u measurements recorded successfully! (HTTP %d)\n",
                       input.batch.size(), httpCode);
         return true;
     }
 
-    Serial.printf("[TELEMETRY] Falha no envio do lote de telemetria! HTTP %d\n", httpCode);
+    Serial.printf("[TELEMETRY] Failed to ingest telemetry batch! HTTP %d\n", httpCode);
     return false;
 }
 
@@ -441,13 +441,13 @@ std::string HttpCloudClient::buildPanelThermalResultJson(const PanelThermalResul
 bool HttpCloudClient::submitPanelThermalResult(const std::string& inspection_source_event_id,
                                                const PanelThermalResultInput& input) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        Serial.println(F("[PANEL_RESULT] Abortado: Sem Wi-Fi ou sem credenciais!"));
+        Serial.println(F("[PANEL_RESULT] Aborted: No Wi-Fi or credentials!"));
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/inspections/" +
                       inspection_source_event_id + "/panels/" + std::to_string(input.panel_index) + "/result";
-    Serial.printf("[PANEL_RESULT] Enviando resultado Painel %d (Baseline: %.1f C, Hotspots: %u)...\n",
+    Serial.printf("[PANEL_RESULT] Sending Panel %d result (Baseline: %.1f C, Hotspots: %u)...\n",
                   input.panel_index, input.baseline_temperature_c, input.confirmed_hotspots.size());
 
     HTTPClient http;
@@ -458,7 +458,7 @@ bool HttpCloudClient::submitPanelThermalResult(const std::string& inspection_sou
 
     int httpCode = http.POST(String(requestBody.c_str()));
     if (httpCode == 401) {
-        Serial.println(F("[PANEL_RESULT] FALHA HTTP 401: Token invalido!"));
+        Serial.println(F("[PANEL_RESULT] FAILED HTTP 401: Invalid token!"));
         auth_error_ = true;
         http.end();
         return false;
@@ -491,12 +491,12 @@ bool HttpCloudClient::submitPanelThermalResult(const std::string& inspection_sou
                 last_confirmed_anomaly_id_ = last_confirmed_anomalies_[0].id;
             }
         }
-        Serial.printf("[PANEL_RESULT] Sucesso HTTP %d: Painel %d registrado! (Anomalias confirmadas: %u)\n",
+        Serial.printf("[PANEL_RESULT] Success HTTP %d: Panel %d recorded! (Confirmed anomalies: %u)\n",
                       httpCode, input.panel_index, last_confirmed_anomalies_.size());
         return true;
     }
 
-    Serial.printf("[PANEL_RESULT] Falha no resultado do Painel %d! HTTP code: %d\n", input.panel_index, httpCode);
+    Serial.printf("[PANEL_RESULT] Panel %d result failed! HTTP code: %d\n", input.panel_index, httpCode);
     http.end();
     return false;
 }
@@ -537,13 +537,13 @@ std::string HttpCloudClient::buildFinalizeJson(const FinalizeInspectionInput& in
 bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_event_id,
                                         const FinalizeInspectionInput& input) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        Serial.println(F("[INSPECTION] Abortado: Sem Wi-Fi ou sem credenciais!"));
+        Serial.println(F("[INSPECTION] Aborted: No Wi-Fi or credentials!"));
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/inspections/" +
                       inspection_source_event_id + "/finalize";
-    Serial.printf("[INSPECTION] Finalizando inspecao %s (Baseline consolidado: %.1f C, Hotspots totais: %u)...\n",
+    Serial.printf("[INSPECTION] Finalizing inspection %s (Consolidated baseline: %.1f C, Total hotspots: %u)...\n",
                   inspection_source_event_id.c_str(), input.baseline_temperature_c, input.confirmed_hotspots.size());
 
     HTTPClient http;
@@ -554,7 +554,7 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
 
     int httpCode = http.POST(String(requestBody.c_str()));
     if (httpCode == 401) {
-        Serial.println(F("[INSPECTION] FALHA HTTP 401: Token invalido!"));
+        Serial.println(F("[INSPECTION] FAILED HTTP 401: Invalid token!"));
         auth_error_ = true;
         http.end();
         return false;
@@ -587,12 +587,12 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
                 last_confirmed_anomaly_id_ = last_confirmed_anomalies_[0].id;
             }
         }
-        Serial.printf("[INSPECTION] Inspecao %s finalizada com sucesso! HTTP %d (Anomalias finais: %u)\n",
+        Serial.printf("[INSPECTION] Inspection %s finalized successfully! HTTP %d (Final anomalies: %u)\n",
                       inspection_source_event_id.c_str(), httpCode, last_confirmed_anomalies_.size());
         return true;
     }
 
-    Serial.printf("[INSPECTION] Falha ao finalizar inspecao! HTTP code: %d\n", httpCode);
+    Serial.printf("[INSPECTION] Failed to finalize inspection! HTTP code: %d\n", httpCode);
     http.end();
     return false;
 }
@@ -628,14 +628,14 @@ std::string HttpCloudClient::buildCleaningReportJson(const CleaningReportInput& 
 
 bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
-        Serial.println(F("[CLEANING] Abortado: Sem Wi-Fi ou sem credenciais!"));
+        Serial.println(F("[CLEANING] Aborted: No Wi-Fi or credentials!"));
         return false;
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/cleanings";
-    Serial.printf("[CLEANING] Enviando relatorio de limpeza (Painel %d, X=%.1f cm, Bomba=%s, Status=%s)...\n",
+    Serial.printf("[CLEANING] Sending cleaning report (Panel %d, X=%.1f cm, Pump=%s, Status=%s)...\n",
                   input.panel_index, input.target_x_position_cm,
-                  input.pump_actuated ? "LIGADA" : "DESLIGADA", input.status.c_str());
+                  input.pump_actuated ? "ACTIVE" : "INACTIVE", input.status.c_str());
 
     HTTPClient http;
     http.begin(url.c_str());
@@ -654,16 +654,16 @@ bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std
                 out_cleaning_id = resDoc["cleaning"]["id"].as<std::string>();
             }
         }
-        Serial.printf("[CLEANING] Relatorio de limpeza registrado! HTTP %d (ID da limpeza: %s)\n",
+        Serial.printf("[CLEANING] Cleaning report recorded! HTTP %d (Cleaning ID: %s)\n",
                       httpCode, out_cleaning_id.c_str());
         return true;
     }
 
     if (httpCode == 401) {
-        Serial.println(F("[CLEANING] FALHA HTTP 401: Token invalido!"));
+        Serial.println(F("[CLEANING] FAILED HTTP 401: Invalid token!"));
         auth_error_ = true;
     } else {
-        Serial.printf("[CLEANING] Falha no relatorio de limpeza! HTTP code: %d\n", httpCode);
+        Serial.printf("[CLEANING] Failed to submit cleaning report! HTTP code: %d\n", httpCode);
     }
     http.end();
     return false;

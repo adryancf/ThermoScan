@@ -11,7 +11,7 @@ namespace hal_esp32 {
 
 /**
  * @brief ESP32 SNTP time provider.
- * Sincroniza com servidores NTP públicos e fornece epoch seconds em UTC.
+ * Synchronizes with public NTP servers and provides UTC epoch seconds.
  */
 class Esp32TimeProvider : public ITimeProvider {
 public:

@@ -20,7 +20,7 @@ namespace domain {
  * ESP32 free heap (~150 KB) without triggering Out-Of-Memory (OOM).
  *
  * Special values:
- * - INT16_MIN (-32768): Sentinela para pixel inválido, ausente ou NaN.
+ * - INT16_MIN (-32768): Sentinel for invalid, missing or NaN pixel.
  */
 struct QuantizedThermalFrame {
     static constexpr int16_t INVALID_PIXEL = -32768; // INT16_MIN

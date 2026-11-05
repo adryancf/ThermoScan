@@ -431,7 +431,7 @@ TestResult BenchDiagnostics::testMlx(bool watch) {
                   "768 pixels lidos. Min: %.1f C, Max: %.1f C, Med: %.1f C, Invalidos: %zu",
                   min_t, max_t, avg_t, invalid_count);
 
-    if (invalid_count > 38) { // Mais de 5% de pixels corrompidos
+    if (invalid_count > 38) { // More than 5% corrupted pixels
         r.status = TestStatus::FAIL;
         r.details = details_buf;
         r.failure_cause = "Numero excessivo de pixels termicos invalidos (" + std::to_string(invalid_count) + ").";
@@ -831,7 +831,7 @@ TestResult BenchDiagnostics::testScan() {
         console_->println("[SCAN DIAG] 1/3: Capturando frame termico e medindo potencia no ponto atual...");
     }
 
-    // 1. Captura termica no ponto atual
+    // 1. Thermal capture at current position
     ThermalFrame frame1;
     if (!camera_->captureFrame(frame1) || !frame1.valid) {
         r.status = TestStatus::FAIL;
@@ -857,7 +857,7 @@ TestResult BenchDiagnostics::testScan() {
         console_->printf("[SCAN DIAG] 2/3: Avancando o trilho linear em +%.1f cm...\n", STEP_SIZE_CM);
     }
 
-    // 2. Deslocamento do motor (+2.0 cm)
+    // 2. Linear motor advance (+2.0 cm)
     float target_forward = initial_x + STEP_SIZE_CM;
     if (!motion_->moveToXCm(target_forward)) {
         r.status = TestStatus::FAIL;
@@ -867,7 +867,7 @@ TestResult BenchDiagnostics::testScan() {
         return r;
     }
 
-    // 3. Captura termica no ponto avancado
+    // 3. Thermal capture at advanced position
     ThermalFrame frame2;
     if (!camera_->captureFrame(frame2) || !frame2.valid) {
         motion_->moveToXCm(initial_x);
@@ -894,7 +894,7 @@ TestResult BenchDiagnostics::testScan() {
         console_->println("[SCAN DIAG] 3/3: Retornando o carro linear a posicao inicial...");
     }
 
-    // 4. Retorno a posicao original
+    // 4. Return to original position
     if (!motion_->moveToXCm(initial_x)) {
         r.status = TestStatus::FAIL;
         r.details = "Falha ao retornar o carro para a posicao inicial X = " + std::to_string(initial_x) + " cm.";

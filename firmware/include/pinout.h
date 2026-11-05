@@ -70,11 +70,11 @@ constexpr uint8_t I2C_SCL_PIN = PIN_I2C_SCL;
 
 // INA228 Shunt & Current Configuration
 #ifndef INA228_DEFAULT_SHUNT_RESISTANCE_OHM
-#define INA228_DEFAULT_SHUNT_RESISTANCE_OHM 0.015f  // Resistor shunt de 15 mOhm (0.015 ohm, padrão do módulo Adafruit INA228)
+#define INA228_DEFAULT_SHUNT_RESISTANCE_OHM 0.015f  // Shunt resistor 15 mOhm (0.015 ohm, default on Adafruit INA228 module)
 #endif
 
 #ifndef INA228_DEFAULT_MAX_CURRENT_A
-#define INA228_DEFAULT_MAX_CURRENT_A 10.0f          // Corrente máxima esperada de 10 A para calibração do ADC
+#define INA228_DEFAULT_MAX_CURRENT_A 10.0f          // Maximum expected current of 10 A for ADC calibration
 #endif
 
 /**
@@ -109,26 +109,26 @@ static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
 #endif
 
 // ----------------------------------------------------------------------------
-// Fins de Curso (Endstops) do Trilho Linear
-// Configuração de dois fins de curso: Começo (X=0) e Final (X=Xmax)
-// Lógica física: Quando apertado fica 0 (LOW), em repouso fica 1 (HIGH)
+// Linear Rail Endstops (Limit Switches)
+// Dual limit switch configuration: Start (X=0) and End (X=Xmax)
+// Physical logic: 0 (LOW) when pressed, 1 (HIGH) at rest
 // ----------------------------------------------------------------------------
 #ifndef PIN_STEPPER_LIMIT_MIN
-#define PIN_STEPPER_LIMIT_MIN 35  // Fim de curso inicial (Começo X = 0 cm)
+#define PIN_STEPPER_LIMIT_MIN 35  // Start limit switch (Start X = 0 cm)
 #endif
 
 #ifndef PIN_STEPPER_LIMIT_MAX
-#define PIN_STEPPER_LIMIT_MAX 34  // Fim de curso final (Fim de curso X = X_max)
+#define PIN_STEPPER_LIMIT_MAX 34  // End limit switch (End X = X_max)
 #endif
 
 #ifndef STEPPER_LIMIT_TRIGGERED_LEVEL
-#define STEPPER_LIMIT_TRIGGERED_LEVEL 0  // Nível lógico quando acionado (apertado = 0 / LOW)
+#define STEPPER_LIMIT_TRIGGERED_LEVEL 0  // Logic level when triggered (pressed = 0 / LOW)
 #endif
 
 // ----------------------------------------------------------------------------
-// Direção do Motor de Passo (DRV8825)
-// 1 (HIGH) = Direção até o início (X = 0, Fim de curso inicial GPIO 35)
-// 0 (LOW)  = Direção até o final (X = X_max, Fim de curso final GPIO 34)
+// Stepper Motor Direction (DRV8825)
+// 1 (HIGH) = Direction towards start (X = 0, start limit switch GPIO 35)
+// 0 (LOW)  = Direction towards end (X = X_max, end limit switch GPIO 34)
 // ----------------------------------------------------------------------------
 #ifndef STEPPER_DIR_TOWARDS_START
 #define STEPPER_DIR_TOWARDS_START 1
@@ -138,25 +138,25 @@ static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
 #define STEPPER_DIR_TOWARDS_END 0
 #endif
 
-// Distância (em cm) que o carrinho avança após acionar o fim de curso de início
-// para se posicionar exatamente na borda inicial do painel solar (X = 0.0 cm).
+// Distance (in cm) the carriage advances after hitting the start limit switch
+// to position itself exactly at the active edge of the solar panel (X = 0.0 cm).
 #ifndef STEPPER_HOME_OFFSET_CM
 #define STEPPER_HOME_OFFSET_CM 7.0f
 #endif
 
 // ----------------------------------------------------------------------------
-// Velocidade do Motor de Passo (Intervalo em microssegundos entre pulsos)
-// Menor valor = Mais rápido | Maior valor = Mais lento
+// Stepper Motor Speed (pulse interval in microseconds)
+// Lower value = Faster | Higher value = Slower
 // ----------------------------------------------------------------------------
 #ifndef STEPPER_SPEED_HOMING_US
-#define STEPPER_SPEED_HOMING_US 1800   // Velocidade durante o homing (busca do início e avanço dos 7 cm)
+#define STEPPER_SPEED_HOMING_US 1800   // Speed during homing (start search and 7 cm offset move)
 #endif
 
 #ifndef STEPPER_SPEED_NORMAL_US
-#define STEPPER_SPEED_NORMAL_US 1200   // Velocidade durante deslocamento normal (inspeção e limpeza)
+#define STEPPER_SPEED_NORMAL_US 1200   // Speed during normal travel (inspection and cleaning)
 #endif
 
-// Alias de retrocompatibilidade
+// Backward compatibility alias
 #ifndef PIN_STEPPER_LIMIT_NC
 #define PIN_STEPPER_LIMIT_NC PIN_STEPPER_LIMIT_MIN
 #endif

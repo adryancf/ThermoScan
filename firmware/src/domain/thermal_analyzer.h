@@ -51,13 +51,13 @@ struct HotspotEvent {
  * consecutive spatial confirmation of thermal anomalies.
  *
  * NOTE ON BASELINE AND DATA PIPELINE:
- * Análise é realizada após a captura da sequência completa, sem depender de leituras futuras.
+ * Analysis is performed after capturing the full sequence, without relying on future lookahead readings.
  * All scan acquisitions along the inspection rail are collected in sequence and analyzed
  * retrospectively. The median baseline calculation uses all valid pixels across all valid frames.
  *
  * NOTE ON FALSE POSITIVE MITIGATION:
- * A confirmação espacial em passos consecutivos reduz ruído e reflexos espúrios,
- * mas não afirma eliminar 100% dos falsos positivos em condições reais de campo.
+ * Consecutive spatial confirmation reduces noise and spurious reflections,
+ * but does not claim to eliminate 100% of false positives under real outdoor field conditions.
  */
 class ThermalAnalyzer {
 public:

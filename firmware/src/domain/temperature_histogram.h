@@ -15,10 +15,10 @@ namespace domain {
  * SPECIFICATION & PIXEL RANGE DISTINCTION:
  * - General Sensor Pixel Validity: [-40.0 °C, 300.0 °C] (isValidPixel).
  * - Baseline Histogram Range: [-20.0 °C, 120.0 °C] with 0.1 °C resolution (1400 bins).
- * - Distinção Documentada:
- *   Pixels fora da faixa do histograma (ex: < -20 °C ou > 120 °C) participam da
- *   matriz quantizada de inspeção, mas NÃO entram no cálculo da mediana do baseline.
- *   Isso protege o baseline de extremos espúrios sem descartar pixels válidos da matriz.
+ * - Documented Distinction:
+ *   Pixels outside the histogram range (e.g. < -20 °C or > 120 °C) participate in the
+ *   inspection quantized matrix, but are NOT included in the baseline median calculation.
+ *   This protects the baseline from spurious extremes without discarding valid pixels from the frame.
  */
 class TemperatureHistogram {
 public:

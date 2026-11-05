@@ -1,28 +1,28 @@
-# Laboratório de Bancada & Experimentos Isolados (`src/lab/`)
+# Hardware Lab & Isolated Experiments (`src/lab/`)
 
-Este diretório armazena sketches rápidos, ferramentas de calibração e códigos de validação de bancada utilizados durante o desenvolvimento e prototipagem do hardware.
+This directory contains standalone sketches, hardware bring-up tests, calibration tools, and bench experiments created during prototyping and initial hardware validation.
 
 > [!NOTE]
-> Os códigos contidos nesta pasta são **isolados e não fazem parte do binário de produção** do ThermoScan.
-> Eles são automaticamente ignorados pelo PlatformIO no build principal (`build_src_filter = +<*> -<lab/>`).
+> The code in this folder is **isolated and not part of the ThermoScan production firmware build**.
+> It is automatically excluded from the main PlatformIO build target via `build_src_filter = +<*> -<lab/>`.
 
 ---
 
-## Estrutura do Laboratório
+## Directory Structure
 
 ### 1. `mlx90640_tests/`
-Projetos e scripts de validação inicial da câmera térmica MLX90640:
-* **`simpleTest.cpp` / `main.cpp`:** Sketches básicos para leitura direta da matriz de 32x24 pixels via I2C (Wire).
-* **`viewMap.py` / `thermalMatrix.py`:** Scripts em Python para leitura da porta serial e renderização visual do mapa de calor em tempo real na tela do computador.
+Initial bring-up and validation scripts for the MLX90640 thermal sensor:
+* **`simpleTest.cpp` / `main.cpp`:** Basic sketches for raw 32x24 pixel acquisition over I2C (Wire).
+* **`viewMap.py` / `thermalMatrix.py`:** Python helper scripts for reading serial output and rendering real-time false-color thermal heatmaps on a PC.
 
 ### 2. `nema17_tests/`
-Testes cinemáticos do eixo linear:
-* **`main.cpp`:** Teste simples de pulso de passos e inversão de sentido no driver DRV8825.
-* **`fim_de_curso.cpp`:** Teste de lógica de acionamento do sensor de fim de curso mecânico (chave fim de curso com pull-up e recuo após batente).
+Linear rail kinematics and driver tests:
+* **`main.cpp`:** Step pulse generation and direction alternation test for the DRV8825 stepper driver.
+* **`fim_de_curso.cpp`:** Mechanical endstop limit switch verification (pull-up validation and reverse-step clearance upon trigger).
 
 ### 3. `pin_scanner/`
-* **`main.cpp`:** Scanner de barramento I2C e teste rápido de pinagem do ESP32, permitindo descobrir os endereços dos sensores conectados (como 0x33 para MLX90640 e 0x40..0x42 para INA228).
-* Pode ser compilado isoladamente com o comando:
+* **`main.cpp`:** I2C bus scanner and ESP32 pin utility to identify connected peripheral addresses (e.g., 0x33 for MLX90640 and 0x40..0x42 for INA228).
+* Can be compiled independently using:
   ```bash
   pio run -e pin_scanner -t upload
   ```

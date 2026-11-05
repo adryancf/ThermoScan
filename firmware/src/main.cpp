@@ -110,7 +110,7 @@ void setup() {
 
         // Web Diagnostics Server initialization
         g_web_server.begin("thermoscan");
-        Serial.printf("[WEB] Acesse o painel de bancada em: http://%s ou http://thermoscan.local\n", WiFi.localIP().toString().c_str());
+        Serial.printf("[WEB] Bench diagnostics dashboard available at: http://%s or http://thermoscan.local\n", WiFi.localIP().toString().c_str());
     } else {
         Serial.println(F("[WIFI] Warning: WiFi not connected. Operating in standalone offline mode."));
     }
@@ -142,7 +142,7 @@ void setup() {
 
     digitalWrite(STATUS_LED_PIN, LOW);
     Serial.println(F("[SYSTEM] ThermoScan operational. Entering main executive loop."));
-    Serial.println(F("[DIAG] Modo de diagnostico de bancada ativo na serial. Digite 'diag list' para comandos."));
+    Serial.println(F("[DIAG] Interactive bench diagnostics active on serial. Type 'diag list' for commands."));
 }
 
 void loop() {
@@ -156,7 +156,7 @@ void loop() {
             if (line.startsWith("diag")) {
                 g_diagnostics.handleCommand(line.c_str());
             } else {
-                Serial.printf("[CMD] Comando desconhecido: '%s'. Digite 'diag list' para a lista de testes.\n", line.c_str());
+                Serial.printf("[CMD] Unknown command: '%s'. Type 'diag list' for available tests.\n", line.c_str());
             }
         }
     }

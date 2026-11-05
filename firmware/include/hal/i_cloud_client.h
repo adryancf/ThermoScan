@@ -24,9 +24,9 @@ struct IngestTelemetryBatchInput {
     std::string inspection_source_event_id;
     uint32_t scheduled_for_epoch{0};       // 0 = omit (backend defaults to started_at)
     uint32_t started_at_epoch{0};
-    std::string inspection_type{"scheduled"}; // "scheduled" ou "verification"
-    std::string cleaning_operation_id{""};    // Obrigatório se verification
-    std::vector<TelemetryMeasurementItem> batch; // Máximo 5 itens por lote!
+    std::string inspection_type{"scheduled"}; // "scheduled" or "verification"
+    std::string cleaning_operation_id{""};    // Required if verification
+    std::vector<TelemetryMeasurementItem> batch; // Maximum 5 items per batch
 };
 
 // Hotspot structure for inspection finalization and per-panel results
@@ -38,7 +38,7 @@ struct ConfirmedHotspotOutput {
     float max_temperature_c{0.0f};
     uint32_t detected_at_epoch{0};
     std::string origin_measurement_event_id;
-    std::vector<std::string> confirming_event_ids; // Mínimo 2 IDs distintos da mesma inspeção
+    std::vector<std::string> confirming_event_ids; // Minimum 2 distinct IDs from the same inspection
 };
 
 // Input for per-panel thermal result: POST /inspections/{inspectionSourceEventId}/panels/{panelIndex}/result
@@ -66,13 +66,13 @@ struct ConfirmedAnomalyRecord {
 };
 
 // Cleaning report input for POST /cleanings
-// Sensor capacitivo é binário: estimated_water_volume_ml NÃO é transmitido
+// Capacitive water sensor is binary: estimated_water_volume_ml is omitted
 struct CleaningReportInput {
-    std::string anomaly_event_id; // UUID autêntico da anomalia confirmada
+    std::string anomaly_event_id; // UUID of confirmed anomaly
     uint8_t panel_index{0};
     float target_x_position_cm{0.0f};
     bool pump_actuated{false};
-    int attempt_number{0}; // 1..3 se pump_actuated, 0 se recusado (serializa null)
+    int attempt_number{0}; // 1..3 if pump_actuated, 0 if refused (serializes to null)
     float duration_seconds{0.0f};
     std::string status{"completed"}; // "completed", "failed", "refused"
     std::string failure_reason{""};

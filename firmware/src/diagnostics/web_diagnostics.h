@@ -295,7 +295,7 @@ private:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>ThermoScan - Diagnóstico & Live Serial</title>
+<title>ThermoScan - Diagnostics & Live Serial</title>
 <style>
 :root{--bg:#10141b;--panel:#17202c;--card:#212d3d;--text:#e2e8f0;--muted:#94a3b8;--primary:#38bdf8;--accent:#f59e0b;--success:#22c55e;--danger:#ef4444;--code-bg:#080c10;}
 *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif;}
@@ -338,39 +338,39 @@ pre#term{background:var(--code-bg);color:#38bdf8;padding:16px;border-radius:8px;
 <div class="container">
   <header>
     <div>
-      <h1>⚡ ThermoScan <span class="badge">Diagnóstico & Live Logs</span></h1>
+      <h1>⚡ ThermoScan <span class="badge">Diagnostics & Live Logs</span></h1>
       <div class="status-bar" id="statusBar">
         <div class="status-pill">IP: <span id="ip">...</span></div>
-        <div class="status-pill">Sinal: <span id="rssi">...</span></div>
-        <div class="status-pill">RAM Livre: <span id="heap">...</span></div>
-        <div class="status-pill">Buffer Serial: <span id="bufSize">0 KB</span></div>
+        <div class="status-pill">Signal: <span id="rssi">...</span></div>
+        <div class="status-pill">Free Heap: <span id="heap">...</span></div>
+        <div class="status-pill">Serial Buffer: <span id="bufSize">0 KB</span></div>
       </div>
     </div>
     <div style="margin-top:8px;">
-      <button class="btn btn-primary" onclick="runCmd('diag all')">🚀 Rodar Todos (diag all)</button>
+      <button class="btn btn-primary" onclick="runCmd('diag all')">🚀 Run All (diag all)</button>
     </div>
   </header>
 
   <div class="grid">
-    <button class="btn" onclick="runCmd('diag mlx')">🌡️ Câmera MLX90640</button>
-    <button class="btn" onclick="runCmd('diag motor')">⚙️ Motor NEMA17 (+2cm)</button>
-    <button class="btn" onclick="runCmd('diag homing')">🏠 Fim de Curso (Homing)</button>
-    <button class="btn btn-accent" onclick="runCmd('diag pump')">💧 Bomba d'Água (Pulso)</button>
-    <button class="btn" onclick="runCmd('diag camera-servo')">📐 Servo Câmera (Tilt)</button>
-    <button class="btn" onclick="runCmd('diag nozzle-servo')">🎯 Servo Bico Lavagem</button>
-    <button class="btn" onclick="runCmd('diag ina')">⚡ Tensão/Corrente (INA219)</button>
-    <button class="btn" onclick="runCmd('diag water')">🌊 Nível de Água</button>
-    <button class="btn" onclick="runCmd('diag safety')">🛡️ Travas de Segurança</button>
-    <button class="btn" onclick="runCmd('diag nvs')">💾 Memória Flash NVS</button>
-    <button class="btn" onclick="runCmd('diag clock')">⏱️ Relógio NTP UTC</button>
-    <button class="btn" onclick="runCmd('diag backend')">☁️ Ping Backend API</button>
+    <button class="btn" onclick="runCmd('diag mlx')">🌡️ MLX90640 Camera</button>
+    <button class="btn" onclick="runCmd('diag motor')">⚙️ NEMA17 Stepper (+2cm)</button>
+    <button class="btn" onclick="runCmd('diag homing')">🏠 Limit Switch (Homing)</button>
+    <button class="btn btn-accent" onclick="runCmd('diag pump')">💧 Water Pump (Pulse)</button>
+    <button class="btn" onclick="runCmd('diag camera-servo')">📐 Camera Servo (Tilt)</button>
+    <button class="btn" onclick="runCmd('diag nozzle-servo')">🎯 Spray Nozzle Servo</button>
+    <button class="btn" onclick="runCmd('diag ina')">⚡ Voltage/Current (INA228)</button>
+    <button class="btn" onclick="runCmd('diag water')">🌊 Water Level</button>
+    <button class="btn" onclick="runCmd('diag safety')">🛡️ Safety Interlocks</button>
+    <button class="btn" onclick="runCmd('diag nvs')">💾 NVS Flash Memory</button>
+    <button class="btn" onclick="runCmd('diag clock')">⏱️ NTP UTC Clock</button>
+    <button class="btn" onclick="runCmd('diag backend')">☁️ Backend API Ping</button>
   </div>
 
   <form class="cmd-box" onsubmit="event.preventDefault();submitCustom();">
-    <input type="text" id="customCmd" placeholder="Digite um comando de diagnóstico (ex: diag list, diag scan, diag mlx)...">
+    <input type="text" id="customCmd" placeholder="Enter diagnostic command (e.g. diag list, diag scan, diag mlx)...">
     <button type="submit" class="btn btn-primary" id="btnSubmit">
       <div class="spinner" id="spin"></div>
-      <span>Enviar</span>
+      <span>Send</span>
     </button>
   </form>
 
@@ -452,15 +452,15 @@ function clearLiveLogs() {
       bufSizeSpan.textContent = '0 KB';
     })
     .catch(e => {
-      alert('Falha ao limpar logs: ' + e);
+      alert('Failed to clear logs: ' + e);
     });
 }
 
 function copyLogs() {
   if (navigator.clipboard && term.textContent) {
     navigator.clipboard.writeText(term.textContent)
-      .then(() => alert('Logs copiados com sucesso!'))
-      .catch(() => alert('Não foi possível copiar automaticamente.'));
+      .then(() => alert('Logs copied to clipboard!'))
+      .catch(() => alert('Could not copy to clipboard automatically.'));
   }
 }
 
@@ -496,7 +496,7 @@ function runCmd(cmd) {
     }
   })
   .catch(err => {
-    term.textContent += '\n[ERRO] Falha de comunicacao HTTP: ' + err;
+    term.textContent += '\n[ERROR] HTTP communication failure: ' + err;
   })
   .finally(() => {
     spin.style.display = 'none';
@@ -526,7 +526,7 @@ toggleLiveStream();
 
     void handleApiCmd() {
         if (!server_.hasArg("cmd")) {
-            server_.send(400, "text/plain", "Parametro 'cmd' ausente.");
+            server_.send(400, "text/plain", "Missing 'cmd' parameter.");
             return;
         }
 
@@ -535,7 +535,7 @@ toggleLiveStream();
 
         if (console_) {
             console_->clearBuffer();
-            // Motor e bomba exigem confirmação ('s') no terminal; na web pré-autorizamos
+            // Motor and pump tests require confirmation ('s') in interactive terminal; pre-authorize in web UI
             console_->setPreloadedInput("s\n");
         }
 
@@ -543,7 +543,7 @@ toggleLiveStream();
             diagnostics_->handleCommand(cmd.c_str());
         }
 
-        std::string out = console_ ? console_->getOutput() : "Comando executado.";
+        std::string out = console_ ? console_->getOutput() : "Command executed.";
         server_.send(200, "text/plain; charset=utf-8", out.c_str());
     }
 
@@ -564,7 +564,7 @@ toggleLiveStream();
 
     void handleApiLogsClear() {
         getGlobalLogBuffer().clear();
-        server_.send(200, "text/plain; charset=utf-8", "[LOGS] Buffer limpo com sucesso.\n");
+        server_.send(200, "text/plain; charset=utf-8", "[LOGS] Buffer successfully cleared.\n");
     }
 
     WebServer server_;

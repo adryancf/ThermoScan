@@ -55,7 +55,7 @@ uint32_t ThermoscanApp::getCurrentTime() const {
 bool ThermoscanApp::checkSolarWindow() const {
     const uint32_t now = getCurrentTime();
     if (now == 0) {
-        // Sem horário confiável, não presumir janela solar válida
+        // Without reliable wall-clock time, do not assume a valid solar window
         return false;
     }
     return domain::isSolarWindowValid(config_.latitude,
@@ -277,16 +277,16 @@ static const char* appStateToString(AppState s) {
         case AppState::ANALYZING: return "ANALYZING";
         case AppState::CLEANING: return "CLEANING";
         case AppState::WAITING_VERIFICATION: return "WAITING_VERIFICATION (Cooldown 30min)";
-        case AppState::VERIFYING: return "VERIFYING (Confirmando resolucao)";
-        case AppState::SYNCING: return "SYNCING (Sincronizando config)";
+        case AppState::VERIFYING: return "VERIFYING (Confirming resolution)";
+        case AppState::SYNCING: return "SYNCING (Synchronizing config)";
         case AppState::ERROR_HALT: return "ERROR_HALT";
-        default: return "DESCONHECIDO";
+        default: return "UNKNOWN";
     }
 }
 
 void ThermoscanApp::tick() {
     if (state_ != last_logged_state_) {
-        Serial.printf("[ESTADO] Mudanca de estado da ESP: %s -> %s\n",
+        Serial.printf("[STATE] ESP state transition: %s -> %s\n",
                       appStateToString(last_logged_state_), appStateToString(state_));
         last_logged_state_ = state_;
     }
@@ -333,7 +333,7 @@ void ThermoscanApp::handleIdle() {
     }
     if (cloud_ != nullptr && cloud_->isManualInspectionPending()) {
         cloud_->clearManualInspectionPending();
-        Serial.println(F("[APP] Ping detectou solicitacao de varredura manual pendente no backend!"));
+        Serial.println(F("[APP] Ping detected pending manual inspection request from backend!"));
         triggerManualInspection();
     }
 
@@ -354,7 +354,7 @@ void ThermoscanApp::handleIdle() {
         }
         if (cloud_->isManualInspectionPending()) {
             cloud_->clearManualInspectionPending();
-            Serial.println(F("[APP] Ping periodico detectou solicitacao de varredura manual!"));
+            Serial.println(F("[APP] Periodic ping detected pending manual inspection request!"));
             triggerManualInspection();
         }
     }
@@ -362,7 +362,7 @@ void ThermoscanApp::handleIdle() {
     // 1. Manual commands have highest priority
     if (manual_inspection_requested_) {
         manual_inspection_requested_ = false;
-        Serial.println(F("[APP] Transicao de estado: IDLE -> SCANNING (Iniciando varredura manual)"));
+        Serial.println(F("[APP] State transition: IDLE -> SCANNING (Starting manual inspection)"));
         state_ = AppState::SCANNING;
         return;
     }
@@ -401,7 +401,7 @@ void ThermoscanApp::handleIdle() {
     // 3. Scheduled inspection evaluation
     if (now > 0 && next_inspection_time_ > 0 && now >= next_inspection_time_) {
         if (checkSolarWindow()) {
-            Serial.println(F("[APP] Transicao de estado: IDLE -> SCANNING (Iniciando varredura agendada)"));
+            Serial.println(F("[APP] State transition: IDLE -> SCANNING (Starting scheduled inspection)"));
             state_ = AppState::SCANNING;
             return;
         }
@@ -423,13 +423,13 @@ void ThermoscanApp::handleScanning() {
     utils::HeapTracker::start();
 
     const uint8_t total_panels = (config_.panel_count > 0) ? static_cast<uint8_t>(config_.panel_count) : 1;
-    Serial.printf("[SCAN] Iniciando ciclo de varredura. Event ID: %s, Total de Paineis: %u\n",
+    Serial.printf("[SCAN] Starting inspection scan cycle. Event ID: %s, Total Panels: %u\n",
                   inspection_source_event_id_.c_str(), total_panels);
 
     for (uint8_t p = 1; p <= total_panels; ++p) {
         float p_start = 0.0f, p_end = 0.0f;
         domain::getPanelBounds(p, config_.panel_length_cm, config_.panel_spacing_cm, p_start, p_end);
-        Serial.printf("[SCAN] Varrendo Painel %u: Faixa X = [%.1f cm -> %.1f cm]\n", p, p_start, p_end);
+        Serial.printf("[SCAN] Scanning Panel %u: Range X = [%.1f cm -> %.1f cm]\n", p, p_start, p_end);
 
         histogram_.reset();
         quantized_frames_.clear();
@@ -505,7 +505,7 @@ void ThermoscanApp::handleScanning() {
                 item.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
                 current_batch_.push_back(item);
 
-                Serial.printf("[SCAN] Painel %u: X = %.1f cm | T_max = %.1f C | Acumulado lote: %u/5\n",
+                Serial.printf("[SCAN] Panel %u: X = %.1f cm | T_max = %.1f C | Accumulated batch: %u/5\n",
                               p, current_x, max_temp, current_batch_.size());
 
                 const bool is_last_step = ((current_x + STEP_SIZE_CM) > (p_end + 1e-3f)) ||
@@ -551,7 +551,7 @@ void ThermoscanApp::handleScanning() {
             p_end,
             p);
 
-        Serial.printf("[SCAN] Painel %u concluido: Faixa [%.1f cm -> %.1f cm] | Baseline: %.1f C | Hotspots detectados: %u\n",
+        Serial.printf("[SCAN] Panel %u completed: Range [%.1f cm -> %.1f cm] | Baseline: %.1f C | Confirmed hotspots: %u\n",
                       p, p_start, p_end, panel_baseline, confirmed.size());
 
         PanelThermalResultInput p_input;
@@ -632,7 +632,7 @@ void ThermoscanApp::handleScanning() {
 
     utils::HeapTracker::update();
 
-    Serial.println(F("[SCAN] Varredura concluida. Transicao de estado: SCANNING -> ANALYZING."));
+    Serial.println(F("[SCAN] Scan completed. State transition: SCANNING -> ANALYZING."));
     state_ = AppState::ANALYZING;
 }
 
@@ -797,7 +797,7 @@ void ThermoscanApp::handleCleaning() {
                                   qh.attempts,
                                   0);
 
-        Serial.printf("[CLEANING] Avaliando alvo %u/%u: Painel %d, X = %.1f cm (Tentativa %d)...\n",
+        Serial.printf("[CLEANING] Evaluating target %u/%u: Panel %d, X = %.1f cm (Attempt %d)...\n",
                       i + 1, cleaning_queue_.size(), qh.panel_index, qh.target_x_cm, qh.attempts);
 
         // Check if target is in gap
@@ -809,7 +809,7 @@ void ThermoscanApp::handleCleaning() {
 
         // Evaluate pre-spray safety interlocks with is_in_gap
         if (!cleaning_sm_.evaluateBeforeSpray(qh.baseline_temp_c, water_ok, is_in_gap)) {
-            Serial.printf("[CLEANING] Lavagem RECUSADA para X = %.1f cm! Motivo: %s (in_gap=%d, water_ok=%d)\n",
+            Serial.printf("[CLEANING] Cleaning REFUSED for X = %.1f cm! Reason: %s (in_gap=%d, water_ok=%d)\n",
                           qh.target_x_cm, cleaning_sm_.getReason().c_str(), is_in_gap, water_ok);
 
             CleaningReportInput cr;
@@ -838,7 +838,7 @@ void ThermoscanApp::handleCleaning() {
             break;
         }
 
-        Serial.printf("[CLEANING] Movendo para X = %.1f cm e alinhando bocal a 90 deg...\n", qh.target_x_cm);
+        Serial.printf("[CLEANING] Moving to X = %.1f cm and aligning nozzle to 90 deg...\n", qh.target_x_cm);
 
         // Position carriage at target X and align nozzle
         if (motion_ != nullptr) {
@@ -851,7 +851,7 @@ void ThermoscanApp::handleCleaning() {
 #endif
         }
 
-        Serial.printf("[CLEANING] Disparando spray de agua...\n");
+        Serial.printf("[CLEANING] Triggering water spray...\n");
         cleaning_sm_.startSpray();
         const uint32_t start_time = getCurrentTime();
 
@@ -866,7 +866,7 @@ void ThermoscanApp::handleCleaning() {
             if (!cleaning_sm_.monitorDuringSpray(fluid, check_now)) {
                 if (spray_ != nullptr) spray_->stopPump();
                 spray_interrupted = true;
-                Serial.println(F("[CLEANING] Spray interrompido: Falta de agua detectada!"));
+                Serial.println(F("[CLEANING] Spray interrupted: Water depletion detected!"));
                 break;
             }
 #if defined(ARDUINO) || defined(ESP32)
@@ -878,7 +878,7 @@ void ThermoscanApp::handleCleaning() {
         if (!spray_interrupted) {
             if (spray_ != nullptr) spray_->stopPump();
             cleaning_sm_.finishSpray(end_time);
-            Serial.println(F("[CLEANING] Spray concluido com sucesso."));
+            Serial.println(F("[CLEANING] Spray completed successfully."));
         }
         last_spray_end = end_time;
         any_sprayed = true;
@@ -1062,9 +1062,9 @@ void ThermoscanApp::handleVerifying() {
             hotspot_still_present = true;
         }
 
-        Serial.printf("[VERIFYING] Ponto X = %.1f cm (Painel %d): T_max1 = %.1f C, T_max2 = %.1f C, Baseline = %.1f C -> %s\n",
+        Serial.printf("[VERIFYING] Point X = %.1f cm (Panel %d): T_max1 = %.1f C, T_max2 = %.1f C, Baseline = %.1f C -> %s\n",
                       qh.target_x_cm, qh.panel_index, max_t1, max_t2, verif_baseline,
-                      hotspot_still_present ? "HOTSPOT AINDA PRESENTE" : "HOTSPOT RESOLVIDO COM SUCESSO");
+                      hotspot_still_present ? "HOTSPOT STILL PRESENT" : "HOTSPOT RESOLVED SUCCESSFULLY");
 
         // Synchronize cleaning_sm_ with THIS hotspot's cleaning status and attempt count
         cleaning_sm_.restoreState(

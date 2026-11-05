@@ -45,6 +45,7 @@ class ModuleMeasurementsView extends StatelessWidget {
 class _ModuleMeasurementsScreenState
     extends ConsumerState<ModuleMeasurementsScreen> {
   int _currentPage = 1;
+  int? _selectedPanelFilter;
 
   @override
   Widget build(BuildContext context) {
@@ -131,12 +132,13 @@ class _ModuleMeasurementsScreenState
                   children: [
                     if (latestInspection != null &&
                         latestInspection.inspection.id.isNotEmpty) ...[
-                      _buildPaginatedInspectionSection(latestInspection),
+                      _buildPaginatedInspectionSection(latestInspection, mod),
                       const SizedBox(height: 20),
                     ],
                     _buildInspectionHistorySection(
                       allMeasurementsAsync: allMeasurementsAsync,
                       latestInspection: latestInspection,
+                      mod: mod,
                     ),
                   ],
                 );
@@ -178,14 +180,19 @@ class _ModuleMeasurementsScreenState
     );
   }
 
-  Widget _buildPaginatedInspectionSection(LatestInspection latestInspection) {
+  Widget _buildPaginatedInspectionSection(
+    LatestInspection latestInspection,
+    PvModule? mod,
+  ) {
     final insp = latestInspection.inspection;
     final pagedAsync = ref.watch(inspectionMeasurementsPagedProvider((
       moduleId: widget.moduleId,
       inspectionId: insp.id,
       page: _currentPage,
       limit: 10,
+      panelIndex: _selectedPanelFilter,
     )));
+    final panelCount = mod?.panelCount ?? 1;
 
     return Container(
       decoration: BoxDecoration(
@@ -252,6 +259,27 @@ class _ModuleMeasurementsScreenState
               ),
             ],
           ),
+          if (panelCount > 1) ...[
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _buildPaginatedPanelFilterChip(
+                    label: 'Todos ($panelCount)',
+                    panelIndex: null,
+                  ),
+                  for (var p = 1; p <= panelCount; p++) ...[
+                    const SizedBox(width: 6),
+                    _buildPaginatedPanelFilterChip(
+                      label: 'Painel $p',
+                      panelIndex: p,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           pagedAsync.when(
             loading: () => const Center(
@@ -346,6 +374,41 @@ class _ModuleMeasurementsScreenState
             },
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPaginatedPanelFilterChip({
+    required String label,
+    required int? panelIndex,
+  }) {
+    final isSelected = _selectedPanelFilter == panelIndex;
+    return InkWell(
+      key: Key('paged_panel_filter_${panelIndex ?? "all"}'),
+      onTap: () {
+        setState(() {
+          _selectedPanelFilter = panelIndex;
+          _currentPage = 1;
+        });
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected ? AppColors.primary : AppColors.background,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? AppColors.primary : AppColors.border,
+          ),
+        ),
+        child: Text(
+          label,
+          style: AppTypography.caption.copyWith(
+            fontSize: 10,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? Colors.white : AppColors.textSecondary,
+          ),
+        ),
       ),
     );
   }
@@ -491,6 +554,7 @@ class _ModuleMeasurementsScreenState
   Widget _buildInspectionHistorySection({
     required AsyncValue<List<ModuleMeasurement>> allMeasurementsAsync,
     required LatestInspection? latestInspection,
+    required PvModule? mod,
   }) {
     return allMeasurementsAsync.when(
       loading: () => const SizedBox.shrink(),
@@ -518,6 +582,11 @@ class _ModuleMeasurementsScreenState
             return b.key.compareTo(a.key);
           });
 
+        final pCount = mod?.panelCount ?? 1;
+        final pLen = mod?.panelLengthCm ?? 100.0;
+        final pSpc = mod?.panelSpacingCm ?? 2.0;
+        final totalRail = mod?.calculatedTotalLengthCm ?? pLen;
+
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -544,6 +613,51 @@ class _ModuleMeasurementsScreenState
                 color: AppColors.textSecondary,
               ),
             ),
+            const SizedBox(height: 10),
+            // Level 1: Array / Módulo Hierarchy Header
+            Container(
+              key: const Key('history_array_header'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.primarySoft.withValues(alpha: 0.4),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.primary.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.solar_power_outlined,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Array: ${mod?.name ?? "Solar Array"}',
+                          style: AppTypography.caption.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          '$pCount ${pCount > 1 ? "painéis" : "painel"} (${pLen.toStringAsFixed(0)} cm/painel${pCount > 1 ? " • Gap ${pSpc.toStringAsFixed(0)} cm" : ""} • Trilho ${totalRail.toStringAsFixed(0)} cm)',
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 10,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
             ListView.separated(
               shrinkWrap: true,
@@ -562,6 +676,7 @@ class _ModuleMeasurementsScreenState
                   measurements: groupMeasurements,
                   isLatest: isLatest,
                   latestInspection: isLatest ? latestInspection : null,
+                  mod: mod,
                 );
               },
             ),
@@ -599,6 +714,7 @@ class _ModuleMeasurementsScreenState
     required List<ModuleMeasurement> measurements,
     required bool isLatest,
     required LatestInspection? latestInspection,
+    required PvModule? mod,
   }) {
     final shortId = inspectionId.length > 8
         ? '${inspectionId.substring(0, 8)}...'
@@ -615,8 +731,10 @@ class _ModuleMeasurementsScreenState
 
     final Map<int, List<ModuleMeasurement>> byPanel = {};
     for (final m in measurements) {
-      final p = m.panelIndex ?? 1;
-      byPanel.putIfAbsent(p, () => []).add(m);
+      final p = m.panelIndex ??
+          (mod != null ? mod.resolvePanelPosition(m.xPositionCm).panelIndex : 1);
+      final effectiveP = p > 0 ? p : 1;
+      byPanel.putIfAbsent(effectiveP, () => []).add(m);
     }
     final sortedPanels = byPanel.keys.toList()..sort();
 
@@ -690,132 +808,177 @@ class _ModuleMeasurementsScreenState
             ],
           ),
           const SizedBox(height: 10),
-          if (sortedPanels.length > 1) ...[
-            ...sortedPanels.map((p) {
-              final panelMeasurements = byPanel[p]!;
-              final pMinX = panelMeasurements
-                  .map((m) => m.xPositionCm)
-                  .reduce(math.min);
-              final pMaxX = panelMeasurements
-                  .map((m) => m.xPositionCm)
-                  .reduce(math.max);
-              final pPeak = panelMeasurements
-                  .map((m) => m.maxTemperatureC)
-                  .reduce(math.max);
+          // Level 3: Panel Accordions (Painel 1..N)
+          ...sortedPanels.map((p) {
+            final panelMeasurements = byPanel[p]!;
+            final pMinX = panelMeasurements
+                .map((m) => m.xPositionCm)
+                .reduce(math.min);
+            final pMaxX = panelMeasurements
+                .map((m) => m.xPositionCm)
+                .reduce(math.max);
+            final pPeak = panelMeasurements
+                .map((m) => m.maxTemperatureC)
+                .reduce(math.max);
 
-              InspectionPanelResult? pRes;
-              final pResults = latestInspection?.panelResults;
-              if (pResults != null) {
-                for (final r in pResults) {
-                  if (r.panelIndex == p) {
-                    pRes = r;
-                    break;
-                  }
+            final pb = mod != null
+                ? mod.getPanelBounds(p)
+                : (startCm: pMinX, endCm: pMaxX);
+
+            InspectionPanelResult? pRes;
+            final pResults = latestInspection?.panelResults;
+            if (pResults != null) {
+              for (final r in pResults) {
+                if (r.panelIndex == p) {
+                  pRes = r;
+                  break;
                 }
               }
-              final bTemp = pRes?.baselineTemperatureC;
-              final baselineStr = bTemp != null
-                  ? ' • Baseline: ${bTemp.toStringAsFixed(1)}°C'
-                  : '';
+            }
+            final bTemp = pRes?.baselineTemperatureC ??
+                latestInspection?.inspection.baselineTemperatureC;
+            final baselineStr = bTemp != null
+                ? ' • Baseline: ${bTemp.toStringAsFixed(1)}°C'
+                : ' • Baseline: N/A';
 
-              return Theme(
-                data: Theme.of(context).copyWith(
-                  dividerColor: Colors.transparent,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Material(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.border),
+            // Electrical INA219 summary for this panel
+            ModuleMeasurement? elecMeas;
+            for (final pm in panelMeasurements) {
+              if (pm.voltageV != null ||
+                  pm.currentA != null ||
+                  pm.powerW != null) {
+                elecMeas = pm;
+                break;
+              }
+            }
+            final elecStr = elecMeas != null
+                ? ' • ${elecMeas.voltageV?.toStringAsFixed(1) ?? "N/A"}V / ${elecMeas.currentA?.toStringAsFixed(2) ?? "N/A"}A / ${elecMeas.powerW?.toStringAsFixed(1) ?? "N/A"}W'
+                : ' • INA219: N/A';
+
+            // Confirmed hotspots count for this panel
+            final panelHotspots = latestInspection?.confirmedAnomalies
+                    .where((a) {
+                      if (a.panelIndex != null) return a.panelIndex == p;
+                      return a.xPositionCm >= pb.startCm &&
+                          a.xPositionCm <= pb.endCm;
+                    })
+                    .length ??
+                0;
+            final hotspotSummaryStr = ' • Hotspots: $panelHotspots';
+
+            return Theme(
+              data: Theme.of(context).copyWith(
+                dividerColor: Colors.transparent,
+              ),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Material(
+                  color: AppColors.background,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: panelHotspots > 0
+                            ? AppColors.errorBorder
+                            : AppColors.border,
                       ),
-                      child: ExpansionTile(
-                        key: Key('panel_accordion_${inspectionId}_$p'),
-                        initiallyExpanded: p == 1,
-                        tilePadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 2,
+                    ),
+                    child: ExpansionTile(
+                      key: Key('panel_accordion_${inspectionId}_$p'),
+                      initiallyExpanded: p == 1,
+                      tilePadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 2,
+                      ),
+                      childrenPadding:
+                          const EdgeInsets.fromLTRB(10, 0, 10, 10),
+                      leading: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 7,
+                          vertical: 3,
                         ),
-                        childrenPadding:
-                            const EdgeInsets.fromLTRB(10, 0, 10, 10),
-                    leading: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 7,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primarySoft,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'P$p',
-                        style: const TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
+                        decoration: BoxDecoration(
+                          color: panelHotspots > 0
+                              ? AppColors.errorBackground
+                              : AppColors.primarySoft,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'P$p',
+                          style: TextStyle(
+                            color: panelHotspots > 0
+                                ? AppColors.error
+                                : AppColors.primary,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                       ),
-                    ),
-                    title: Text(
-                      'Painel $p (X: ${pMinX.toStringAsFixed(0)}..${pMaxX.toStringAsFixed(0)} cm)',
-                      style: AppTypography.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                      title: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Painel $p (X: ${pMinX.toStringAsFixed(0)}..${pMaxX.toStringAsFixed(0)} cm) • ${pb.startCm.toStringAsFixed(0)}–${pb.endCm.toStringAsFixed(0)} cm',
+                              style: AppTypography.caption.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ),
+                          if (panelHotspots > 0)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 1.5,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.errorBackground,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: AppColors.errorBorder,
+                                ),
+                              ),
+                              child: Text(
+                                '$panelHotspots HOTSPOT${panelHotspots > 1 ? "S" : ""}',
+                                style: const TextStyle(
+                                  color: AppColors.error,
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                    ),
-                    subtitle: Text(
-                      '${panelMeasurements.length} frames • Peak: ${pPeak.toStringAsFixed(1)}°C$baselineStr',
-                      style: AppTypography.caption.copyWith(
-                        fontSize: 10,
-                        color: AppColors.textSecondary,
+                      subtitle: Text(
+                        '${panelMeasurements.length} frames • Peak: ${pPeak.toStringAsFixed(1)}°C$baselineStr$elecStr$hotspotSummaryStr',
+                        style: AppTypography.caption.copyWith(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
+                      children: panelMeasurements.map((m) {
+                        final isConfirmed = latestInspection != null &&
+                            latestInspection.confirmedAnomalies.any(
+                              (a) =>
+                                  a.originMeasurementId == m.id ||
+                                  a.confirmingMeasurementIds.contains(m.id) ||
+                                  (a.originMeasurementId.isEmpty &&
+                                      a.confirmingMeasurementIds.isEmpty &&
+                                      (a.xPositionCm - m.xPositionCm).abs() <=
+                                          1.0),
+                            );
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: _buildPaginatedStepTile(m, isConfirmed),
+                        );
+                      }).toList(),
                     ),
-                    children: panelMeasurements.map((m) {
-                      final isConfirmed = latestInspection != null &&
-                          latestInspection.confirmedAnomalies.any(
-                            (a) =>
-                                a.originMeasurementId == m.id ||
-                                a.confirmingMeasurementIds.contains(m.id) ||
-                                (a.originMeasurementId.isEmpty &&
-                                    a.confirmingMeasurementIds.isEmpty &&
-                                    (a.xPositionCm - m.xPositionCm).abs() <=
-                                        1.0),
-                          );
-                      return Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: _buildPaginatedStepTile(m, isConfirmed),
-                      );
-                    }).toList(),
                   ),
                 ),
               ),
-            ),
-          );
-        }),
-          ] else ...[
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: measurements.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 6),
-              itemBuilder: (ctx, idx) {
-                final m = measurements[idx];
-                final isConfirmed = latestInspection != null &&
-                    latestInspection.confirmedAnomalies.any(
-                      (a) =>
-                          a.originMeasurementId == m.id ||
-                          a.confirmingMeasurementIds.contains(m.id) ||
-                          (a.originMeasurementId.isEmpty &&
-                              a.confirmingMeasurementIds.isEmpty &&
-                              (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
-                    );
-                return _buildPaginatedStepTile(m, isConfirmed);
-              },
-            ),
-          ],
+            );
+          }),
         ],
       ),
     );

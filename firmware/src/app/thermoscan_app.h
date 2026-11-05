@@ -82,6 +82,7 @@ public:
     const AppConfig& getConfig() const { return config_; }
     const std::vector<QueuedHotspot>& getCleaningQueue() const { return cleaning_queue_; }
     const std::vector<ConfirmedHotspotOutput>& getAllConfirmedHotspots() const { return all_confirmed_hotspots_; }
+    bool areAllPanelsAccepted() const { return all_panels_accepted_; }
 
     // Configuration sync query and getters
     bool isConfigUpdatePending() const { return config_update_pending_; }
@@ -122,6 +123,7 @@ private:
     uint32_t inspection_scheduled_for_{0};
     std::string current_cleaning_op_id_{};
     bool scan_truncated_by_memory_{false};
+    bool all_panels_accepted_{true};
 
     domain::HotspotEvent active_hotspot_{};
     std::string active_anomaly_id_{};
@@ -130,6 +132,7 @@ private:
 
     std::vector<QueuedHotspot> cleaning_queue_;
     std::vector<ConfirmedHotspotOutput> all_confirmed_hotspots_;
+    std::vector<ConfirmedAnomalyRecord> confirmed_anomaly_records_;
     size_t active_queue_index_{0};
 
     uint32_t last_ping_time_{0};

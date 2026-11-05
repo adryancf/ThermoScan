@@ -43,6 +43,16 @@ func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal
 		return nil, err
 	}
 
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
 	rows, err := s.queries.ListMeasurementsByModule(ctx, db.ListMeasurementsByModuleParams{
 		ModuleID: moduleID,
 		Limit:    limit,
@@ -113,6 +123,7 @@ func (s *Service) ListInspectionMeasurementsPaged(
 	moduleID pgtype.UUID,
 	inspectionID pgtype.UUID,
 	page, limit int32,
+	panelIndex *int32,
 ) (*PagedMeasurementsDTO, error) {
 	if !principal.CompanyID.Valid || !moduleID.Valid {
 		return nil, ErrForbidden
@@ -140,14 +151,23 @@ func (s *Service) ListInspectionMeasurementsPaged(
 	if limit <= 0 {
 		limit = 10
 	}
-	if limit > 20 {
-		limit = 20
+	if limit > 200 {
+		limit = 200
 	}
 	offset := (page - 1) * limit
+
+	var panelIdxParam pgtype.Int4
+	if panelIndex != nil {
+		if *panelIndex < 1 {
+			return nil, ErrInvalidPanelIndex
+		}
+		panelIdxParam = pgtype.Int4{Int32: *panelIndex, Valid: true}
+	}
 
 	totalCount, err := s.queries.CountMeasurementsByInspection(ctx, db.CountMeasurementsByInspectionParams{
 		InspectionID: inspectionID,
 		ModuleID:     moduleID,
+		PanelIndex:   panelIdxParam,
 	})
 	if err != nil {
 		return nil, err
@@ -156,6 +176,7 @@ func (s *Service) ListInspectionMeasurementsPaged(
 	rows, err := s.queries.ListMeasurementsByInspectionPaged(ctx, db.ListMeasurementsByInspectionPagedParams{
 		InspectionID: inspectionID,
 		ModuleID:     moduleID,
+		PanelIndex:   panelIdxParam,
 		Limit:        limit,
 		Offset:       offset,
 	})
@@ -446,6 +467,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		items = []IngestMeasurementItemInput{
 			{
 				SourceEventID:   sourceID,
+				PanelIndex:      input.PanelIndex,
 				MeasuredAt:      input.MeasuredAt,
 				XPositionCm:     input.XPositionCm,
 				MaxTemperatureC: input.MaxTemperatureC,
@@ -505,6 +527,9 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 	}
 
 	for _, f := range items {
+		if f.PanelIndex != nil && (*f.PanelIndex < 1 || *f.PanelIndex > cnt) {
+			return nil, fmt.Errorf("%w: item panel_index %d must be between 1 and %d", ErrInvalidInput, *f.PanelIndex, cnt)
+		}
 		if f.XPositionCm < 0 {
 			return nil, fmt.Errorf("%w: x_position_cm (%.1f) cannot be negative", ErrInvalidInput, f.XPositionCm)
 		}
@@ -910,6 +935,9 @@ func (s *Service) FinalizeInspection(
 		if ch.GlobalXPositionCm < 0 || !isFinite(ch.GlobalXPositionCm) || !isFinite(ch.MaxTemperatureC) {
 			return nil, ErrInvalidInput
 		}
+		if ch.PanelIndex != nil && (*ch.PanelIndex < 1 || *ch.PanelIndex > cnt) {
+			return nil, ErrInvalidInput
+		}
 		if lenCm > 0 {
 			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, ch.GlobalXPositionCm)
 			if !posRes.WithinBounds {
@@ -966,6 +994,38 @@ func (s *Service) FinalizeInspection(
 			if origXErr == nil && math.Abs(ch.GlobalXPositionCm-origX) <= 1.0 {
 				hotspotPersists = true
 				break
+			}
+		}
+		if !hotspotPersists && len(input.ConfirmedHotspots) > 0 {
+			hotspotPersists = true
+		}
+		if !hotspotPersists {
+			existingAnoms, _ := qtx.ListAnomaliesByInspection(ctx, db.ListAnomaliesByInspectionParams{
+				InspectionID: insp.ID,
+				ModuleID:     moduleID,
+			})
+			if len(existingAnoms) > 0 {
+				hotspotPersists = true
+			}
+		}
+		if !hotspotPersists && len(origAnomaly.ConfirmingMeasurementIds) > 0 {
+			inspMeas, _ := qtx.ListMeasurementsByInspectionPaged(ctx, db.ListMeasurementsByInspectionPagedParams{
+				InspectionID: insp.ID,
+				ModuleID:     moduleID,
+				Limit:        200,
+				Offset:       0,
+			})
+			if len(inspMeas) > 0 {
+				confirmingSet := make(map[[16]byte]struct{}, len(origAnomaly.ConfirmingMeasurementIds))
+				for _, cid := range origAnomaly.ConfirmingMeasurementIds {
+					confirmingSet[cid.Bytes] = struct{}{}
+				}
+				for _, im := range inspMeas {
+					if _, ok := confirmingSet[im.ID.Bytes]; ok {
+						hotspotPersists = true
+						break
+					}
+				}
 			}
 		}
 
@@ -1046,19 +1106,30 @@ func (s *Service) FinalizeInspection(
 		}
 	}
 
+	panelResults, _ := qtx.ListInspectionPanelResults(ctx, db.ListInspectionPanelResultsParams{
+		InspectionID: insp.ID,
+		ModuleID:     moduleID,
+	})
 	baselineTemp := input.BaselineTemperatureC
-	if baselineTemp <= 0 {
-		panelResults, _ := qtx.ListInspectionPanelResults(ctx, db.ListInspectionPanelResultsParams{
-			InspectionID: insp.ID,
-			ModuleID:     moduleID,
+	if baselineTemp <= 0 && len(panelResults) > 0 {
+		sum := 0.0
+		for _, pr := range panelResults {
+			val, _ := strconv.ParseFloat(pr.BaselineTemperatureC, 64)
+			sum += val
+		}
+		baselineTemp = sum / float64(len(panelResults))
+	}
+	if len(panelResults) == 0 && cnt == 1 {
+		_, err = qtx.UpsertInspectionPanelResult(ctx, db.UpsertInspectionPanelResultParams{
+			InspectionID:         insp.ID,
+			ModuleID:             moduleID,
+			PanelIndex:           1,
+			BaselineTemperatureC: floatPtrToNumeric(&baselineTemp),
+			TruncatedByMemory:    false,
+			FinishedAt:           finAt,
 		})
-		if len(panelResults) > 0 {
-			sum := 0.0
-			for _, pr := range panelResults {
-				val, _ := strconv.ParseFloat(pr.BaselineTemperatureC, 64)
-				sum += val
-			}
-			baselineTemp = sum / float64(len(panelResults))
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -1182,7 +1253,7 @@ func (s *Service) RecordPanelThermalResult(
 	inspSourceEventID pgtype.UUID,
 	panelIndex int32,
 	input RecordPanelResultInput,
-) (*InspectionPanelResultDTO, error) {
+) (*RecordPanelResultOutputDTO, error) {
 	if !principal.CompanyID.Valid || !moduleID.Valid || !inspSourceEventID.Valid {
 		return nil, ErrForbidden
 	}
@@ -1237,6 +1308,19 @@ func (s *Service) RecordPanelThermalResult(
 		return nil, ErrInspectionCompleted
 	}
 
+	var origAnomaly db.GetAnomalyEventByIDRow
+	if insp.Type == "verification" && insp.CleaningOperationID.Valid {
+		if cleanOp, cErr := qtx.GetCleaningOperationByID(ctx, db.GetCleaningOperationByIDParams{
+			ID:       insp.CleaningOperationID,
+			ModuleID: moduleID,
+		}); cErr == nil {
+			origAnomaly, _ = qtx.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+				ID:       cleanOp.AnomalyEventID,
+				ModuleID: moduleID,
+			})
+		}
+	}
+
 	pLen := numericToFloatPtr(row.PanelLengthCm)
 	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
 	pSpc := numericToFloatPtr(row.PanelSpacingCm)
@@ -1261,16 +1345,31 @@ func (s *Service) RecordPanelThermalResult(
 		if _, err := auth.ParseUUID(ch.OriginMeasurementEventID); err != nil {
 			return nil, ErrInvalidInput
 		}
+		seenConfirming := make(map[string]struct{}, len(ch.ConfirmingEventIDs))
+		foundOrigin := false
 		for _, cidStr := range ch.ConfirmingEventIDs {
+			if cidStr == "" {
+				return nil, ErrInvalidInput
+			}
 			if _, err := auth.ParseUUID(cidStr); err != nil {
 				return nil, ErrInvalidInput
 			}
+			seenConfirming[cidStr] = struct{}{}
+			if cidStr == ch.OriginMeasurementEventID {
+				foundOrigin = true
+			}
+		}
+		if len(seenConfirming) < 2 || !foundOrigin {
+			return nil, ErrInvalidInput
 		}
 		if ch.RowIndex != nil && (*ch.RowIndex < 0 || *ch.RowIndex > 23) {
 			return nil, ErrInvalidInput
 		}
-		if !isFinite(ch.GlobalXPositionCm) || !isFinite(ch.MaxTemperatureC) {
+		if ch.GlobalXPositionCm < 0 || !isFinite(ch.GlobalXPositionCm) || !isFinite(ch.MaxTemperatureC) {
 			return nil, ErrInvalidInput
+		}
+		if ch.PanelIndex != nil && *ch.PanelIndex != panelIndex {
+			return nil, ErrPanelIndexMismatch
 		}
 		if lenCm > 0 {
 			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, ch.GlobalXPositionCm)
@@ -1302,6 +1401,8 @@ func (s *Service) RecordPanelThermalResult(
 	if err != nil {
 		return nil, err
 	}
+
+	confirmedAnomaliesOut := make([]ConfirmedAnomalyDTO, 0, len(input.ConfirmedHotspots))
 
 	// Record confirmed hotspots for this panel
 	for _, ch := range input.ConfirmedHotspots {
@@ -1344,6 +1445,63 @@ func (s *Service) RecordPanelThermalResult(
 			return nil, ErrInvalidInput
 		}
 
+		var localXPtr *float64
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, ch.GlobalXPositionCm)
+			if !posRes.InGap {
+				lx := math.Round(posRes.LocalXCm*100.0) / 100.0
+				localXPtr = &lx
+			}
+		}
+		maxTempVal := ch.MaxTemperatureC
+		deltaTempVal := math.Round((ch.MaxTemperatureC-input.BaselineTemperatureC)*100.0) / 100.0
+		eventIDsCopy := make([]string, len(ch.ConfirmingEventIDs))
+		copy(eventIDsCopy, ch.ConfirmingEventIDs)
+
+		if insp.Type == "verification" && origAnomaly.ID.Valid {
+			origX, origXErr := strconv.ParseFloat(origAnomaly.XPositionCm, 64)
+			if (ch.SourceEventID != "" && auth.FormatUUID(origAnomaly.SourceEventID) == ch.SourceEventID) ||
+				(origXErr == nil && math.Abs(ch.GlobalXPositionCm-origX) <= 1.0) {
+				updatedOrig, uErr := qtx.AppendConfirmingMeasurementsToAnomaly(ctx, db.AppendConfirmingMeasurementsToAnomalyParams{
+					NewMeasurementIds: confirmingUUIDs,
+					ID:                origAnomaly.ID,
+					ModuleID:          moduleID,
+				})
+				if uErr != nil {
+					return nil, uErr
+				}
+				confirmingStrs := make([]string, 0, len(updatedOrig.ConfirmingMeasurementIds))
+				for _, cid := range updatedOrig.ConfirmingMeasurementIds {
+					confirmingStrs = append(confirmingStrs, auth.FormatUUID(cid))
+				}
+				pIdx := updatedOrig.PanelIndex
+				var closedAtStr *string
+				if updatedOrig.ClosedAt != nil {
+					c := updatedOrig.ClosedAt.UTC().Format(time.RFC3339)
+					closedAtStr = &c
+				}
+				confirmedAnomaliesOut = append(confirmedAnomaliesOut, ConfirmedAnomalyDTO{
+					ID:                            auth.FormatUUID(updatedOrig.ID),
+					ModuleID:                      auth.FormatUUID(updatedOrig.ModuleID),
+					OriginMeasurementID:           auth.FormatUUID(updatedOrig.OriginMeasurementID),
+					ConfirmingMeasurementIDs:      confirmingStrs,
+					ConfirmingMeasurementEventIDs: eventIDsCopy,
+					SourceEventID:                 auth.FormatUUID(updatedOrig.SourceEventID),
+					PanelIndex:                    &pIdx,
+					XPositionCM:                   ch.GlobalXPositionCm,
+					LocalXPositionCM:              localXPtr,
+					MaxTemperatureC:               &maxTempVal,
+					DeltaTemperatureC:             &deltaTempVal,
+					DetectedAt:                    updatedOrig.DetectedAt.UTC().Format(time.RFC3339),
+					Status:                        updatedOrig.Status,
+					ActuatedAttemptsCount:         updatedOrig.ActuatedAttemptsCount,
+					RetryPending:                  updatedOrig.RetryPending,
+					ClosedAt:                      closedAtStr,
+				})
+				continue
+			}
+		}
+
 		detectedAt := maxMeasuredAt
 		if ch.DetectedAt != nil && !ch.DetectedAt.IsZero() {
 			detectedAt = ch.DetectedAt.UTC()
@@ -1359,7 +1517,7 @@ func (s *Service) RecordPanelThermalResult(
 			anomSourceUUID = newRandomUUID()
 		}
 
-		_, err = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
+		createdAnom, err := qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
 			ModuleID:                 moduleID,
 			OriginMeasurementID:      origMeasRow.ID,
 			ConfirmingMeasurementIds: confirmingUUIDs,
@@ -1374,6 +1532,35 @@ func (s *Service) RecordPanelThermalResult(
 		if err != nil {
 			return nil, err
 		}
+
+		confirmingStrs := make([]string, 0, len(createdAnom.ConfirmingMeasurementIds))
+		for _, cid := range createdAnom.ConfirmingMeasurementIds {
+			confirmingStrs = append(confirmingStrs, auth.FormatUUID(cid))
+		}
+		pIdx := createdAnom.PanelIndex
+		var closedAtStr *string
+		if createdAnom.ClosedAt != nil {
+			c := createdAnom.ClosedAt.UTC().Format(time.RFC3339)
+			closedAtStr = &c
+		}
+		confirmedAnomaliesOut = append(confirmedAnomaliesOut, ConfirmedAnomalyDTO{
+			ID:                            auth.FormatUUID(createdAnom.ID),
+			ModuleID:                      auth.FormatUUID(createdAnom.ModuleID),
+			OriginMeasurementID:           auth.FormatUUID(createdAnom.OriginMeasurementID),
+			ConfirmingMeasurementIDs:      confirmingStrs,
+			ConfirmingMeasurementEventIDs: eventIDsCopy,
+			SourceEventID:                 auth.FormatUUID(createdAnom.SourceEventID),
+			PanelIndex:                    &pIdx,
+			XPositionCM:                   ch.GlobalXPositionCm,
+			LocalXPositionCM:              localXPtr,
+			MaxTemperatureC:               &maxTempVal,
+			DeltaTemperatureC:             &deltaTempVal,
+			DetectedAt:                    createdAnom.DetectedAt.UTC().Format(time.RFC3339),
+			Status:                        createdAnom.Status,
+			ActuatedAttemptsCount:         createdAnom.ActuatedAttemptsCount,
+			RetryPending:                  createdAnom.RetryPending,
+			ClosedAt:                      closedAtStr,
+		})
 	}
 
 	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
@@ -1385,14 +1572,17 @@ func (s *Service) RecordPanelThermalResult(
 	}
 
 	bTemp, _ := strconv.ParseFloat(panelResultRow.BaselineTemperatureC, 64)
-	return &InspectionPanelResultDTO{
-		InspectionID:          auth.FormatUUID(panelResultRow.InspectionID),
-		ModuleID:              auth.FormatUUID(panelResultRow.ModuleID),
-		PanelIndex:            panelResultRow.PanelIndex,
-		BaselineTemperatureC: bTemp,
-		TruncatedByMemory:     panelResultRow.TruncatedByMemory,
-		FinishedAt:            panelResultRow.FinishedAt.UTC().Format(time.RFC3339),
-		CreatedAt:             panelResultRow.CreatedAt.UTC().Format(time.RFC3339),
+	return &RecordPanelResultOutputDTO{
+		PanelResult: InspectionPanelResultDTO{
+			InspectionID:          auth.FormatUUID(panelResultRow.InspectionID),
+			ModuleID:              auth.FormatUUID(panelResultRow.ModuleID),
+			PanelIndex:            panelResultRow.PanelIndex,
+			BaselineTemperatureC: bTemp,
+			TruncatedByMemory:     panelResultRow.TruncatedByMemory,
+			FinishedAt:            panelResultRow.FinishedAt.UTC().Format(time.RFC3339),
+			CreatedAt:             panelResultRow.CreatedAt.UTC().Format(time.RFC3339),
+		},
+		ConfirmedAnomalies: confirmedAnomaliesOut,
 	}, nil
 }
 

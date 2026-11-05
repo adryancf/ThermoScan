@@ -92,6 +92,8 @@ void ThermoscanApp::saveCurrentStateToNvs() {
     if (storage_ == nullptr) return;
 
     StorageState s;
+    storage_->getModuleId(s.module_id);
+    s.config_version = config_.config_version;
     s.operation_status = getStateName();
     s.effective_attempts = cleaning_sm_.getEffectiveAttempts();
     s.spray_ended_timestamp = cleaning_sm_.getSprayEndedTimestamp();
@@ -99,6 +101,7 @@ void ThermoscanApp::saveCurrentStateToNvs() {
                               state_ == AppState::VERIFYING);
     s.next_inspection_timestamp = next_inspection_time_;
     s.active_hotspot_x_cm = active_hotspot_.target_x_cm;
+    s.active_panel_index = (active_hotspot_.panel_index > 0) ? active_hotspot_.panel_index : 1;
     s.baseline_temp_c = baseline_temp_c_;
     s.cleaning_operation_id = current_cleaning_op_id_;
     s.inspection_source_event_id = inspection_source_event_id_;
@@ -113,14 +116,32 @@ void ThermoscanApp::saveCurrentStateToNvs() {
 void ThermoscanApp::restoreStateFromNvs() {
     if (storage_ == nullptr) return;
 
+    // Restore persisted multi-panel geometry and schedule parameters if valid
+    float g_len = config_.panel_length_cm;
+    float g_wid = config_.panel_width_cm;
+    int32_t g_cnt = config_.panel_count;
+    float g_spc = config_.panel_spacing_cm;
+    if (storage_->getGeometry(g_len, g_wid, g_cnt, g_spc)) {
+        if (g_len > 0.0f && g_wid > 0.0f && g_cnt >= 1 && g_spc >= 0.0f) {
+            config_.panel_length_cm = g_len;
+            config_.panel_width_cm = g_wid;
+            config_.panel_count = g_cnt;
+            config_.panel_spacing_cm = g_spc;
+        }
+    }
+
     StorageState s;
     if (storage_->loadAll(s)) {
+        if (s.config_version > 0) {
+            config_.config_version = s.config_version;
+        }
         next_inspection_time_ = s.next_inspection_timestamp;
+        active_hotspot_.panel_index = (s.active_panel_index > 0) ? s.active_panel_index : 1;
         active_hotspot_.target_x_cm = s.active_hotspot_x_cm;
         active_hotspot_.confirmed = s.pending_verification;
         active_hotspot_.origin_measurement_event_id = s.anomaly_event_id;
         active_anomaly_id_ = s.anomaly_event_id;
-        baseline_temp_c_ = s.baseline_temp_c;
+        baseline_temp_c_ = (s.baseline_temp_c > 0.0f) ? s.baseline_temp_c : 25.0f;
         current_cleaning_op_id_ = s.cleaning_operation_id;
         inspection_source_event_id_ = s.inspection_source_event_id;
 
@@ -130,21 +151,35 @@ void ThermoscanApp::restoreStateFromNvs() {
         if (!cleaning_queue_.empty()) {
             bool has_cleaned = false;
             bool has_pending = false;
+            uint8_t restored_attempts = s.effective_attempts;
             for (const auto& qh : cleaning_queue_) {
-                if (qh.verification_status == "cleaned") has_cleaned = true;
-                if (qh.verification_status == "pending") has_pending = true;
+                if (qh.verification_status == "cleaned") {
+                    has_cleaned = true;
+                    restored_attempts = qh.attempts;
+                }
+                if (qh.verification_status == "pending") {
+                    has_pending = true;
+                }
             }
 
             if (has_cleaned && s.spray_ended_timestamp > 0) {
                 cleaning_sm_.restoreState(CleaningStatus::COMPLETED,
                                           AnomalyResult::OPEN,
-                                          s.effective_attempts,
+                                          restored_attempts,
                                           s.spray_ended_timestamp);
                 state_ = AppState::WAITING_VERIFICATION;
             } else if (has_pending) {
+                for (const auto& qh : cleaning_queue_) {
+                    if (qh.verification_status == "pending") {
+                        active_hotspot_.panel_index = qh.panel_index;
+                        active_hotspot_.target_x_cm = qh.target_x_cm;
+                        restored_attempts = qh.attempts;
+                        break;
+                    }
+                }
                 cleaning_sm_.restoreState(CleaningStatus::IDLE,
                                           AnomalyResult::OPEN,
-                                          s.effective_attempts,
+                                          restored_attempts,
                                           0);
                 state_ = AppState::CLEANING;
             } else {
@@ -153,6 +188,16 @@ void ThermoscanApp::restoreStateFromNvs() {
                 state_ = AppState::IDLE;
             }
         } else if (s.pending_verification && s.spray_ended_timestamp > 0) {
+            QueuedHotspot qh;
+            qh.panel_index = active_hotspot_.panel_index;
+            qh.target_x_cm = s.active_hotspot_x_cm;
+            qh.anomaly_event_id = s.anomaly_event_id;
+            qh.cleaning_operation_id = s.cleaning_operation_id;
+            qh.attempts = s.effective_attempts;
+            qh.verification_status = "cleaned";
+            qh.baseline_temp_c = baseline_temp_c_;
+            cleaning_queue_.push_back(qh);
+
             cleaning_sm_.restoreState(CleaningStatus::COMPLETED,
                                       AnomalyResult::OPEN,
                                       s.effective_attempts,
@@ -316,8 +361,10 @@ void ThermoscanApp::handleScanning() {
                                 ? inspection_started_at_ : 0;
 
     all_confirmed_hotspots_.clear();
+    confirmed_anomaly_records_.clear();
     current_batch_.clear();
     scan_truncated_by_memory_ = false;
+    all_panels_accepted_ = true;
 
     utils::HeapTracker::start();
 
@@ -436,7 +483,13 @@ void ThermoscanApp::handleScanning() {
         baseline_temp_c_ = panel_baseline;
 
         auto confirmed = thermal_analyzer_.analyzeQuantizedScan(
-            quantized_frames_, panel_baseline, ThermalAnalyzer::DEFAULT_POSITION_TOLERANCE_CM, true);
+            quantized_frames_,
+            panel_baseline,
+            ThermalAnalyzer::DEFAULT_POSITION_TOLERANCE_CM,
+            true,
+            p_start,
+            p_end,
+            p);
 
         PanelThermalResultInput p_input;
         p_input.panel_index = p;
@@ -464,6 +517,19 @@ void ThermoscanApp::handleScanning() {
             for (int retry = 0; retry < 3; ++retry) {
                 if (cloud_->submitPanelThermalResult(inspection_source_event_id_, p_input)) {
                     result_accepted = true;
+                    auto panel_anoms = cloud_->getLastConfirmedAnomalies();
+                    for (const auto& rec : panel_anoms) {
+                        bool exists = false;
+                        for (const auto& existing : confirmed_anomaly_records_) {
+                            if (existing.id == rec.id) {
+                                exists = true;
+                                break;
+                            }
+                        }
+                        if (!exists) {
+                            confirmed_anomaly_records_.push_back(rec);
+                        }
+                    }
                     break;
                 }
 #if defined(ARDUINO) || defined(ESP32)
@@ -474,9 +540,17 @@ void ThermoscanApp::handleScanning() {
             result_accepted = true;
         }
 
-        // Release quantized memory per panel strictly after transmission
+        if (!result_accepted) {
+            all_panels_accepted_ = false;
+#if defined(ARDUINO) || defined(ESP32)
+            Serial.printf("[ERR] Panel %u thermal result not accepted by backend after retries!\n", p);
+#endif
+        }
+
+        // Release quantized memory and histogram per panel strictly after transmission/retry
         quantized_frames_.clear();
         quantized_frames_.shrink_to_fit();
+        histogram_.reset();
 
         // Inter-panel gap traversal: move carriage across gap without capturing or spraying
         if (p < total_panels) {
@@ -499,6 +573,17 @@ void ThermoscanApp::handleScanning() {
 }
 
 void ThermoscanApp::handleAnalyzing() {
+    // Safeguard 2: Never finalize inspection as complete if any panel result was rejected
+    if (!all_panels_accepted_) {
+#if defined(ARDUINO) || defined(ESP32)
+        Serial.println(F("[ERR] Aborting finalizeInspection because one or more panel thermal results were not accepted."));
+#endif
+        utils::HeapTracker::stop();
+        saveCurrentStateToNvs();
+        state_ = AppState::SYNCING;
+        return;
+    }
+
     FinalizeInspectionInput fin;
     fin.finished_at_epoch = getCurrentTime();
     fin.baseline_temperature_c = 0.0f; // backend computes consolidated average across panel results
@@ -507,10 +592,24 @@ void ThermoscanApp::handleAnalyzing() {
     if (cloud_ != nullptr) {
         cloud_->finalizeInspection(inspection_source_event_id_, fin);
         active_anomaly_id_ = cloud_->getLastConfirmedAnomalyId();
+        auto fin_anoms = cloud_->getLastConfirmedAnomalies();
+        for (const auto& rec : fin_anoms) {
+            bool exists = false;
+            for (const auto& existing : confirmed_anomaly_records_) {
+                if (existing.id == rec.id) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                confirmed_anomaly_records_.push_back(rec);
+            }
+        }
     }
 
     utils::HeapTracker::stop();
 
+    auto previous_queue = cleaning_queue_;
     cleaning_queue_.clear();
 
     if (!all_confirmed_hotspots_.empty()) {
@@ -520,22 +619,71 @@ void ThermoscanApp::handleAnalyzing() {
                       return a.global_x_position_cm < b.global_x_position_cm;
                   });
 
+        std::vector<bool> used_anom(confirmed_anomaly_records_.size(), false);
+
         for (const auto& ho : all_confirmed_hotspots_) {
             QueuedHotspot qh;
             qh.panel_index = ho.panel_index;
             qh.target_x_cm = ho.global_x_position_cm;
-            qh.anomaly_event_id = !active_anomaly_id_.empty() ? active_anomaly_id_ : ho.source_event_id;
+
+            // Match authentic backend anomaly UUID from confirmed_anomaly_records_
+            std::string matched_id;
+            int best_idx = -1;
+            float best_diff = 1e9f;
+            for (size_t k = 0; k < confirmed_anomaly_records_.size(); ++k) {
+                if (used_anom[k]) continue;
+                const auto& rec = confirmed_anomaly_records_[k];
+                if (rec.panel_index == ho.panel_index) {
+                    float diff = std::abs(rec.x_position_cm - ho.global_x_position_cm);
+                    if (diff < best_diff) {
+                        best_diff = diff;
+                        best_idx = static_cast<int>(k);
+                    }
+                }
+            }
+            if (best_idx < 0) {
+                for (size_t k = 0; k < confirmed_anomaly_records_.size(); ++k) {
+                    if (!used_anom[k]) {
+                        best_idx = static_cast<int>(k);
+                        break;
+                    }
+                }
+            }
+            if (best_idx >= 0) {
+                used_anom[static_cast<size_t>(best_idx)] = true;
+                matched_id = confirmed_anomaly_records_[static_cast<size_t>(best_idx)].id;
+            } else if (all_confirmed_hotspots_.size() == 1 && !active_anomaly_id_.empty()) {
+                matched_id = active_anomaly_id_;
+            } else {
+                matched_id = ho.source_event_id;
+            }
+
+            qh.anomaly_event_id = matched_id;
             qh.cleaning_operation_id = "";
             qh.attempts = 0;
+            for (const auto& prev : previous_queue) {
+                if (prev.panel_index == qh.panel_index &&
+                    std::abs(prev.target_x_cm - qh.target_x_cm) <= 1.0f &&
+                    prev.verification_status == "pending") {
+                    qh.attempts = prev.attempts;
+                    break;
+                }
+            }
             qh.verification_status = "pending";
             qh.baseline_temp_c = (ho.panel_index < 16 && panel_baselines_[ho.panel_index] > 0.0f)
                                  ? panel_baselines_[ho.panel_index] : baseline_temp_c_;
+            qh.spray_interrupted = false;
             cleaning_queue_.push_back(qh);
         }
 
+        active_hotspot_.panel_index = cleaning_queue_[0].panel_index;
         active_hotspot_.target_x_cm = cleaning_queue_[0].target_x_cm;
         active_hotspot_.confirmed = true;
-        cleaning_sm_.resetForNewAnomaly();
+        active_anomaly_id_ = cleaning_queue_[0].anomaly_event_id;
+        cleaning_sm_.restoreState(domain::CleaningStatus::IDLE,
+                                  domain::AnomalyResult::OPEN,
+                                  cleaning_queue_[0].attempts,
+                                  0);
 
         if (storage_ != nullptr) {
             storage_->saveCleaningQueue(cleaning_queue_);
@@ -573,6 +721,18 @@ void ThermoscanApp::handleCleaning() {
             continue;
         }
 
+        active_queue_index_ = i;
+        active_hotspot_.panel_index = qh.panel_index;
+        active_hotspot_.target_x_cm = qh.target_x_cm;
+        active_hotspot_.confirmed = true;
+        active_anomaly_id_ = qh.anomaly_event_id;
+
+        // Synchronize cleaning_sm_ with THIS hotspot's attempt count before evaluation/spray
+        cleaning_sm_.restoreState(domain::CleaningStatus::IDLE,
+                                  domain::AnomalyResult::OPEN,
+                                  qh.attempts,
+                                  0);
+
         // Check if target is in gap
         domain::PanelPositionInfo pos = domain::resolvePanelPosition(
             config_.panel_count, config_.panel_length_cm, config_.panel_spacing_cm, qh.target_x_cm);
@@ -600,8 +760,8 @@ void ThermoscanApp::handleCleaning() {
             if (storage_ != nullptr) {
                 storage_->saveCleaningQueue(cleaning_queue_);
             }
-            // If failure reason is target_in_gap, continue to next hotspot without consuming attempts
-            if (is_in_gap) {
+            // If failure reason is target_in_gap or max_attempts_exceeded for this hotspot, continue to next hotspot
+            if (is_in_gap || cleaning_sm_.getReason() == "max_attempts_exceeded") {
                 continue;
             }
             // If water depleted or extreme overheat, stop cleaning loop
@@ -662,11 +822,18 @@ void ThermoscanApp::handleCleaning() {
             cloud_->ingestCleaningReport(cr, qh.cleaning_operation_id);
         }
 
+        current_cleaning_op_id_ = qh.cleaning_operation_id;
         qh.attempts = cleaning_sm_.getEffectiveAttempts();
+        qh.spray_interrupted = spray_interrupted;
         qh.verification_status = "cleaned";
 
         if (storage_ != nullptr) {
             storage_->saveCleaningQueue(cleaning_queue_);
+        }
+
+        // If water was depleted during spray, stop washing further hotspots in this pass
+        if (spray_interrupted) {
+            break;
         }
     }
 
@@ -711,6 +878,8 @@ void ThermoscanApp::handleWaitingVerification() {
 
 void ThermoscanApp::handleVerifying() {
     bool any_retry_allowed = false;
+    uint32_t last_spray_end = cleaning_sm_.getSprayEndedTimestamp();
+
     for (auto& qh : cleaning_queue_) {
         if (qh.verification_status != "cleaned") {
             continue;
@@ -814,6 +983,13 @@ void ThermoscanApp::handleVerifying() {
             hotspot_still_present = true;
         }
 
+        // Synchronize cleaning_sm_ with THIS hotspot's cleaning status and attempt count
+        cleaning_sm_.restoreState(
+            qh.spray_interrupted ? domain::CleaningStatus::FAILED : domain::CleaningStatus::COMPLETED,
+            domain::AnomalyResult::OPEN,
+            qh.attempts,
+            last_spray_end);
+
         domain::AnomalyResult result = cleaning_sm_.processVerificationResult(hotspot_still_present, (valid1 || valid2));
         if (result == domain::AnomalyResult::OPEN || result == domain::AnomalyResult::PENDING_EVALUATION) {
             any_retry_allowed = true;
@@ -838,7 +1014,13 @@ void ThermoscanApp::handleVerifying() {
             cloud_->finalizeInspection(verif_insp_id, vfin);
         }
 
-        qh.verification_status = (result == domain::AnomalyResult::RESOLVED) ? "verified" : "unresolved";
+        if (result == domain::AnomalyResult::OPEN && qh.attempts < MAX_CLEANING_ATTEMPTS) {
+            // Retain interrupted hotspot for retry on next cleaning pass
+            qh.verification_status = "pending";
+            qh.spray_interrupted = false;
+        } else {
+            qh.verification_status = (result == domain::AnomalyResult::RESOLVED) ? "verified" : "unresolved";
+        }
         if (storage_ != nullptr) {
             storage_->saveCleaningQueue(cleaning_queue_);
         }
@@ -849,9 +1031,20 @@ void ThermoscanApp::handleVerifying() {
         motion_->moveToXCm(0.0f);
     }
 
-    cleaning_queue_.clear();
+    // Retain only pending hotspots (e.g. interrupted washes eligible for retry)
+    std::vector<QueuedHotspot> retained_queue;
+    for (const auto& qh : cleaning_queue_) {
+        if (qh.verification_status == "pending" && qh.attempts < MAX_CLEANING_ATTEMPTS) {
+            retained_queue.push_back(qh);
+        }
+    }
+    cleaning_queue_ = retained_queue;
     if (storage_ != nullptr) {
-        storage_->clearCleaningQueue();
+        if (cleaning_queue_.empty()) {
+            storage_->clearCleaningQueue();
+        } else {
+            storage_->saveCleaningQueue(cleaning_queue_);
+        }
     }
     saveCurrentStateToNvs();
     state_ = any_retry_allowed ? AppState::IDLE : AppState::SYNCING;

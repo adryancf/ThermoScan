@@ -34,14 +34,18 @@ SELECT
     m.thermal_frame,
     m.received_at
 FROM measurements m
-WHERE m.inspection_id = $1 AND m.module_id = $2
+WHERE m.inspection_id = sqlc.arg('inspection_id')
+  AND m.module_id = sqlc.arg('module_id')
+  AND (sqlc.narg('panel_index')::int IS NULL OR m.panel_index = sqlc.narg('panel_index')::int)
 ORDER BY m.x_position_cm ASC, m.measured_at ASC
-LIMIT $3 OFFSET $4;
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: CountMeasurementsByInspection :one
 SELECT count(*)
 FROM measurements
-WHERE inspection_id = $1 AND module_id = $2;
+WHERE inspection_id = sqlc.arg('inspection_id')
+  AND module_id = sqlc.arg('module_id')
+  AND (sqlc.narg('panel_index')::int IS NULL OR panel_index = sqlc.narg('panel_index')::int);
 
 -- name: ListCleaningOperationsByModule :many
 SELECT
@@ -357,11 +361,24 @@ SET status = $1,
 WHERE id = $5 AND module_id = $6
 RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
 
+-- name: AppendConfirmingMeasurementsToAnomaly :one
+UPDATE anomaly_events
+SET confirming_measurement_ids = (
+    SELECT array_agg(DISTINCT u)
+    FROM unnest(anomaly_events.confirming_measurement_ids || sqlc.arg('new_measurement_ids')::uuid[]) AS u
+),
+updated_at = now()
+WHERE id = sqlc.arg('id') AND module_id = sqlc.arg('module_id')
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at;
+
 -- name: ListActiveAnomaliesForCompany :many
 SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.panel_index, a.x_position_cm::text AS x_position_cm,
        a.detected_at, a.status, a.actuated_attempts_count,
        meas.max_temperature_c::text AS max_temperature_c,
-       COALESCE(ipr.baseline_temperature_c::text, insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c
+       COALESCE(ipr.baseline_temperature_c::text, insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c,
+       COALESCE(m.panel_length_cm::text, '')::text AS module_panel_length_cm,
+       m.panel_count AS module_panel_count,
+       COALESCE(m.panel_spacing_cm::text, '')::text AS module_panel_spacing_cm
 FROM anomaly_events a
 JOIN modules m ON m.id = a.module_id
 JOIN measurements meas ON meas.id = a.origin_measurement_id

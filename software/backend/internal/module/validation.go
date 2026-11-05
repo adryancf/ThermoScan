@@ -2,8 +2,43 @@ package module
 
 import (
 	"net"
+	"strconv"
 	"strings"
 )
+
+func validatePowerSensorsConfig(sensors []PowerSensorConfigDTO, panelCount int32) error {
+	if len(sensors) == 0 {
+		return nil
+	}
+	if panelCount <= 0 {
+		return ErrInvalidInput
+	}
+	seenPanels := make(map[int32]struct{}, len(sensors))
+	seenAddrs := make(map[string]struct{}, len(sensors))
+	for _, s := range sensors {
+		if s.PanelIndex < 1 || s.PanelIndex > panelCount {
+			return ErrInvalidInput
+		}
+		if _, exists := seenPanels[s.PanelIndex]; exists {
+			return ErrInvalidInput
+		}
+		seenPanels[s.PanelIndex] = struct{}{}
+
+		addr := strings.ToLower(strings.TrimSpace(s.I2CAddress))
+		if len(addr) != 4 || !strings.HasPrefix(addr, "0x") {
+			return ErrInvalidInput
+		}
+		val, err := strconv.ParseUint(addr[2:], 16, 8)
+		if err != nil || val < 0x08 || val > 0x77 {
+			return ErrInvalidInput
+		}
+		if _, exists := seenAddrs[addr]; exists {
+			return ErrInvalidInput
+		}
+		seenAddrs[addr] = struct{}{}
+	}
+	return nil
+}
 
 func normalizeAndValidateMAC(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)

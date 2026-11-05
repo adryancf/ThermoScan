@@ -94,7 +94,7 @@ bool Drv8825Stepper::home() {
 
     // Move backward towards X=0 until limit switch opens (HIGH)
     digitalWrite(dir_pin_, LOW); // Reverse direction (-X towards NC switch)
-    const uint32_t maxHomingSteps = static_cast<uint32_t>(300.0f * steps_per_cm_); // 300 cm fail-safe
+    const uint32_t maxHomingSteps = static_cast<uint32_t>(1000.0f * steps_per_cm_); // 1000 cm (10m) fail-safe for multi-panel strings
     bool hitLimit = false;
 
     for (uint32_t step = 0; step < maxHomingSteps; ++step) {

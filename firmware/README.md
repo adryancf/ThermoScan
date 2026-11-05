@@ -70,7 +70,8 @@ firmware/
 │   ├── domain/                           # Pure domain logic (100% testable on PC)
 │   │   ├── thermal_analyzer.h / .cpp
 │   │   ├── cleaning_state_machine.h / .cpp
-│   │   └── solar_geometry.h / .cpp
+│   │   ├── solar_geometry.h / .cpp
+│   │   └── panel_geometry.h              # Pure multi-panel geometry & string rail math
 │   ├── hal_esp32/                        # ESP32 concrete driver implementations
 │   │   ├── capacitive_water_sensor.h / .cpp
 │   │   ├── drv8825_stepper.h / .cpp
@@ -82,12 +83,18 @@ firmware/
 │   │   └── http_cloud_client.h / .cpp
 │   ├── MLX90640/                         # Preserved original sensor bench tests
 │   └── NEMA17/                           # Preserved original motor bench tests
-└── test/                                 # Unit test suites executed via pio test
+└── test/                                 # 11 Unit test suites executed via pio test
     ├── test_hal_sanity/test_sanity.cpp
     ├── test_thermal_analyzer/test_thermal_analyzer.cpp
     ├── test_cleaning_state_machine/test_cleaning_state_machine.cpp
     ├── test_solar_geometry/test_solar_geometry.cpp
-    └── test_thermoscan_app/test_thermoscan_app.cpp
+    ├── test_thermoscan_app/test_thermoscan_app.cpp
+    ├── test_histogram_quantization/test_histogram_quantization.cpp
+    ├── test_network_resilience/test_network_resilience.cpp
+    ├── test_json_contracts/test_json_contracts.cpp
+    ├── test_e2e_integration/test_e2e_integration.cpp
+    ├── test_bench_diagnostics/test_bench_diagnostics.cpp
+    └── test_panel_geometry/test_panel_geometry.cpp
 ```
 
 ---
@@ -99,8 +106,8 @@ All pin assignments and physical thresholds are centralized in [`include/pinout.
 ### Default Pinout
 | Signal | Default GPIO | Notes |
 | :--- | :--- | :--- |
-| **I2C SDA** | `21` | MLX90640 thermal camera (`0x33`) & INA219 power meter (`0x40`) |
-| **I2C SCL** | `22` | MLX90640 thermal camera & INA219 power meter |
+| **I2C SDA** | `21` | MLX90640 thermal camera (`0x33`) & INA219 power meters (`0x40`, `0x41`, `0x42`) |
+| **I2C SCL** | `22` | MLX90640 thermal camera & INA219 power meters |
 | **STEPPER STEP** | `19` | DRV8825 step pulse |
 | **STEPPER DIR** | `18` | DRV8825 direction control |
 | **STEPPER EN** | `5` | DRV8825 driver enable (active LOW) |
@@ -110,10 +117,18 @@ All pin assignments and physical thresholds are centralized in [`include/pinout.
 | **SERVO NOZZLE PWM** | `26` | Nozzle tilt servo (~$-60^\circ$ to $0^\circ$) |
 | **STATUS LED** | `2` | Onboard status and diagnostic LED |
 
+### INA219 Multi-Panel Resolution
+All components resolve INA219 I2C addresses exclusively through `getInaAddressForPanel(panel_index)`:
+- Panel 1 $\to$ `0x40`
+- Panel 2 $\to$ `0x41`
+- Panel 3 $\to$ `0x42`
+- Unconfigured / > 3 $\to$ `0x00` (reports `valid = false`, thermal scan continues uninterrupted).
+
 ### Core Physical Constants
 - `STEP_SIZE_CM = 2.0f`: Fixed carriage displacement between consecutive acquisitions.
 - `FOV_OPTICAL_CM = 5.0f`: Fixed usable optical footprint of the MLX90640.
 - `OVERLAP_PERCENT = 60.0f`: Nominal spatial overlap between consecutive frames ($3.0\text{ cm}$).
+- `MAX_PANEL_ACQUISITIONS = 35`: Maximum allowable frames buffered in RAM per panel (~68 cm). RAM is freed after each panel.
 - `MAX_BASE_TEMP_C = 60.0f`: Maximum allowable baseline temperature before spraying (thermal shock prevention).
 - `HOTSPOT_THRESHOLD_DELTA_C = 10.0f`: Fixed temperature difference threshold ($\Delta T \ge +10.0^\circ\text{C}$).
 - `MAX_CLEANING_ATTEMPTS = 3`: Strict cap of 3 pump actuations per anomaly event.

@@ -452,32 +452,63 @@ TestResult BenchDiagnostics::testIna() {
         return r;
     }
 
-    PowerSnapshot snap;
-    if (!power_meter_->readSnapshot(snap) || !snap.valid) {
-        r.status = TestStatus::FAIL;
-        r.details = "Falha ao ler snapshot do INA219.";
-        r.failure_cause = "readSnapshot retornou falso ou snap.valid == false.";
-        r.duration_ms = getElapsedMs(t0);
-        return r;
+    bool panel1_ok = false;
+    bool has_nan_inf = false;
+    std::string combined_details;
+
+    for (uint8_t p = 1; p <= 3; ++p) {
+        uint8_t addr = getInaAddressForPanel(p);
+        PowerSnapshot snap;
+        bool ok = power_meter_->readSnapshotForPanel(p, snap) && snap.valid;
+
+        if (ok) {
+            if (std::isnan(snap.voltage_v) || std::isinf(snap.voltage_v) ||
+                std::isnan(snap.current_a) || std::isinf(snap.current_a) ||
+                std::isnan(snap.power_w) || std::isinf(snap.power_w)) {
+                has_nan_inf = true;
+                ok = false;
+            }
+        }
+
+        if (p == 1 && ok) {
+            panel1_ok = true;
+        }
+
+        char p_buf[160];
+        if (ok) {
+            std::snprintf(p_buf, sizeof(p_buf),
+                          "Painel %u (0x%02X): OK (Tensao: %.2f V, Corrente: %.2f A, Potencia: %.2f W)",
+                          p, addr, snap.voltage_v, snap.current_a, snap.power_w);
+        } else {
+            std::snprintf(p_buf, sizeof(p_buf),
+                          "Painel %u (0x%02X): AUSENTE",
+                          p, addr);
+        }
+
+        if (!combined_details.empty()) {
+            combined_details += " | ";
+        }
+        combined_details += p_buf;
     }
 
-    if (std::isnan(snap.voltage_v) || std::isinf(snap.voltage_v) ||
-        std::isnan(snap.current_a) || std::isinf(snap.current_a) ||
-        std::isnan(snap.power_w) || std::isinf(snap.power_w)) {
+    if (has_nan_inf) {
         r.status = TestStatus::FAIL;
-        r.details = "Valores de medicao eletrica sao NaN ou Inf.";
+        r.details = "Valores de medicao eletrica sao NaN ou Inf. " + combined_details;
         r.failure_cause = "Corrupcao de leitura do barramento I2C.";
         r.duration_ms = getElapsedMs(t0);
         return r;
     }
 
-    char details_buf[160];
-    std::snprintf(details_buf, sizeof(details_buf),
-                  "Tensao: %.2f V, Corrente: %.2f A, Potencia: %.2f W (valid=true)",
-                  snap.voltage_v, snap.current_a, snap.power_w);
+    if (!panel1_ok) {
+        r.status = TestStatus::FAIL;
+        r.details = "Falha ao ler snapshot do INA219 principal. " + combined_details;
+        r.failure_cause = "readSnapshotForPanel(1) retornou falso ou snap.valid == false.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
 
     r.status = TestStatus::PASS;
-    r.details = details_buf;
+    r.details = combined_details;
     r.duration_ms = getElapsedMs(t0);
     return r;
 }

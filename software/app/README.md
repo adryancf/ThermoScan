@@ -63,11 +63,20 @@ software/app/thermoscan/lib/
   4. Photovoltaic array configuration (dimensions, panel count, spacing, minimum solar angle, and inspection interval).
   5. Full review and confirmation.
 - **Module Overview & Configuration:** Role-aware module configuration editing (geometry/location for Manager and Installer Technician; minimum solar angle for Manager and any authorized Technician; inspection interval for Manager, Installer Technician, and assigned Client), inspection interval audit history, Manager access/responsibility control, and Client per-module operational email notification toggle.
-- **Module Details & Radiometric Scan Card (`SCR-10`):**
-  - Displays the active or latest inspection summary, including the firmware-computed baseline temperature (`baseline_temperature_c`).
+- **Module Details & Multi-Panel Radiometric Scan Card (`SCR-10`):**
+  - Displays the active or latest inspection summary, per-panel baselines, and confirmed anomalies across the string.
+  - **Scope Selector Chips:** Horizontal chip bar (`String Completa` vs `Painel 1`, `Painel 2`...) allowing instant focus on individual panels with hotspot indicators.
+  - **Mechanical Gap Separators:** Gaps between panels are rendered with dark visual dividers without thermal heat bleed, accurately representing the physical rail layout.
+  - **Clipped FOV Strips:** Optical sensor projections ($5.0\text{ cm}$) are strictly clipped to physical panel bounds, preventing artificial thermal data over inter-panel gaps.
   - **No Frame Fusion / Blending:** Raw MLX90640 thermal frames (32×24) are rendered directly at their physical $X$ coordinate (`x_position_cm`) on the panel canvas ruler without artificial linear blending or stitched single matrices.
-  - **Exclusive Hotspot Highlight:** Only firmware-confirmed hotspots (`anomaly_events` with $\ge 2$ confirming frames and spatial overlap) receive visual warning badges, boundary markers, and coordinate callouts. Unconfirmed candidates are not highlighted as anomalies.
+  - **Exclusive Hotspot Highlight:** Only firmware-confirmed hotspots (`anomaly_events` with $\ge 2$ confirming frames and spatial overlap) receive visual warning badges, boundary markers, and coordinate callouts.
   - **Graceful Handling of Missing Electrical Metrics:** Displays `N/A` when DC voltage, current, or power readings are null or unavailable due to INA219 sensor faults.
+- **Measurements & Inspection History (`SCR-11`):**
+  - **Accordion Hierarchy:** Expandable hierarchy `Array/String -> Inspeção -> Painel 1, Painel 2...` detailing baseline temperature, peak temperature, INA219 electrical metrics, and frames per panel.
+- **Cleaning Operations History (`SCR-12`):**
+  - Tracks washing attempts, displaying `Painel N • X cm (Local: ...)` and highlighting safety refusals on gaps (`RECUSADA (NO GAP)`).
+- **Alerts Feed (`SCR-21`):**
+  - Displays company-wide unresolved thermal anomalies with `Painel N` badges and precise array location.
 - **Module Measurements & Inspection Explorer (`SCR-11`):**
   - **Paginated Active Inspection Measurements:** Queries `GET /api/v1/modules/{id}/inspections/{inspectionId}/measurements?page=1&limit=10` ordered by `x_position_cm ASC`.
   - Interactive pagination controls (Previous / Next, page counter, total item count).

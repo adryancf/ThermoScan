@@ -358,6 +358,38 @@ void test_custom_fov_calibration_parameter(void) {
     TEST_ASSERT_EQUAL_FLOAT(3.0f, bench_analyzer.calculateGlobalX(0.0f, 16, 6.0f));
 }
 
+void test_edge_candidate_clamping_to_panel_bounds_prevents_gap_projection(void) {
+    ThermalAnalyzer analyzer;
+
+    // Panel 1 bounds: [0.0, 20.0 cm]. Gap is (20.0, 22.0).
+    // Last two acquisitions on Panel 1 at X = 18.0 cm and X = 20.0 cm.
+    // A hot pixel near the right edge of the FOV (e.g. col 28 at X=18 -> 22.375 cm, col 16 at X=20 -> 22.5 cm)
+    // would project into the gap if unclamped!
+    ThermalFrame f0, f1;
+    f0.valid = true;
+    f1.valid = true;
+    for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+        f0.pixels[i] = 25.0f;
+        f1.pixels[i] = 25.0f;
+    }
+    f0.pixels[6 * 32 + 28] = 48.0f; // Unclamped X_global = 18.0 + (28/32)*5 = 22.375 cm
+    f1.pixels[6 * 32 + 16] = 49.0f; // Unclamped X_global = 20.0 + (16/32)*5 = 22.500 cm
+
+    domain::QuantizedThermalFrame qf0, qf1;
+    qf0.loadFromThermalFrame(f0, 18.0f, 1000, "meas-edge-0");
+    qf1.loadFromThermalFrame(f1, 20.0f, 1001, "meas-edge-1");
+
+    std::vector<domain::QuantizedThermalFrame> qframes = {qf0, qf1};
+
+    // Analyze with Panel 1 bounds [0.0f, 20.0f] and panel_index = 1
+    auto confirmed = analyzer.analyzeQuantizedScan(qframes, 25.0f, 0.5f, true, 0.0f, 20.0f, 1);
+
+    TEST_ASSERT_EQUAL_UINT32(1, confirmed.size());
+    TEST_ASSERT_EQUAL_UINT8(1, confirmed[0].panel_index);
+    // Clamped strictly to panel_end_cm = 20.0 cm (never in gap > 20.0 cm!)
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 20.0f, confirmed[0].target_x_cm);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_coordinate_transformation);
@@ -372,5 +404,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_multiple_hot_pixels_cluster);
     RUN_TEST(test_two_distinct_nearby_anomalies);
     RUN_TEST(test_custom_fov_calibration_parameter);
+    RUN_TEST(test_edge_candidate_clamping_to_panel_bounds_prevents_gap_projection);
     return UNITY_END();
 }

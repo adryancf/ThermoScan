@@ -27,17 +27,30 @@ static inline float calculateTotalStringLength(uint8_t panel_count, float panel_
            (static_cast<float>(panel_count - 1) * panel_spacing_cm);
 }
 
-static inline void getPanelBounds(uint8_t panel_index, float panel_length_cm, float panel_spacing_cm, float& start_cm, float& end_cm) {
+static inline float calculateTotalStringLengthCm(uint8_t panel_count, float panel_length_cm, float panel_spacing_cm) {
+    return calculateTotalStringLength(panel_count, panel_length_cm, panel_spacing_cm);
+}
+
+static inline float getPanelStartCm(uint8_t panel_index, float panel_length_cm, float panel_spacing_cm) {
     if (panel_index == 0 || panel_length_cm <= 0.0f) {
-        start_cm = 0.0f;
-        end_cm = 0.0f;
-        return;
+        return 0.0f;
     }
     if (panel_spacing_cm < 0.0f) {
         panel_spacing_cm = 0.0f;
     }
-    start_cm = static_cast<float>(panel_index - 1) * (panel_length_cm + panel_spacing_cm);
-    end_cm = start_cm + panel_length_cm;
+    return static_cast<float>(panel_index - 1) * (panel_length_cm + panel_spacing_cm);
+}
+
+static inline float getPanelEndCm(uint8_t panel_index, float panel_length_cm, float panel_spacing_cm) {
+    if (panel_index == 0 || panel_length_cm <= 0.0f) {
+        return 0.0f;
+    }
+    return getPanelStartCm(panel_index, panel_length_cm, panel_spacing_cm) + panel_length_cm;
+}
+
+static inline void getPanelBounds(uint8_t panel_index, float panel_length_cm, float panel_spacing_cm, float& start_cm, float& end_cm) {
+    start_cm = getPanelStartCm(panel_index, panel_length_cm, panel_spacing_cm);
+    end_cm = getPanelEndCm(panel_index, panel_length_cm, panel_spacing_cm);
 }
 
 static inline PanelPositionInfo resolvePanelPosition(uint8_t panel_count, float panel_length_cm, float panel_spacing_cm, float x_position_cm) {

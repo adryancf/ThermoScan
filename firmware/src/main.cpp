@@ -18,15 +18,15 @@
 
 // WiFi Configuration (overridable via compiler build flags)
 #ifndef WIFI_SSID
-#define WIFI_SSID "ThermoScan_AP"
+#define WIFI_SSID "GalaxyS"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "thermoscan2026"
+#define WIFI_PASSWORD "acf12345"
 #endif
 
 #ifndef BACKEND_URL
-#define BACKEND_URL "http://192.168.1.100:8080"
+#define BACKEND_URL "http://10.117.39.58:8000/"
 #endif
 
 // Hardware Drivers & Infrastructure Layer Instantiation
@@ -35,7 +35,7 @@ static hal_esp32::CapacitiveWaterSensor g_water(WATER_SENSOR_PIN);
 static hal_esp32::Drv8825Stepper g_stepper(STEPPER_STEP_PIN, STEPPER_DIR_PIN, STEPPER_EN_PIN, STEPPER_LIMIT_NC_PIN);
 static hal_esp32::PumpServoSpray g_spray(PUMP_MOSFET_PIN, SERVO_PWM_PIN, &g_water);
 static hal_esp32::Mlx90640Camera g_camera(I2C_SDA_PIN, I2C_SCL_PIN, 0x33, CAMERA_SERVO_PWM_PIN);
-static hal_esp32::Ina219Meter g_ina219(0x40);
+static hal_esp32::Ina219Meter g_ina219(getInaAddressForPanel(1));
 static hal_esp32::Esp32TimeProvider g_time_provider("pool.ntp.org", "time.nist.gov");
 static hal_esp32::HttpCloudClient g_cloud(BACKEND_URL, &g_storage, &g_water, &g_stepper, &g_camera);
 

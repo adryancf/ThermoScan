@@ -90,6 +90,7 @@ func (s *Service) ListCleanings(ctx context.Context, principal auth.Principal, m
 			SourceEventID:          auth.FormatUUID(c.SourceEventID),
 			PanelIndex:             pgInt4ToInt32Ptr(c.PanelIndex),
 			TargetXPositionCM:      c.TargetXPositionCm,
+			LocalXPositionCM:       localTargetXStr,
 			LocalTargetXPositionCM: localTargetXStr,
 			PumpActuated:           c.PumpActuated,
 			AttemptNumber:          pgInt4ToInt32Ptr(c.AttemptNumber),
@@ -210,8 +211,23 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 
 	var resolvedPanelIndex pgtype.Int4
 	var localTargetX *string
-	if input.PanelIndex != nil && *input.PanelIndex > 0 {
+	if input.PanelIndex != nil {
+		if *input.PanelIndex < 1 || *input.PanelIndex > cnt {
+			return nil, ErrInvalidInput
+		}
 		resolvedPanelIndex = pgtype.Int4{Int32: *input.PanelIndex, Valid: true}
+	}
+
+	if input.TargetXPositionCm < 0 || !isFinite(input.TargetXPositionCm) {
+		return nil, ErrInvalidInput
+	}
+
+	isExplicitGapReason := input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) == "target_in_gap"
+	if isExplicitGapReason {
+		if status != "refused" || input.PumpActuated || (input.AttemptNumber != nil && *input.AttemptNumber != 0) {
+			return nil, ErrInvalidInput
+		}
+		resolvedPanelIndex = pgtype.Int4{Valid: false}
 	}
 
 	var failReason pgtype.Text
@@ -223,14 +239,25 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 
 	if lenCm > 0 {
 		posRes := ResolvePanelPosition(cnt, lenCm, spcCm, input.TargetXPositionCm)
+		if !posRes.WithinBounds {
+			return nil, ErrInvalidInput
+		}
 		if posRes.InGap {
+			if input.PumpActuated || (input.AttemptNumber != nil && *input.AttemptNumber != 0) {
+				return nil, ErrInvalidInput
+			}
 			status = "refused"
 			input.PumpActuated = false
 			failReason = pgtype.Text{String: "target_in_gap", Valid: true}
+			resolvedPanelIndex = pgtype.Int4{Valid: false}
 		} else {
-			if !resolvedPanelIndex.Valid {
-				resolvedPanelIndex = pgtype.Int4{Int32: posRes.PanelIndex, Valid: true}
+			if isExplicitGapReason {
+				return nil, ErrInvalidInput
 			}
+			if input.PanelIndex != nil && *input.PanelIndex != posRes.PanelIndex {
+				return nil, ErrInvalidInput
+			}
+			resolvedPanelIndex = pgtype.Int4{Int32: posRes.PanelIndex, Valid: true}
 			lStr := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
 			localTargetX = &lStr
 		}
@@ -319,6 +346,7 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		SourceEventID:          auth.FormatUUID(clean.SourceEventID),
 		PanelIndex:             pgInt4ToInt32Ptr(clean.PanelIndex),
 		TargetXPositionCM:      clean.TargetXPositionCm,
+		LocalXPositionCM:       localTargetX,
 		LocalTargetXPositionCM: localTargetX,
 		PumpActuated:           clean.PumpActuated,
 		AttemptNumber:          attPtr,

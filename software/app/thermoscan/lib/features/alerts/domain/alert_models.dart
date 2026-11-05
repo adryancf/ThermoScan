@@ -1,3 +1,15 @@
+double? _parseAlertDouble(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString());
+}
+
+int? _parseAlertInt(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString());
+}
+
 class FieldAlert {
   const FieldAlert({
     required this.id,
@@ -31,6 +43,20 @@ class FieldAlert {
 
   bool get isCritical => severity == 'critical';
 
+  String get formattedPanelLocation {
+    final parts = <String>['Array $moduleName'];
+    if (panelIndex != null) {
+      parts.add('Painel $panelIndex');
+    }
+    if (xPositionCm != null) {
+      final locSuffix = localXPositionCm != null
+          ? ' (Local: ${localXPositionCm!.toStringAsFixed(1)} cm)'
+          : '';
+      parts.add('Posição ${xPositionCm!.toStringAsFixed(1)} cm$locSuffix');
+    }
+    return parts.join(' • ');
+  }
+
   factory FieldAlert.fromJson(Map<String, dynamic> json) {
     return FieldAlert(
       id: json['id'] as String? ?? '',
@@ -41,10 +67,12 @@ class FieldAlert {
       title: json['title'] as String? ?? 'Field Alert',
       description: json['description'] as String? ?? '',
       metaText: json['meta_text'] as String? ?? '',
-      panelIndex: (json['panel_index'] as num?)?.toInt(),
-      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
-      xPositionCm: (json['x_position_cm'] as num?)?.toDouble(),
-      deltaC: (json['delta_c'] as num?)?.toDouble(),
+      panelIndex: _parseAlertInt(json['panel_index']),
+      localXPositionCm: _parseAlertDouble(
+        json['local_x_position_cm'] ?? json['local_x_cm'],
+      ),
+      xPositionCm: _parseAlertDouble(json['x_position_cm']),
+      deltaC: _parseAlertDouble(json['delta_c']),
       createdAt: json['created_at'] as String? ?? '',
     );
   }

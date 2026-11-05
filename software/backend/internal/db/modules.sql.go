@@ -194,6 +194,7 @@ INSERT INTO modules (
     minimum_solar_angle_deg,
     inspection_interval_days,
     reservoir_nominal_capacity_ml,
+    power_sensors,
     configured_at,
     config_version
 ) VALUES (
@@ -218,7 +219,8 @@ INSERT INTO modules (
     $19,
     $20,
     $21,
-    $22
+    $22,
+    $23
 )
 RETURNING
     id,
@@ -273,6 +275,7 @@ type CreateModuleParams struct {
 	MinimumSolarAngleDeg       pgtype.Numeric
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
+	PowerSensors               []byte
 	ConfiguredAt               *time.Time
 	ConfigVersion              int32
 }
@@ -331,6 +334,7 @@ func (q *Queries) CreateModule(ctx context.Context, arg CreateModuleParams) (Cre
 		arg.MinimumSolarAngleDeg,
 		arg.InspectionIntervalDays,
 		arg.ReservoirNominalCapacityMl,
+		arg.PowerSensors,
 		arg.ConfiguredAt,
 		arg.ConfigVersion,
 	)
@@ -1298,6 +1302,7 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.power_sensors,
     m.configured_at,
     m.created_at,
     m.updated_at,
@@ -1346,6 +1351,7 @@ type ListModulesForClientRow struct {
 	MinimumSolarAngleDeg       pgtype.Numeric
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
+	PowerSensors               []byte
 	ConfiguredAt               *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
@@ -1394,6 +1400,7 @@ func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForCl
 			&i.MinimumSolarAngleDeg,
 			&i.InspectionIntervalDays,
 			&i.ReservoirNominalCapacityMl,
+			&i.PowerSensors,
 			&i.ConfiguredAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
@@ -1913,12 +1920,13 @@ SET
     minimum_solar_angle_deg = $14,
     inspection_interval_days = $15,
     reservoir_nominal_capacity_ml = $16,
-    configured_at = $17,
+    power_sensors = $17,
+    configured_at = $18,
     config_version = modules.config_version + 1,
     config_apply_error = NULL,
     updated_at = NOW()
-WHERE company_id = $18
-  AND id = $19
+WHERE company_id = $19
+  AND id = $20
 RETURNING
     id,
     company_id,
@@ -1968,6 +1976,7 @@ type UpdateModuleConfigurationParams struct {
 	MinimumSolarAngleDeg       pgtype.Numeric
 	InspectionIntervalDays     int32
 	ReservoirNominalCapacityMl pgtype.Numeric
+	PowerSensors               []byte
 	ConfiguredAt               *time.Time
 	CompanyID                  pgtype.UUID
 	ID                         pgtype.UUID
@@ -2023,6 +2032,7 @@ func (q *Queries) UpdateModuleConfiguration(ctx context.Context, arg UpdateModul
 		arg.MinimumSolarAngleDeg,
 		arg.InspectionIntervalDays,
 		arg.ReservoirNominalCapacityMl,
+		arg.PowerSensors,
 		arg.ConfiguredAt,
 		arg.CompanyID,
 		arg.ID,

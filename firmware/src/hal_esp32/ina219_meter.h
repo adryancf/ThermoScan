@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_INA219.h>
+#include "pinout.h"
 #include "hal/i_power_meter.h"
 
 namespace hal_esp32 {
@@ -16,7 +17,7 @@ namespace hal_esp32 {
  */
 class Ina219Meter : public IPowerMeter {
 public:
-    explicit Ina219Meter(uint8_t i2c_addr = 0x40);
+    explicit Ina219Meter(uint8_t i2c_addr = getInaAddressForPanel(1));
     ~Ina219Meter() override = default;
 
     bool init() override;

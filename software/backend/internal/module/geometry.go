@@ -27,6 +27,48 @@ func CalculateTotalStringLength(panelCount int32, panelLengthCm float64, panelSp
 	return (float64(panelCount) * panelLengthCm) + (float64(panelCount-1) * panelSpacingCm)
 }
 
+// TotalStringLengthCm is an alias for CalculateTotalStringLength.
+func TotalStringLengthCm(panelCount int32, panelLengthCm float64, panelSpacingCm float64) float64 {
+	return CalculateTotalStringLength(panelCount, panelLengthCm, panelSpacingCm)
+}
+
+// ValidatePanelAndPosition validates that xCm and an optional providedPanelIndex are within the module string geometry and not in an inter-panel gap.
+func ValidatePanelAndPosition(xCm, panelLengthCm, panelSpacingCm float64, panelCount int32, providedPanelIndex *int32) (PanelPositionResult, error) {
+	if panelCount <= 0 {
+		panelCount = 1
+	}
+	if providedPanelIndex != nil && (*providedPanelIndex < 1 || *providedPanelIndex > panelCount) {
+		return PanelPositionResult{}, ErrInvalidPanelIndex
+	}
+	if xCm < -floatTolerance {
+		return PanelPositionResult{}, ErrPositionOutOfBounds
+	}
+	if panelLengthCm <= 0 {
+		pIdx := int32(1)
+		if providedPanelIndex != nil {
+			pIdx = *providedPanelIndex
+		}
+		return PanelPositionResult{
+			PanelIndex:   pIdx,
+			LocalXCm:     xCm,
+			InGap:        false,
+			WithinBounds: true,
+			NearestPanel: pIdx,
+		}, nil
+	}
+	posRes := ResolvePanelPosition(panelCount, panelLengthCm, panelSpacingCm, xCm)
+	if !posRes.WithinBounds {
+		return posRes, ErrPositionOutOfBounds
+	}
+	if posRes.InGap {
+		return posRes, ErrMeasurementInGap
+	}
+	if providedPanelIndex != nil && *providedPanelIndex != posRes.PanelIndex {
+		return posRes, ErrPanelIndexMismatch
+	}
+	return posRes, nil
+}
+
 // GetPanelBounds returns the physical coordinates [startCm, endCm] along the rail for a given panel (1-indexed).
 func GetPanelBounds(panelIndex int32, panelLengthCm float64, panelSpacingCm float64) (startCm float64, endCm float64) {
 	if panelIndex <= 0 || panelLengthCm <= 0 {

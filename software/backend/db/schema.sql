@@ -278,6 +278,7 @@ CREATE TABLE cleaning_operations (
     CHECK (status NOT IN ('refused', 'failed') OR failure_reason IS NOT NULL)
 );
 CREATE INDEX cleaning_operations_module_time_idx ON cleaning_operations(module_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS cleaning_operations_module_panel_idx ON cleaning_operations(module_id, panel_index, created_at DESC);
 CREATE INDEX cleaning_operations_anomaly_time_idx ON cleaning_operations(anomaly_event_id, created_at ASC);
 CREATE UNIQUE INDEX cleaning_operations_anomaly_attempt_idx
     ON cleaning_operations(anomaly_event_id, attempt_number)
@@ -366,6 +367,8 @@ CREATE TRIGGER module_technicians_updated_at BEFORE UPDATE ON module_technicians
 CREATE TRIGGER module_clients_updated_at BEFORE UPDATE ON module_clients
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER inspections_updated_at BEFORE UPDATE ON inspections
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+CREATE TRIGGER inspection_panel_results_updated_at BEFORE UPDATE ON inspection_panel_results
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 CREATE TRIGGER anomaly_events_updated_at BEFORE UPDATE ON anomaly_events
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();

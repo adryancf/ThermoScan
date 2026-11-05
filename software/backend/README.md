@@ -107,8 +107,11 @@ All endpoints are prefixed with `/api/v1` (except `/health`).
 | `PUT` | `/api/v1/modules/{moduleID}/technicians/{technicianID}` | `manager` | Grant or revoke (`can_view`) Technician access to a module (including installer) |
 | `PUT` | `/api/v1/modules/{moduleID}/clients` | `manager` | Update Clients assigned to a module |
 | `PATCH` | `/api/v1/modules/{moduleID}/email-preferences` | `client` | Enable or disable operational email notifications for an assigned module |
-| `GET` | `/api/v1/modules/{moduleID}/latest-inspection` | `manager`, `technician`, `client` | Retrieve latest inspection summary, baseline temperature, and confirmed anomalies |
-| `GET` | `/api/v1/modules/{moduleID}/inspections/{inspectionId}/measurements` | `manager`, `technician`, `client` | Paginated raw measurement list (`?page=1&limit=10`, ordered by `x_position_cm ASC`) |
+| `GET` | `/api/v1/modules/{moduleID}/latest-inspection` | `manager`, `technician`, `client` | Retrieve latest inspection summary, per-panel baselines (`panel_results`), and confirmed anomalies |
+| `GET` | `/api/v1/modules/{moduleID}/inspections` | `manager`, `technician`, `client` | List historical inspections for module |
+| `GET` | `/api/v1/modules/{moduleID}/inspections/{inspectionId}/measurements` | `manager`, `technician`, `client` | Paginated raw measurement list (`?page=1&limit=10&panel_index=1`, ordered by `x_position_cm ASC`) |
+| `GET` | `/api/v1/modules/{moduleID}/cleanings` | `manager`, `technician`, `client` | List historical cleaning operations (`panel_index`, `local_x_position_cm`) |
+| `GET` | `/api/v1/alerts` | `manager`, `technician`, `client` | List active unresolved thermal anomaly alerts across company modules |
 
 ### Device Management, Telemetry & Inspection Lifecycle
 
@@ -118,11 +121,12 @@ These endpoints are used by the physical ESP32 firmware (authenticated via Beare
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/devices/claim` | Public | Physical pairing by MAC address; issues unique `device_token` (`dev_sec_...`) |
 | `POST` | `/api/v1/devices/{moduleId}/device-ping` | Device Token / JWT | Periodic heartbeat, binary water sensor state (`water_available`), homing limits check, and radiometer status |
-| `GET` | `/api/v1/devices/{moduleId}/configuration` | Device Token / JWT | Retrieve latest server configuration version for physical NVS sync |
+| `GET` | `/api/v1/devices/{moduleId}/configuration` | Device Token / JWT | Retrieve latest server configuration version, geometry (`total_length_cm`), and `power_sensors` |
 | `POST` | `/api/v1/devices/{moduleId}/configuration/ack` | Device Token / JWT | Acknowledge configuration applied to NVS; transitions status to `synced` (returns 409 if version is stale) |
-| `POST` | `/api/v1/devices/{moduleId}/telemetry` | Device Token / JWT | Ingest raw radiometric measurements in streaming (1 per 2 cm step) or batches (max 5 items) |
-| `POST` | `/api/v1/devices/{moduleId}/inspections/{inspectionSourceEventId}/finalize` | Device Token / JWT | Finalize inspection session with baseline temperature and confirmed hotspots |
-| `POST` | `/api/v1/devices/{moduleId}/cleanings` | Device Token / JWT | Ingest cleaning actuation report (water consumption, pump duration, attempt, status) |
+| `POST` | `/api/v1/devices/{moduleId}/telemetry` | Device Token / JWT | Ingest raw radiometric measurements in streaming (1 per 2 cm step) or batches (max 5 items, with `panel_index`) |
+| `POST` | `/api/v1/devices/{moduleId}/inspections/{inspectionSourceEventId}/panels/{panelIndex}/result` | Device Token / JWT | **Per-panel thermal result:** baseline, truncation flag, and returns `confirmed_anomalies` list |
+| `POST` | `/api/v1/devices/{moduleId}/inspections/{inspectionSourceEventId}/finalize` | Device Token / JWT | Finalize entire string inspection session with consolidated baseline and confirmed hotspots |
+| `POST` | `/api/v1/devices/{moduleId}/cleanings` | Device Token / JWT | Ingest cleaning actuation report (`panel_index`, `target_in_gap` safety refusal, pump duration, attempt, status) |
 
 #### Telemetry Ingestion Contract (`POST /api/v1/devices/{moduleId}/telemetry`)
 

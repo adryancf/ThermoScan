@@ -12,7 +12,7 @@ DELETE FROM user_devices WHERE user_id NOT IN (SELECT id FROM users WHERE role =
 DELETE FROM notifications;
 
 -- 3. Wipe operational tables, inspections, operations, anomalies and modules with CASCADE
-TRUNCATE TABLE cleaning_operations, anomaly_events, measurements, inspections, reservoir_readings, interval_change_logs, module_technicians, module_managers, module_clients, modules CASCADE;
+TRUNCATE TABLE cleaning_operations, anomaly_events, measurements, inspection_panel_results, inspections, reservoir_readings, interval_change_logs, module_technicians, module_managers, module_clients, modules CASCADE;
 
 -- 4. Wipe technician-manager relationships
 DELETE FROM technician_managers;

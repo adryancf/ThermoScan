@@ -237,32 +237,29 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                     return Column(
                       children: [
                         ...filteredAlerts.map((alert) {
-                          String effectiveMeta = alert.metaText;
-                          if (alert.panelIndex != null) {
-                            final posStr = alert.xPositionCm != null
-                                ? ' • X: ${alert.xPositionCm!.toStringAsFixed(1)} cm'
-                                : '';
-                            final locStr = alert.localXPositionCm != null
-                                ? ' (Local: ${alert.localXPositionCm!.toStringAsFixed(1)} cm)'
-                                : '';
-                            effectiveMeta =
-                                '${alert.moduleName} • Painel ${alert.panelIndex}$posStr$locStr';
-                          }
+                          final locationText =
+                              (alert.panelIndex != null ||
+                                  alert.xPositionCm != null)
+                              ? alert.formattedPanelLocation
+                              : null;
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 14),
                             child: _buildAlertCard(
                               context: context,
+                              alertId: alert.id,
                               title: alert.title,
                               timeAgo: _formatTimeAgo(alert.createdAt),
                               severity: alert.isCritical ? 'Critical' : 'Warning',
                               isCritical: alert.isCritical,
+                              panelIndex: alert.panelIndex,
+                              locationText: locationText,
                               icon: alert.type == 'reservoir_low'
                                   ? Icons.water_drop_outlined
                                   : Icons.error_outline_rounded,
                               iconColor: alert.isCritical ? AppColors.error : AppColors.warning,
                               borderColor: alert.isCritical ? AppColors.error : AppColors.warning,
                               description: alert.description,
-                              metaText: effectiveMeta,
+                              metaText: alert.metaText,
                               actionLabel: alert.type == 'reservoir_low' ? 'Check Status' : 'View Module Details',
                               onTap: () {
                                 if (alert.moduleId.isNotEmpty) {
@@ -317,10 +314,13 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
 
   Widget _buildAlertCard({
     required BuildContext context,
+    required String alertId,
     required String title,
     required String timeAgo,
     required String severity,
     required bool isCritical,
+    int? panelIndex,
+    String? locationText,
     required IconData icon,
     required Color iconColor,
     required Color borderColor,
@@ -388,6 +388,31 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                           ],
                         ),
                       ),
+                      if (panelIndex != null) ...[
+                        Container(
+                          key: Key('alert_panel_badge_$alertId'),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.primarySoft,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: AppColors.primary.withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Text(
+                            'Painel $panelIndex',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 10,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
                       Container(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
@@ -421,6 +446,41 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                       height: 1.4,
                     ),
                   ),
+                  if (locationText != null && locationText.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.solar_power_outlined,
+                            size: 14,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              locationText,
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 10.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   const Divider(height: 1, color: AppColors.border),
                   const SizedBox(height: 10),

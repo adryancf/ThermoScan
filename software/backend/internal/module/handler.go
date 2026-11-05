@@ -96,24 +96,25 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 }
 
 type createModuleRequest struct {
-	Name                       string   `json:"name"`
-	MacAddress                 string   `json:"mac_address"`
-	ManagerIDs                 []string `json:"manager_ids,omitempty"`
-	ClientIDs                  []string `json:"client_ids,omitempty"`
-	PanelLengthCm              *float64 `json:"panel_length_cm"`
-	PanelWidthCm               *float64 `json:"panel_width_cm"`
-	PanelCount                 *int32   `json:"panel_count"`
-	PanelSpacingCm             *float64 `json:"panel_spacing_cm"`
-	Latitude                   *float64 `json:"latitude"`
-	Longitude                  *float64 `json:"longitude"`
-	ElevationM                 *float64 `json:"elevation_m"`
-	AzimuthDeg                 *float64 `json:"azimuth_deg"`
-	TiltDeg                    *float64 `json:"tilt_deg"`
-	AzimuthSource              *string  `json:"azimuth_source"`
-	TiltSource                 *string  `json:"tilt_source"`
-	MinimumSolarAngleDeg       *float64 `json:"minimum_solar_angle_deg"`
-	InspectionIntervalDays     *int32   `json:"inspection_interval_days"`
-	ReservoirNominalCapacityMl *float64 `json:"reservoir_nominal_capacity_ml"`
+	Name                       string                 `json:"name"`
+	MacAddress                 string                 `json:"mac_address"`
+	ManagerIDs                 []string               `json:"manager_ids,omitempty"`
+	ClientIDs                  []string               `json:"client_ids,omitempty"`
+	PanelLengthCm              *float64               `json:"panel_length_cm"`
+	PanelWidthCm               *float64               `json:"panel_width_cm"`
+	PanelCount                 *int32                 `json:"panel_count"`
+	PanelSpacingCm             *float64               `json:"panel_spacing_cm"`
+	Latitude                   *float64               `json:"latitude"`
+	Longitude                  *float64               `json:"longitude"`
+	ElevationM                 *float64               `json:"elevation_m"`
+	AzimuthDeg                 *float64               `json:"azimuth_deg"`
+	TiltDeg                    *float64               `json:"tilt_deg"`
+	AzimuthSource              *string                `json:"azimuth_source"`
+	TiltSource                 *string                `json:"tilt_source"`
+	MinimumSolarAngleDeg       *float64               `json:"minimum_solar_angle_deg"`
+	InspectionIntervalDays     *int32                 `json:"inspection_interval_days"`
+	ReservoirNominalCapacityMl *float64               `json:"reservoir_nominal_capacity_ml"`
+	PowerSensors               []PowerSensorConfigDTO `json:"power_sensors,omitempty"`
 }
 
 func (h *Handler) handleCreateModule(w http.ResponseWriter, r *http.Request) {
@@ -174,6 +175,7 @@ func (h *Handler) handleCreateModule(w http.ResponseWriter, r *http.Request) {
 		MinimumSolarAngleDeg:       req.MinimumSolarAngleDeg,
 		InspectionIntervalDays:     req.InspectionIntervalDays,
 		ReservoirNominalCapacityMl: req.ReservoirNominalCapacityMl,
+		PowerSensors:               req.PowerSensors,
 	})
 	if err != nil {
 		switch {
@@ -253,22 +255,23 @@ func (h *Handler) handleGetModule(w http.ResponseWriter, r *http.Request) {
 }
 
 type updateConfigurationRequest struct {
-	Name                       *string   `json:"name"`
-	PanelLengthCm              *float64  `json:"panel_length_cm"`
-	PanelWidthCm               *float64  `json:"panel_width_cm"`
-	PanelCount                 *int32    `json:"panel_count"`
-	PanelSpacingCm             *float64  `json:"panel_spacing_cm"`
-	Latitude                   *float64  `json:"latitude"`
-	Longitude                  *float64  `json:"longitude"`
-	ElevationM                 *float64  `json:"elevation_m"`
-	AzimuthDeg                 *float64  `json:"azimuth_deg"`
-	TiltDeg                    *float64  `json:"tilt_deg"`
-	AzimuthSource              *string   `json:"azimuth_source"`
-	TiltSource                 *string   `json:"tilt_source"`
-	MinimumSolarAngleDeg       *float64  `json:"minimum_solar_angle_deg"`
-	InspectionIntervalDays     *int32    `json:"inspection_interval_days"`
-	ReservoirNominalCapacityMl *float64  `json:"reservoir_nominal_capacity_ml"`
-	ClientIDs                  *[]string `json:"client_ids,omitempty"`
+	Name                       *string                  `json:"name"`
+	PanelLengthCm              *float64                 `json:"panel_length_cm"`
+	PanelWidthCm               *float64                 `json:"panel_width_cm"`
+	PanelCount                 *int32                   `json:"panel_count"`
+	PanelSpacingCm             *float64                 `json:"panel_spacing_cm"`
+	Latitude                   *float64                 `json:"latitude"`
+	Longitude                  *float64                 `json:"longitude"`
+	ElevationM                 *float64                 `json:"elevation_m"`
+	AzimuthDeg                 *float64                 `json:"azimuth_deg"`
+	TiltDeg                    *float64                 `json:"tilt_deg"`
+	AzimuthSource              *string                  `json:"azimuth_source"`
+	TiltSource                 *string                  `json:"tilt_source"`
+	MinimumSolarAngleDeg       *float64                 `json:"minimum_solar_angle_deg"`
+	InspectionIntervalDays     *int32                   `json:"inspection_interval_days"`
+	ReservoirNominalCapacityMl *float64                 `json:"reservoir_nominal_capacity_ml"`
+	PowerSensors               *[]PowerSensorConfigDTO  `json:"power_sensors,omitempty"`
+	ClientIDs                  *[]string                `json:"client_ids,omitempty"`
 }
 
 func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -320,6 +323,7 @@ func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Reque
 		MinimumSolarAngleDeg:       req.MinimumSolarAngleDeg,
 		InspectionIntervalDays:     req.InspectionIntervalDays,
 		ReservoirNominalCapacityMl: req.ReservoirNominalCapacityMl,
+		PowerSensors:               req.PowerSensors,
 		ClientIDs:                  parsedClientUUIDs,
 	})
 	if err != nil {

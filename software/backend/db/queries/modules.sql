@@ -49,6 +49,7 @@ INSERT INTO modules (
     minimum_solar_angle_deg,
     inspection_interval_days,
     reservoir_nominal_capacity_ml,
+    power_sensors,
     configured_at,
     config_version
 ) VALUES (
@@ -72,6 +73,7 @@ INSERT INTO modules (
     sqlc.narg('minimum_solar_angle_deg'),
     sqlc.arg('inspection_interval_days'),
     sqlc.narg('reservoir_nominal_capacity_ml'),
+    sqlc.narg('power_sensors'),
     sqlc.narg('configured_at'),
     sqlc.arg('config_version')
 )
@@ -298,6 +300,7 @@ SELECT
     m.minimum_solar_angle_deg,
     m.inspection_interval_days,
     m.reservoir_nominal_capacity_ml,
+    m.power_sensors,
     m.configured_at,
     m.created_at,
     m.updated_at,
@@ -333,6 +336,7 @@ SET
     minimum_solar_angle_deg = sqlc.narg('minimum_solar_angle_deg'),
     inspection_interval_days = sqlc.arg('inspection_interval_days'),
     reservoir_nominal_capacity_ml = sqlc.narg('reservoir_nominal_capacity_ml'),
+    power_sensors = sqlc.narg('power_sensors'),
     configured_at = sqlc.narg('configured_at'),
     config_version = modules.config_version + 1,
     config_apply_error = NULL,

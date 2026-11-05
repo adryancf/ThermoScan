@@ -57,6 +57,14 @@ struct FinalizeInspectionInput {
     std::vector<ConfirmedHotspotOutput> confirmed_hotspots;
 };
 
+// Confirmed anomaly record returned by backend in submitPanelThermalResult and finalizeInspection
+struct ConfirmedAnomalyRecord {
+    std::string id{};
+    uint8_t panel_index{1};
+    float x_position_cm{0.0f};
+    float local_x_position_cm{0.0f};
+};
+
 // Cleaning report input for POST /cleanings
 // Sensor capacitivo é binário: estimated_water_volume_ml NÃO é transmitido
 struct CleaningReportInput {
@@ -115,6 +123,7 @@ public:
                                     const FinalizeInspectionInput& input) = 0;
     virtual bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) = 0;
     virtual std::string getLastConfirmedAnomalyId() const { return ""; }
+    virtual std::vector<ConfirmedAnomalyRecord> getLastConfirmedAnomalies() const { return {}; }
     virtual bool hadAuthError() const { return false; }
     virtual bool isConnected() const = 0;
 

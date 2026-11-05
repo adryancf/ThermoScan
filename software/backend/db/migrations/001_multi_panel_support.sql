@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS inspection_panel_results (
 CREATE INDEX IF NOT EXISTS inspection_panel_results_module_idx
     ON inspection_panel_results(module_id, inspection_id);
 
+DROP TRIGGER IF EXISTS inspection_panel_results_updated_at ON inspection_panel_results;
+CREATE TRIGGER inspection_panel_results_updated_at BEFORE UPDATE ON inspection_panel_results
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 -- 3. Measurements: panel_index column and index
 ALTER TABLE measurements
     ADD COLUMN IF NOT EXISTS panel_index integer NOT NULL DEFAULT 1

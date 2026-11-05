@@ -189,10 +189,23 @@ void test_invalid_verification_keeps_pending_evaluation(void) {
     TEST_ASSERT_EQUAL(AnomalyResult::PENDING_EVALUATION, sm.getAnomalyResult());
 }
 
+void test_refusal_due_to_target_in_inter_panel_gap(void) {
+    CleaningStateMachine sm;
+
+    // Normal baseline (30.0°C) and water available, but coordinate falls inside inter-panel gap
+    bool result = sm.evaluateBeforeSpray(30.0f, true, true);
+
+    TEST_ASSERT_FALSE(result);
+    TEST_ASSERT_EQUAL(CleaningStatus::REFUSED, sm.getStatus());
+    TEST_ASSERT_EQUAL_STRING("target_in_gap", sm.getReason().c_str());
+    TEST_ASSERT_EQUAL_UINT8(0, sm.getEffectiveAttempts()); // Attempt budget NOT consumed
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_refusal_due_to_high_baseline_temp);
     RUN_TEST(test_refusal_due_to_insufficient_water_before_spray);
+    RUN_TEST(test_refusal_due_to_target_in_inter_panel_gap);
     RUN_TEST(test_interruption_due_to_water_depletion_during_spray);
     RUN_TEST(test_mandatory_30_minute_cooldown);
     RUN_TEST(test_solar_window_lock_on_verification);

@@ -226,6 +226,7 @@ class _FakeModuleRepository extends ModuleRepository {
     required String moduleId,
     int limit = 50,
     int offset = 0,
+    int? panelIndex,
   }) async {
     return const [
       ModuleMeasurement(
@@ -250,6 +251,7 @@ class _FakeModuleRepository extends ModuleRepository {
     required String inspectionId,
     int page = 1,
     int limit = 10,
+    int? panelIndex,
   }) async {
     final allMeasurements = [
       const ModuleMeasurement(

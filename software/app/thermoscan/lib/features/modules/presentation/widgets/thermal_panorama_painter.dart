@@ -413,8 +413,19 @@ class ThermalPanoramaData {
         focusedPanelIndex >= 1 &&
         focusedPanelIndex <= bounds.length) {
       final targetPanel = bounds[focusedPanelIndex - 1];
-      minDomainX = targetPanel.startXCm - ThermalCoverageInfo.halfFovCm;
-      maxDomainX = targetPanel.endXCm + ThermalCoverageInfo.halfFovCm;
+      if (fitToScannedRange && sorted.isNotEmpty) {
+        minDomainX = math.max(
+          targetPanel.startXCm,
+          minFrameX - ThermalCoverageInfo.halfFovCm,
+        );
+        maxDomainX = math.min(
+          targetPanel.endXCm,
+          maxFrameX + ThermalCoverageInfo.halfFovCm,
+        );
+      } else {
+        minDomainX = targetPanel.startXCm - ThermalCoverageInfo.halfFovCm;
+        maxDomainX = targetPanel.endXCm + ThermalCoverageInfo.halfFovCm;
+      }
     } else if (fitToScannedRange && sorted.isNotEmpty) {
       minDomainX = minFrameX - ThermalCoverageInfo.halfFovCm;
       maxDomainX = maxFrameX + ThermalCoverageInfo.halfFovCm;
@@ -474,6 +485,8 @@ class ThermalPanoramaData {
           sortedMeasurements: sorted,
           xCm: xCm,
           row: row,
+          gapIntervals: gaps,
+          panelBounds: bounds,
         );
         if (res.wasComplemented) {
           complementedCount++;
@@ -571,8 +584,20 @@ class ThermalPanoramaData {
     required List<ModuleMeasurement> sortedMeasurements,
     required double xCm,
     required int row,
+    List<GapInterval> gapIntervals = const [],
+    List<PanelBound> panelBounds = const [],
   }) {
     if (row < 0 || row >= ThermalCoverageInfo.sensorRows) {
+      return const ThermalCellResolution(status: ThermalCellStatus.uncovered);
+    }
+
+    // Never resolve thermal heat inside an inter-panel gap
+    if (gapIntervals.any((g) => g.contains(xCm))) {
+      return const ThermalCellResolution(status: ThermalCellStatus.uncovered);
+    }
+
+    // For multi-panel arrays, never resolve outside physical panel boundaries
+    if (panelBounds.length > 1 && !panelBounds.any((b) => b.contains(xCm))) {
       return const ThermalCellResolution(status: ThermalCellStatus.uncovered);
     }
 
@@ -580,6 +605,26 @@ class ThermalPanoramaData {
     for (var i = 0; i < sortedMeasurements.length; i++) {
       final m = sortedMeasurements[i];
       if (!hasValidThermalMatrix(m)) continue;
+
+      if (panelBounds.length > 1 || m.panelIndex != null) {
+        PanelBound? mBound;
+        if (m.panelIndex != null &&
+            m.panelIndex! >= 1 &&
+            m.panelIndex! <= panelBounds.length) {
+          mBound = panelBounds[m.panelIndex! - 1];
+        } else if (panelBounds.length > 1) {
+          for (final b in panelBounds) {
+            if (b.contains(m.xPositionCm)) {
+              mBound = b;
+              break;
+            }
+          }
+        }
+        if (mBound != null && !mBound.contains(xCm)) {
+          continue;
+        }
+      }
+
       final startX = m.xPositionCm - ThermalCoverageInfo.halfFovCm;
       final endX = m.xPositionCm + ThermalCoverageInfo.halfFovCm;
       if (xCm >= startX && xCm <= endX) {
@@ -639,6 +684,8 @@ class ThermalPanoramaData {
       sortedMeasurements: sortedMeasurements,
       xCm: xCm,
       row: row,
+      gapIntervals: gapIntervals,
+      panelBounds: panelBounds,
     );
   }
 
@@ -697,12 +744,68 @@ class ThermalPanoramaPainter extends CustomPainter {
     final domainSpan = panorama.domainSpanCm;
     final pxPerCm = size.width / domainSpan;
 
-    // Draw mechanical gap spacers between adjacent panels
+    if (panorama.hasAnyThermalMatrix && panorama.gridColumns > 0) {
+      final rows = ThermalCoverageInfo.sensorRows;
+      final cols = panorama.gridColumns;
+      final cellW = size.width / cols;
+      final cellH = size.height / rows;
+      final colStepCm = domainSpan / cols;
+      final cellPaint = Paint()..style = PaintingStyle.fill;
+
+      for (var r = 0; r < rows; r++) {
+        final rowCells = panorama.gridCells[r];
+        final top = r * cellH;
+        for (var c = 0; c < cols; c++) {
+          final xCm = panorama.minDomainX + (c + 0.5) * colStepCm;
+
+          // Strictly clip thermal cells to physical panel boundaries and out of gaps
+          if (panorama.gapIntervals.any((g) => g.contains(xCm))) {
+            continue;
+          }
+          if (panorama.panelBounds.isNotEmpty) {
+            if (panorama.focusedPanelIndex != null &&
+                panorama.focusedPanelIndex! >= 1 &&
+                panorama.focusedPanelIndex! <= panorama.panelBounds.length) {
+              if (!panorama.panelBounds[panorama.focusedPanelIndex! - 1]
+                  .contains(xCm)) {
+                continue;
+              }
+            } else if (!panorama.panelBounds.any((b) => b.contains(xCm))) {
+              continue;
+            }
+          }
+
+          final cell = rowCells[c];
+          if (cell.isUncovered) continue;
+
+          if (cell.isUnresolvedInvalid) {
+            cellPaint.color = unresolvedInvalidColor;
+          } else if (cell.hasValidTemperature) {
+            cellPaint.color = panorama.colorForTemperature(cell.temperatureC!);
+          } else {
+            continue;
+          }
+
+          final left = c * cellW;
+          // Slight +0.4 px overlap avoids subpixel hairline seams between adjacent cells
+          canvas.drawRect(
+            Rect.fromLTWH(left, top, cellW + 0.4, cellH + 0.4),
+            cellPaint,
+          );
+        }
+      }
+    }
+
+    // Draw mechanical gap spacers on top so inter-panel gaps remain crisp and un-colored
     final gapPaint = Paint()
       ..color = gapSpacerColor
       ..style = PaintingStyle.fill;
     final gapBorderPaint = Paint()
       ..color = gapBorderColor
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+    final hatchPaint = Paint()
+      ..color = const Color(0xFF1E293B)
       ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
 
@@ -718,49 +821,55 @@ class ThermalPanoramaPainter extends CustomPainter {
         size.height,
       );
       canvas.drawRect(rect, gapPaint);
+
+      // Subtle diagonal hatching lines inside the mechanical gap
+      if (rect.width >= 2.0) {
+        canvas.save();
+        canvas.clipRect(rect);
+        const step = 6.0;
+        for (double y = -rect.width; y < size.height + rect.width; y += step) {
+          canvas.drawLine(
+            Offset(rect.left, y),
+            Offset(rect.right, y + rect.width),
+            hatchPaint,
+          );
+        }
+        canvas.restore();
+      }
+
       canvas.drawRect(rect, gapBorderPaint);
 
-      // Mechanical slot center marking
-      if (rect.width >= 3.0) {
+      // Mechanical slot center marking & label when width permits
+      if (rect.width >= 14.0) {
+        final gapLabel = rect.width >= 28.0
+            ? 'GAP\n${gap.widthCm.toStringAsFixed(0)}cm'
+            : 'GAP';
+        final tp = TextPainter(
+          text: TextSpan(
+            text: gapLabel,
+            style: const TextStyle(
+              color: Color(0xFF94A3B8),
+              fontSize: 7.5,
+              fontWeight: FontWeight.w800,
+              height: 1.1,
+            ),
+          ),
+          textAlign: TextAlign.center,
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: rect.width);
+        tp.paint(
+          canvas,
+          Offset(
+            rect.center.dx - tp.width / 2,
+            rect.center.dy - tp.height / 2,
+          ),
+        );
+      } else if (rect.width >= 3.0) {
         final midX = rect.center.dx;
         canvas.drawLine(
           Offset(midX, 4),
           Offset(midX, size.height - 4),
           gapBorderPaint,
-        );
-      }
-    }
-
-    if (!panorama.hasAnyThermalMatrix || panorama.gridColumns <= 0) {
-      return;
-    }
-
-    final rows = ThermalCoverageInfo.sensorRows;
-    final cols = panorama.gridColumns;
-    final cellW = size.width / cols;
-    final cellH = size.height / rows;
-    final cellPaint = Paint()..style = PaintingStyle.fill;
-
-    for (var r = 0; r < rows; r++) {
-      final rowCells = panorama.gridCells[r];
-      final top = r * cellH;
-      for (var c = 0; c < cols; c++) {
-        final cell = rowCells[c];
-        if (cell.isUncovered) continue;
-
-        if (cell.isUnresolvedInvalid) {
-          cellPaint.color = unresolvedInvalidColor;
-        } else if (cell.hasValidTemperature) {
-          cellPaint.color = panorama.colorForTemperature(cell.temperatureC!);
-        } else {
-          continue;
-        }
-
-        final left = c * cellW;
-        // Slight +0.4 px overlap avoids subpixel hairline seams between adjacent cells
-        canvas.drawRect(
-          Rect.fromLTWH(left, top, cellW + 0.4, cellH + 0.4),
-          cellPaint,
         );
       }
     }

@@ -16,12 +16,25 @@ public:
     bool healthy{true};
     bool capture_valid{true};
     float pixel_fill{25.0f};
+    float current_x{0.0f};
+    std::vector<std::pair<float, int>> hotspots; // (target_x_cm, row)
 
     bool init() override { return true; }
     bool captureFrame(ThermalFrame& out) override {
         out.valid = capture_valid;
         for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
             out.pixels[i] = pixel_fill;
+        }
+        const float fov = 5.0f;
+        for (const auto& hs : hotspots) {
+            float tx = hs.first;
+            int row = hs.second;
+            if (tx >= current_x && tx < (current_x + fov)) {
+                int col = static_cast<int>(std::round(((tx - current_x) / fov) * 32.0f));
+                if (col < 0) col = 0;
+                if (col >= 32) col = 31;
+                out.pixels[row * 32 + col] = pixel_fill + 20.0f;
+            }
         }
         return capture_valid;
     }
@@ -45,15 +58,20 @@ public:
     float x_pos{0.0f};
     bool limit_healthy{true};
     bool home_success{true};
+    MockThermalCamera* camera{nullptr};
+    std::vector<float> visited_x;
 
     bool init() override { return true; }
     bool home() override {
         if (!home_success) return false;
         x_pos = 0.0f;
+        if (camera) camera->current_x = 0.0f;
         return true;
     }
     bool moveToXCm(float target_x_cm) override {
         x_pos = target_x_cm;
+        visited_x.push_back(target_x_cm);
+        if (camera) camera->current_x = target_x_cm;
         return true;
     }
     float getXPositionCm() const override { return x_pos; }
@@ -132,12 +150,21 @@ public:
         panel_len = l; panel_wid = w; panel_cnt = c; panel_spc = sp;
         return true;
     }
+    bool getGeometry(float& l, float& w, int32_t& c, float& sp) override {
+        l = panel_len; w = panel_wid; c = panel_cnt; sp = panel_spc;
+        return true;
+    }
+    bool saveCleaningQueue(const std::vector<QueuedHotspot>& q) override { saved_queue = q; return true; }
+    bool getCleaningQueue(std::vector<QueuedHotspot>& out) override { out = saved_queue; return !out.empty(); }
+    bool clearCleaningQueue() override { saved_queue.clear(); return true; }
     bool saveMinSolarAngle(float ang) override { min_solar = ang; return true; }
     bool saveIntervalDays(int32_t d) override { interval_d = d; return true; }
     bool savePingIntervalSeconds(int32_t s) override { ping_s = s; return true; }
     bool saveAll(const StorageState& s) override { state = s; return true; }
     bool loadAll(StorageState& s) override { s = state; return true; }
-    bool clear() override { state = StorageState{}; return true; }
+    bool clear() override { state = StorageState{}; saved_queue.clear(); return true; }
+
+    std::vector<QueuedHotspot> saved_queue;
 };
 
 class MockCloudClient : public ICloudClient {
@@ -146,10 +173,14 @@ public:
     int telemetries_ingested{0};
     int cleanings_ingested{0};
     int batches_ingested{0};
+    int panel_results_submitted{0};
     int inspections_finalized{0};
     int cleaning_reports_ingested{0};
     uint32_t last_acked_config_version{0};
     CleaningReportInput last_cleaning_report{};
+    std::vector<CleaningReportInput> all_cleaning_reports;
+    std::vector<PanelThermalResultInput> submitted_panel_results;
+    bool submit_panel_result_success{true};
 
     bool config_pending{false};
     bool get_config_success{true};
@@ -169,11 +200,18 @@ public:
     }
     bool ackConfiguration(uint32_t v) override { last_acked_config_version = v; return true; }
     bool ingestTelemetryBatch(const IngestTelemetryBatchInput&) override { batches_ingested++; return true; }
+    bool submitPanelThermalResult(const std::string&, const PanelThermalResultInput& input) override {
+        panel_results_submitted++;
+        if (!submit_panel_result_success) return false;
+        submitted_panel_results.push_back(input);
+        return true;
+    }
     bool finalizeInspection(const std::string&, const FinalizeInspectionInput&) override { inspections_finalized++; return true; }
     bool ingestCleaningReport(const CleaningReportInput& cr, std::string& out_id) override {
         cleaning_reports_ingested++;
         last_cleaning_report = cr;
-        out_id = "clean-test-uuid";
+        all_cleaning_reports.push_back(cr);
+        out_id = "clean-test-uuid-" + std::to_string(cleaning_reports_ingested);
         return true;
     }
     bool ingestTelemetry(const TelemetryPayload&) override { telemetries_ingested++; return true; }

@@ -236,13 +236,18 @@ class ModuleRepository {
 
   Future<List<ModuleMeasurement>> listMeasurements({
     required String moduleId,
-    int limit = 50,
+    int limit = 200,
     int offset = 0,
+    int? panelIndex,
   }) async {
     try {
       final response = await dio.get<Map<String, dynamic>>(
         '/modules/$moduleId/measurements',
-        queryParameters: {'limit': limit, 'offset': offset},
+        queryParameters: {
+          'limit': limit,
+          'offset': offset,
+          'panel_index': ?panelIndex,
+        },
       );
       final rawList =
           response.data?['measurements'] as List<dynamic>? ?? const [];
@@ -296,11 +301,16 @@ class ModuleRepository {
     required String inspectionId,
     int page = 1,
     int limit = 10,
+    int? panelIndex,
   }) async {
     try {
       final response = await dio.get<Map<String, dynamic>>(
         '/modules/$moduleId/inspections/$inspectionId/measurements',
-        queryParameters: {'page': page, 'limit': limit},
+        queryParameters: {
+          'page': page,
+          'limit': limit,
+          'panel_index': ?panelIndex,
+        },
       );
       return PagedMeasurements.fromJson(response.data ?? {});
     } on DioException catch (err) {

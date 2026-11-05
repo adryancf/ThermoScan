@@ -31,17 +31,20 @@ Flutter mobile client for the ThermoScan photovoltaic module monitoring and loca
 - **`lib/features/modules/`** (`manager`, `technician`, `client`):
   - PV Modules home list (`SCR-09`) with search, status filter, and Technician installation entry point
   - 5-step Technician Module Installation Wizard (`SCR-16` to `SCR-20`) with draft save/resume support (`pending_configuration` -> `active`)
-  - Module Overview & Radiometric Scan Card (`SCR-10`):
-    - Displays inspection session details and baseline temperature (`baseline_temperature_c`).
+  - Module Overview & Multi-Panel Radiometric Scan Card (`SCR-10`):
+    - Scope Selector Chips (`String Completa` vs `Painel 1`, `Painel 2`...) with hotspot indicators.
+    - Mechanical Gap Separators: renders dark dividers between panels without thermal bleed.
+    - Clipped FOV Strips: optical sensor projections ($5.0\text{ cm}$) are strictly clipped within panel bounds.
+    - Displays inspection session details, per-panel baselines (`baseline_temperature_c`), and confirmed anomalies.
     - Renders individual thermal frames (32×24) positioned at physical $X$ coordinates (`x_position_cm`) without frame fusion, blending, or stitched matrices.
-    - Highlights **only** firmware-confirmed hotspots (`anomaly_events` verified across $\ge 2$ consecutive frames with 60% overlap); does not highlight unconfirmed candidates.
+    - Highlights **only** firmware-confirmed hotspots (`anomaly_events` verified across $\ge 2$ consecutive frames with 60% overlap).
     - Treats missing/null INA219 electrical readings gracefully by rendering `N/A`.
   - Module Measurements & Inspection Explorer (`SCR-11`):
-    - Paginated inspection measurements (`GET /api/v1/modules/{id}/inspections/{inspectionId}/measurements?page=1&limit=10` ordered by `x_position_cm ASC`).
+    - Hierarchical Accordion History (`Array/String -> Inspeção -> Painel 1, Painel 2...`) with baseline, peak temperature, INA219 electrical metrics, and frames per panel.
+    - Paginated inspection measurements (`GET /api/v1/modules/{id}/inspections/{inspectionId}/measurements?page=1&limit=10&panel_index=1` ordered by `x_position_cm ASC`).
     - Interactive page navigation (Previous/Next, page count, total items).
     - Detailed per-step telemetry tiles displaying $X$ coordinate, peak temperature, electrical metrics (`N/A` on sensor null), and confirmed anomaly indicators.
-    - Chronological inspection session aggregator with filter pills (`All`, `Hotspots`, `Normal`).
-  - Module Cleanings History (`SCR-12`): washing operations log with post-cleaning thermal verification status (`resolved`, `unresolved`, `pending`).
+  - Module Cleanings History (`SCR-12`): washing operations log with `Painel N • X cm` tags, gap refusal badges (`RECUSADA (NO GAP)`), and post-cleaning thermal verification status (`resolved`, `unresolved`, `pending`).
   - Role-aware Module Configuration and Inspection Interval Change History (`SCR-13`)
   - Manager Module Access & Responsible Managers screen (`SCR-14`)
   - Client operational email notification toggle (`SCR-28`)

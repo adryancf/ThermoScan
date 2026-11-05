@@ -43,6 +43,7 @@ public:
                             const FinalizeInspectionInput& input) override;
     bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) override;
     std::string getLastConfirmedAnomalyId() const override { return last_confirmed_anomaly_id_; }
+    std::vector<ConfirmedAnomalyRecord> getLastConfirmedAnomalies() const override { return last_confirmed_anomalies_; }
     bool ingestTelemetry(const TelemetryPayload& /*telemetry*/) override { return false; }
     bool ingestCleaning(const CleaningPayload& /*cleaning*/) override { return false; }
     bool isConnected() const override;
@@ -76,6 +77,7 @@ private:
     std::string module_id_;
     std::string device_token_;
     std::string last_confirmed_anomaly_id_;
+    std::vector<ConfirmedAnomalyRecord> last_confirmed_anomalies_;
 
     IStorage* storage_{nullptr};
     IWaterSensor* water_sensor_{nullptr};

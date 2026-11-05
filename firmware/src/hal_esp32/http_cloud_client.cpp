@@ -392,8 +392,38 @@ bool HttpCloudClient::submitPanelThermalResult(const std::string& inspection_sou
         return false;
     }
 
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+        String response = http.getString();
+        http.end();
+
+        last_confirmed_anomalies_.clear();
+        JsonDocument resDoc;
+        if (!deserializeJson(resDoc, response.c_str())) {
+            JsonArray arr;
+            if (resDoc["confirmed_anomalies"].is<JsonArray>()) {
+                arr = resDoc["confirmed_anomalies"].as<JsonArray>();
+            } else if (resDoc["latest_inspection"]["confirmed_anomalies"].is<JsonArray>()) {
+                arr = resDoc["latest_inspection"]["confirmed_anomalies"].as<JsonArray>();
+            }
+            for (JsonObject obj : arr) {
+                ConfirmedAnomalyRecord rec;
+                rec.id = obj["id"] | "";
+                rec.panel_index = obj["panel_index"] | input.panel_index;
+                rec.x_position_cm = obj["x_position_cm"] | 0.0f;
+                rec.local_x_position_cm = obj["local_x_position_cm"] | 0.0f;
+                if (!rec.id.empty()) {
+                    last_confirmed_anomalies_.push_back(rec);
+                }
+            }
+            if (!last_confirmed_anomalies_.empty()) {
+                last_confirmed_anomaly_id_ = last_confirmed_anomalies_[0].id;
+            }
+        }
+        return true;
+    }
+
     http.end();
-    return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
+    return false;
 }
 
 std::string HttpCloudClient::buildFinalizeJson(const FinalizeInspectionInput& input) {
@@ -454,6 +484,7 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
         String response = http.getString();
         http.end();
 
+        last_confirmed_anomalies_.clear();
         JsonDocument resDoc;
         if (!deserializeJson(resDoc, response.c_str())) {
             JsonArray arr;
@@ -462,8 +493,18 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
             } else if (resDoc["latest_inspection"]["confirmed_anomalies"].is<JsonArray>()) {
                 arr = resDoc["latest_inspection"]["confirmed_anomalies"].as<JsonArray>();
             }
-            if (arr.size() > 0 && arr[0]["id"].is<const char*>()) {
-                last_confirmed_anomaly_id_ = arr[0]["id"].as<std::string>();
+            for (JsonObject obj : arr) {
+                ConfirmedAnomalyRecord rec;
+                rec.id = obj["id"] | "";
+                rec.panel_index = obj["panel_index"] | 1;
+                rec.x_position_cm = obj["x_position_cm"] | 0.0f;
+                rec.local_x_position_cm = obj["local_x_position_cm"] | 0.0f;
+                if (!rec.id.empty()) {
+                    last_confirmed_anomalies_.push_back(rec);
+                }
+            }
+            if (!last_confirmed_anomalies_.empty()) {
+                last_confirmed_anomaly_id_ = last_confirmed_anomalies_[0].id;
             }
         }
         return true;

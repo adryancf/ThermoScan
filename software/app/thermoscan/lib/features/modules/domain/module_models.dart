@@ -1,3 +1,36 @@
+double? _parseDouble(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toDouble();
+  return double.tryParse(v.toString());
+}
+
+int? _parseInt(dynamic v) {
+  if (v == null) return null;
+  if (v is num) return v.toInt();
+  return int.tryParse(v.toString());
+}
+
+class PanelSegmentGeometry {
+  const PanelSegmentGeometry({
+    this.panelIndex,
+    required this.startXCm,
+    required this.endXCm,
+    required this.isGap,
+    double? lengthCm,
+    required this.label,
+  }) : lengthCm = lengthCm ?? (endXCm - startXCm);
+
+  final int? panelIndex;
+  final double startXCm;
+  final double endXCm;
+  final bool isGap;
+  final double lengthCm;
+  final String label;
+
+  bool contains(double xCm) =>
+      isGap ? (xCm > startXCm && xCm < endXCm) : (xCm >= startXCm && xCm <= endXCm);
+}
+
 class ModulePermissions {
   const ModulePermissions({
     required this.canEditGeometryAndLocation,
@@ -154,6 +187,40 @@ class PvModule {
       }
     }
     return (panelIndex: 1, localXCm: xCm, inGap: false);
+  }
+
+  List<PanelSegmentGeometry> get panelSegments {
+    final count = (panelCount != null && panelCount! > 0) ? panelCount! : 1;
+    final len = (panelLengthCm != null && panelLengthCm! > 0) ? panelLengthCm! : 100.0;
+    final spc = (panelSpacingCm != null && panelSpacingCm! >= 0) ? panelSpacingCm! : 0.0;
+    final segments = <PanelSegmentGeometry>[];
+    for (var p = 1; p <= count; p++) {
+      final start = (p - 1) * (len + spc);
+      final end = start + len;
+      segments.add(
+        PanelSegmentGeometry(
+          panelIndex: p,
+          startXCm: start,
+          endXCm: end,
+          isGap: false,
+          lengthCm: len,
+          label: 'Painel $p',
+        ),
+      );
+      if (p < count && spc > 0) {
+        segments.add(
+          PanelSegmentGeometry(
+            panelIndex: null,
+            startXCm: end,
+            endXCm: end + spc,
+            isGap: true,
+            lengthCm: spc,
+            label: 'GAP ${spc.toStringAsFixed(0)}cm',
+          ),
+        );
+      }
+    }
+    return segments;
   }
 
   String get monitoringStatusLabel {
@@ -622,14 +689,14 @@ class ModuleMeasurement {
       moduleId: json['module_id'] as String? ?? '',
       inspectionId: json['inspection_id'] as String? ?? '',
       sourceEventId: json['source_event_id'] as String? ?? '',
-      panelIndex: (json['panel_index'] as num?)?.toInt(),
-      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
+      panelIndex: _parseInt(json['panel_index']),
+      localXPositionCm: _parseDouble(json['local_x_position_cm']),
       measuredAt: json['measured_at'] as String? ?? '',
-      xPositionCm: double.tryParse(json['x_position_cm']?.toString() ?? '') ?? 0.0,
-      maxTemperatureC: double.tryParse(json['max_temperature_c']?.toString() ?? '') ?? 0.0,
-      voltageV: rawV != null ? double.tryParse(rawV.toString()) : null,
-      currentA: rawI != null ? double.tryParse(rawI.toString()) : null,
-      powerW: rawP != null ? double.tryParse(rawP.toString()) : null,
+      xPositionCm: _parseDouble(json['x_position_cm']) ?? 0.0,
+      maxTemperatureC: _parseDouble(json['max_temperature_c']) ?? 0.0,
+      voltageV: _parseDouble(rawV),
+      currentA: _parseDouble(rawI),
+      powerW: _parseDouble(rawP),
       thermalFrame: frame,
       receivedAt: json['received_at'] as String? ?? '',
     );
@@ -744,12 +811,12 @@ class ConfirmedAnomaly {
       originMeasurementId: json['origin_measurement_id'] as String? ?? '',
       confirmingMeasurementIds: rawConfirming.map((e) => e.toString()).toList(),
       sourceEventId: json['source_event_id'] as String? ?? '',
-      panelIndex: (json['panel_index'] as num?)?.toInt(),
-      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
-      xPositionCm: (json['x_position_cm'] as num?)?.toDouble() ?? 0.0,
+      panelIndex: _parseInt(json['panel_index']),
+      localXPositionCm: _parseDouble(json['local_x_position_cm']),
+      xPositionCm: _parseDouble(json['x_position_cm']) ?? 0.0,
       detectedAt: json['detected_at'] as String? ?? '',
       status: json['status'] as String? ?? 'open',
-      actuatedAttemptsCount: (json['actuated_attempts_count'] as num?)?.toInt() ?? 0,
+      actuatedAttemptsCount: _parseInt(json['actuated_attempts_count']) ?? 0,
       retryPending: json['retry_pending'] as bool? ?? false,
       closedAt: json['closed_at'] as String?,
     );
@@ -897,15 +964,17 @@ class ModuleCleaning {
       moduleId: json['module_id'] as String? ?? '',
       anomalyEventId: json['anomaly_event_id'] as String? ?? '',
       sourceEventId: json['source_event_id'] as String? ?? '',
-      panelIndex: (json['panel_index'] as num?)?.toInt(),
-      localXPositionCm: (json['local_x_position_cm'] as num?)?.toDouble(),
-      targetXPositionCm: double.tryParse(json['target_x_position_cm']?.toString() ?? '') ?? 0.0,
+      panelIndex: _parseInt(json['panel_index']),
+      localXPositionCm: _parseDouble(
+        json['local_x_position_cm'] ?? json['local_target_x_position_cm'],
+      ),
+      targetXPositionCm: _parseDouble(json['target_x_position_cm']) ?? 0.0,
       pumpActuated: json['pump_actuated'] as bool? ?? false,
-      attemptNumber: (json['attempt_number'] as num?)?.toInt(),
+      attemptNumber: _parseInt(json['attempt_number']),
       startedAt: json['started_at'] as String?,
       endedAt: json['ended_at'] as String?,
-      durationSeconds: double.tryParse(json['duration_seconds']?.toString() ?? ''),
-      estimatedWaterVolumeMl: double.tryParse(json['estimated_water_volume_ml']?.toString() ?? ''),
+      durationSeconds: _parseDouble(json['duration_seconds']),
+      estimatedWaterVolumeMl: _parseDouble(json['estimated_water_volume_ml']),
       status: json['status'] as String? ?? 'scheduled',
       failureReason: json['failure_reason'] as String?,
       postCleaningResult: json['post_cleaning_result'] as String? ?? 'pending',

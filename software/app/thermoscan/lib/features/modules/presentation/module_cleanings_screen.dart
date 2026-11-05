@@ -366,7 +366,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                 child: _buildMetricCol(
                   'Position',
                   c.panelIndex != null
-                      ? 'P${c.panelIndex} • X: ${c.targetXPositionCm.toStringAsFixed(1)} cm'
+                      ? 'Painel ${c.panelIndex} • X: ${c.targetXPositionCm.toStringAsFixed(1)} cm${c.localXPositionCm != null ? " (Local: ${c.localXPositionCm!.toStringAsFixed(1)} cm)" : ""}'
                       : 'X: ${c.targetXPositionCm.toStringAsFixed(1)} cm',
                   AppColors.textPrimary,
                 ),

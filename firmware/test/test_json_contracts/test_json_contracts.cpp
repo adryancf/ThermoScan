@@ -247,10 +247,91 @@ void test_cleaning_report_refused_contract() {
     TEST_ASSERT_TRUE(doc["estimated_water_volume_ml"].isNull());
 }
 
+void test_panel_thermal_result_and_multi_panel_index_contracts() {
+    // 1. TelemetryBatch with panel_index = 2
+    IngestTelemetryBatchInput b_in;
+    b_in.inspection_source_event_id = "10000000-0000-0000-0000-000000000009";
+    b_in.inspection_type = "scheduled";
+    b_in.started_at_epoch = 1730721600;
+
+    std::vector<float> frame(768, 30.0f);
+    TelemetryMeasurementItem m_item;
+    m_item.source_event_id = "20000000-0000-0000-0000-000000000009";
+    m_item.panel_index = 2;
+    m_item.measured_at_epoch = 1730721605;
+    m_item.x_position_cm = 122.0f;
+    m_item.max_temperature_c = 44.0f;
+    m_item.thermal_frame = frame.data();
+    m_item.thermal_frame_size = 768;
+    b_in.batch.push_back(m_item);
+
+    std::string b_json = HttpCloudClient::buildTelemetryBatchJson(b_in);
+    JsonDocument b_doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(b_doc, b_json).code());
+    TEST_ASSERT_EQUAL_UINT8(2, b_doc["batch"][0]["panel_index"].as<uint8_t>());
+
+    // 2. PanelThermalResultInput contract
+    PanelThermalResultInput p_in;
+    p_in.panel_index = 2;
+    p_in.baseline_temperature_c = 31.2f;
+    p_in.truncated_by_memory = true;
+    p_in.finished_at_epoch = 1730721800;
+
+    ConfirmedHotspotOutput h;
+    h.source_event_id = "30000000-0000-0000-0000-000000000009";
+    h.panel_index = 2;
+    h.global_x_position_cm = 126.0f;
+    h.row_index = 12;
+    h.max_temperature_c = 46.5f;
+    h.detected_at_epoch = 1730721750;
+    h.origin_measurement_event_id = "20000000-0000-0000-0000-000000000009";
+    h.confirming_event_ids = {
+        "20000000-0000-0000-0000-000000000009",
+        "20000000-0000-0000-0000-000000000010"
+    };
+    p_in.confirmed_hotspots.push_back(h);
+
+    std::string p_json = HttpCloudClient::buildPanelThermalResultJson(p_in);
+    JsonDocument p_doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(p_doc, p_json).code());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 31.2f, p_doc["baseline_temperature_c"].as<float>());
+    TEST_ASSERT_TRUE(p_doc["truncated_by_memory"].as<bool>());
+    TEST_ASSERT_TRUE(isValidRFC3339(p_doc["finished_at"].as<std::string>()));
+    TEST_ASSERT_EQUAL(1, p_doc["confirmed_hotspots"].as<JsonArray>().size());
+    TEST_ASSERT_EQUAL_UINT8(2, p_doc["confirmed_hotspots"][0]["panel_index"].as<uint8_t>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 126.0f, p_doc["confirmed_hotspots"][0]["global_x_position_cm"].as<float>());
+
+    // 3. FinalizeInspectionInput with panel_index
+    FinalizeInspectionInput f_in;
+    f_in.finished_at_epoch = 1730721900;
+    f_in.baseline_temperature_c = 0.0f;
+    f_in.confirmed_hotspots.push_back(h);
+    std::string f_json = HttpCloudClient::buildFinalizeJson(f_in);
+    JsonDocument f_doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(f_doc, f_json).code());
+    TEST_ASSERT_EQUAL_UINT8(2, f_doc["confirmed_hotspots"][0]["panel_index"].as<uint8_t>());
+
+    // 4. CleaningReportInput with panel_index
+    CleaningReportInput c_in;
+    c_in.anomaly_event_id = "40000000-0000-0000-0000-000000000009";
+    c_in.panel_index = 2;
+    c_in.target_x_position_cm = 126.0f;
+    c_in.pump_actuated = true;
+    c_in.attempt_number = 1;
+    c_in.duration_seconds = 3.5f;
+    c_in.status = "completed";
+    std::string c_json = HttpCloudClient::buildCleaningReportJson(c_in);
+    JsonDocument c_doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(c_doc, c_json).code());
+    TEST_ASSERT_EQUAL_UINT8(2, c_doc["panel_index"].as<uint8_t>());
+    TEST_ASSERT_EQUAL(1, c_doc["attempt_number"].as<int>());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
     RUN_TEST(test_finalize_inspection_json_contract);
     RUN_TEST(test_cleaning_report_refused_contract);
+    RUN_TEST(test_panel_thermal_result_and_multi_panel_index_contracts);
     return UNITY_END();
 }

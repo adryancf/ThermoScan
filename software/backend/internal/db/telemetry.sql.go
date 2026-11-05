@@ -12,19 +12,78 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const appendConfirmingMeasurementsToAnomaly = `-- name: AppendConfirmingMeasurementsToAnomaly :one
+UPDATE anomaly_events
+SET confirming_measurement_ids = (
+    SELECT array_agg(DISTINCT u)
+    FROM unnest(anomaly_events.confirming_measurement_ids || $1::uuid[]) AS u
+),
+updated_at = now()
+WHERE id = $2 AND module_id = $3
+RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+`
+
+type AppendConfirmingMeasurementsToAnomalyParams struct {
+	NewMeasurementIds []pgtype.UUID
+	ID                pgtype.UUID
+	ModuleID          pgtype.UUID
+}
+
+type AppendConfirmingMeasurementsToAnomalyRow struct {
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	PanelIndex               int32
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+func (q *Queries) AppendConfirmingMeasurementsToAnomaly(ctx context.Context, arg AppendConfirmingMeasurementsToAnomalyParams) (AppendConfirmingMeasurementsToAnomalyRow, error) {
+	row := q.db.QueryRow(ctx, appendConfirmingMeasurementsToAnomaly, arg.NewMeasurementIds, arg.ID, arg.ModuleID)
+	var i AppendConfirmingMeasurementsToAnomalyRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.OriginMeasurementID,
+		&i.ConfirmingMeasurementIds,
+		&i.SourceEventID,
+		&i.PanelIndex,
+		&i.XPositionCm,
+		&i.DetectedAt,
+		&i.Status,
+		&i.ActuatedAttemptsCount,
+		&i.RetryPending,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const countMeasurementsByInspection = `-- name: CountMeasurementsByInspection :one
 SELECT count(*)
 FROM measurements
-WHERE inspection_id = $1 AND module_id = $2
+WHERE inspection_id = $1
+  AND module_id = $2
+  AND ($3::int IS NULL OR panel_index = $3::int)
 `
 
 type CountMeasurementsByInspectionParams struct {
 	InspectionID pgtype.UUID
 	ModuleID     pgtype.UUID
+	PanelIndex   pgtype.Int4
 }
 
 func (q *Queries) CountMeasurementsByInspection(ctx context.Context, arg CountMeasurementsByInspectionParams) (int64, error) {
-	row := q.db.QueryRow(ctx, countMeasurementsByInspection, arg.InspectionID, arg.ModuleID)
+	row := q.db.QueryRow(ctx, countMeasurementsByInspection, arg.InspectionID, arg.ModuleID, arg.PanelIndex)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -1006,7 +1065,10 @@ const listActiveAnomaliesForCompany = `-- name: ListActiveAnomaliesForCompany :m
 SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.panel_index, a.x_position_cm::text AS x_position_cm,
        a.detected_at, a.status, a.actuated_attempts_count,
        meas.max_temperature_c::text AS max_temperature_c,
-       COALESCE(ipr.baseline_temperature_c::text, insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c
+       COALESCE(ipr.baseline_temperature_c::text, insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c,
+       COALESCE(m.panel_length_cm::text, '')::text AS module_panel_length_cm,
+       m.panel_count AS module_panel_count,
+       COALESCE(m.panel_spacing_cm::text, '')::text AS module_panel_spacing_cm
 FROM anomaly_events a
 JOIN modules m ON m.id = a.module_id
 JOIN measurements meas ON meas.id = a.origin_measurement_id
@@ -1028,6 +1090,9 @@ type ListActiveAnomaliesForCompanyRow struct {
 	ActuatedAttemptsCount int32
 	MaxTemperatureC       string
 	BaselineTemperatureC  string
+	ModulePanelLengthCm   string
+	ModulePanelCount      pgtype.Int4
+	ModulePanelSpacingCm  string
 }
 
 func (q *Queries) ListActiveAnomaliesForCompany(ctx context.Context, companyID pgtype.UUID) ([]ListActiveAnomaliesForCompanyRow, error) {
@@ -1051,6 +1116,9 @@ func (q *Queries) ListActiveAnomaliesForCompany(ctx context.Context, companyID p
 			&i.ActuatedAttemptsCount,
 			&i.MaxTemperatureC,
 			&i.BaselineTemperatureC,
+			&i.ModulePanelLengthCm,
+			&i.ModulePanelCount,
+			&i.ModulePanelSpacingCm,
 		); err != nil {
 			return nil, err
 		}
@@ -1409,16 +1477,19 @@ SELECT
     m.thermal_frame,
     m.received_at
 FROM measurements m
-WHERE m.inspection_id = $1 AND m.module_id = $2
+WHERE m.inspection_id = $1
+  AND m.module_id = $2
+  AND ($3::int IS NULL OR m.panel_index = $3::int)
 ORDER BY m.x_position_cm ASC, m.measured_at ASC
-LIMIT $3 OFFSET $4
+LIMIT $5 OFFSET $4
 `
 
 type ListMeasurementsByInspectionPagedParams struct {
 	InspectionID pgtype.UUID
 	ModuleID     pgtype.UUID
-	Limit        int32
+	PanelIndex   pgtype.Int4
 	Offset       int32
+	Limit        int32
 }
 
 type ListMeasurementsByInspectionPagedRow struct {
@@ -1441,8 +1512,9 @@ func (q *Queries) ListMeasurementsByInspectionPaged(ctx context.Context, arg Lis
 	rows, err := q.db.Query(ctx, listMeasurementsByInspectionPaged,
 		arg.InspectionID,
 		arg.ModuleID,
-		arg.Limit,
+		arg.PanelIndex,
 		arg.Offset,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

@@ -106,13 +106,26 @@ func (h *Handler) handleListInspectionMeasurements(w http.ResponseWriter, r *htt
 	page := parsePositiveInt32(r.URL.Query().Get("page"), 1)
 	limit := parsePositiveInt32(r.URL.Query().Get("limit"), 10)
 
-	paged, err := h.service.ListInspectionMeasurementsPaged(r.Context(), principal, moduleID, inspectionID, page, limit)
+	var panelIndexFilter *int32
+	if rawPanelIdx := strings.TrimSpace(r.URL.Query().Get("panel_index")); rawPanelIdx != "" {
+		v, err := strconv.ParseInt(rawPanelIdx, 10, 32)
+		if err != nil || v < 1 {
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid panel_index query parameter", "INVALID_PANEL_INDEX")
+			return
+		}
+		pIdx := int32(v)
+		panelIndexFilter = &pIdx
+	}
+
+	paged, err := h.service.ListInspectionMeasurementsPaged(r.Context(), principal, moduleID, inspectionID, page, limit, panelIndexFilter)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotFound):
 			httpjson.WriteError(w, http.StatusNotFound, "module or inspection not found", "NOT_FOUND")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrInvalidPanelIndex):
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid panel_index query parameter", "INVALID_PANEL_INDEX")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
 		}
@@ -237,7 +250,8 @@ func (h *Handler) handleRecordPanelThermalResult(w http.ResponseWriter, r *http.
 	}
 
 	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
-		"panel_result": result,
+		"panel_result":        result.PanelResult,
+		"confirmed_anomalies": result.ConfirmedAnomalies,
 	})
 }
 

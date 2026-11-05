@@ -50,7 +50,7 @@ final companyClientsOptionsProvider =
 final moduleMeasurementsProvider = FutureProvider.autoDispose
     .family<List<ModuleMeasurement>, String>((ref, moduleId) {
   final repo = ref.watch(moduleRepositoryProvider);
-  return repo.listMeasurements(moduleId: moduleId);
+  return repo.listMeasurements(moduleId: moduleId, limit: 200);
 });
 
 final moduleCleaningsProvider = FutureProvider.autoDispose
@@ -72,14 +72,23 @@ final moduleDeviceStatusProvider = FutureProvider.autoDispose
 });
 
 final inspectionMeasurementsPagedProvider = FutureProvider.autoDispose
-    .family<PagedMeasurements, ({String moduleId, String inspectionId, int page, int limit})>(
-        (ref, params) async {
-  final repo = ref.watch(moduleRepositoryProvider);
-  return repo.listInspectionMeasurements(
-    moduleId: params.moduleId,
-    inspectionId: params.inspectionId,
-    page: params.page,
-    limit: params.limit,
-  );
-});
+    .family<
+      PagedMeasurements,
+      ({
+        String moduleId,
+        String inspectionId,
+        int page,
+        int limit,
+        int? panelIndex,
+      })
+    >((ref, params) async {
+      final repo = ref.watch(moduleRepositoryProvider);
+      return repo.listInspectionMeasurements(
+        moduleId: params.moduleId,
+        inspectionId: params.inspectionId,
+        page: params.page,
+        limit: params.limit,
+        panelIndex: params.panelIndex,
+      );
+    });
 

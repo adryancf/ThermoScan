@@ -221,11 +221,22 @@ func TestMultiPanelStringWorkflow(t *testing.T) {
 			BaselineTemperatureC float64 `json:"baseline_temperature_c"`
 			TruncatedByMemory     bool    `json:"truncated_by_memory"`
 		} `json:"panel_result"`
+		ConfirmedAnomalies []struct {
+			ID               string   `json:"id"`
+			PanelIndex       *int32   `json:"panel_index"`
+			XPositionCM      float64  `json:"x_position_cm"`
+			LocalXPositionCM *float64 `json:"local_x_position_cm"`
+		} `json:"confirmed_anomalies"`
 	}
 	require.NoError(t, json.Unmarshal(panel1ResultRec.Body.Bytes(), &p1Resp))
 	assert.Equal(t, int32(1), p1Resp.PanelResult.PanelIndex)
 	assert.Equal(t, 25.0, p1Resp.PanelResult.BaselineTemperatureC)
 	assert.False(t, p1Resp.PanelResult.TruncatedByMemory)
+	require.Len(t, p1Resp.ConfirmedAnomalies, 1)
+	assert.NotEmpty(t, p1Resp.ConfirmedAnomalies[0].ID)
+	assert.Equal(t, int32(1), *p1Resp.ConfirmedAnomalies[0].PanelIndex)
+	assert.Equal(t, 20.0, p1Resp.ConfirmedAnomalies[0].XPositionCM)
+	assert.Equal(t, 20.0, *p1Resp.ConfirmedAnomalies[0].LocalXPositionCM)
 
 	// 9. Cleaning operation targeting a gap coordinate: must refuse spray with target_in_gap
 	gapCleanRec := doJSON(http.MethodPost, "/api/v1/devices/"+moduleID+"/cleanings", deviceToken, map[string]any{

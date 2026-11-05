@@ -154,6 +154,7 @@ bool NvsStorage::saveCleaningQueue(const std::vector<QueuedHotspot>& queue) {
         obj["att"] = item.attempts;
         obj["st"] = item.verification_status;
         obj["b"] = item.baseline_temp_c;
+        obj["int"] = item.spray_interrupted;
     }
     String output;
     serializeJson(doc, output);
@@ -179,6 +180,7 @@ bool NvsStorage::getCleaningQueue(std::vector<QueuedHotspot>& out) {
         item.attempts = obj["att"] | 0;
         item.verification_status = obj["st"] | "pending";
         item.baseline_temp_c = obj["b"] | 25.0f;
+        item.spray_interrupted = obj["int"] | false;
         out.push_back(item);
     }
     return true;

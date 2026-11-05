@@ -14,6 +14,7 @@ struct QueuedHotspot {
     uint8_t attempts{0};
     std::string verification_status{"pending"}; // "pending", "cleaned", "verified", "refused"
     float baseline_temp_c{25.0f};
+    bool spray_interrupted{false};
 };
 
 // Comprehensive NVS state representation

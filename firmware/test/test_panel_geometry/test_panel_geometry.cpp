@@ -11,6 +11,7 @@ void test_panel_geometry_total_length() {
     // 3 panels 100 cm, 2.0 cm spacing -> 3 * 100 + 2 * 2 = 304 cm
     float len3 = domain::calculateTotalStringLength(3, 100.0f, 2.0f);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 304.0f, len3);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 304.0f, domain::calculateTotalStringLengthCm(3, 100.0f, 2.0f));
 
     // Edge cases
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, domain::calculateTotalStringLength(0, 100.0f, 2.0f));
@@ -24,16 +25,22 @@ void test_panel_geometry_bounds() {
     domain::getPanelBounds(1, 100.0f, 2.0f, start, end);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, start);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 100.0f, end);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 0.0f, domain::getPanelStartCm(1, 100.0f, 2.0f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 100.0f, domain::getPanelEndCm(1, 100.0f, 2.0f));
 
     // Panel 2: [102, 202]
     domain::getPanelBounds(2, 100.0f, 2.0f, start, end);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 102.0f, start);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 202.0f, end);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 102.0f, domain::getPanelStartCm(2, 100.0f, 2.0f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 202.0f, domain::getPanelEndCm(2, 100.0f, 2.0f));
 
     // Panel 3: [204, 304]
     domain::getPanelBounds(3, 100.0f, 2.0f, start, end);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 204.0f, start);
     TEST_ASSERT_FLOAT_WITHIN(1e-3f, 304.0f, end);
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 204.0f, domain::getPanelStartCm(3, 100.0f, 2.0f));
+    TEST_ASSERT_FLOAT_WITHIN(1e-3f, 304.0f, domain::getPanelEndCm(3, 100.0f, 2.0f));
 }
 
 void test_panel_geometry_resolve_positions() {

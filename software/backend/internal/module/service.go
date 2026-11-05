@@ -100,6 +100,21 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		return ModuleDetailsDTO{}, err
 	}
 
+	cnt := int32(1)
+	if in.PanelCount != nil && *in.PanelCount > 0 {
+		cnt = *in.PanelCount
+	}
+	if err := validatePowerSensorsConfig(in.PowerSensors, cnt); err != nil {
+		return ModuleDetailsDTO{}, err
+	}
+	var powerSensorsBytes []byte
+	if len(in.PowerSensors) > 0 {
+		powerSensorsBytes, err = json.Marshal(in.PowerSensors)
+		if err != nil {
+			return ModuleDetailsDTO{}, err
+		}
+	}
+
 	isComplete := isConfigurationComplete(
 		in.PanelLengthCm,
 		in.PanelWidthCm,
@@ -186,6 +201,7 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		MinimumSolarAngleDeg:       floatPtrToNumeric(in.MinimumSolarAngleDeg),
 		InspectionIntervalDays:     intervalDays,
 		ReservoirNominalCapacityMl: floatPtrToNumeric(in.ReservoirNominalCapacityMl),
+		PowerSensors:               powerSensorsBytes,
 		ConfiguredAt:               configuredAt,
 		ConfigVersion:              configVersion,
 	})
@@ -331,6 +347,7 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 				MinimumSolarAngleDeg:       r.MinimumSolarAngleDeg,
 				InspectionIntervalDays:     r.InspectionIntervalDays,
 				ReservoirNominalCapacityMl: r.ReservoirNominalCapacityMl,
+				PowerSensors:               r.PowerSensors,
 				ConfiguredAt:               r.ConfiguredAt,
 				CreatedAt:                  r.CreatedAt,
 				UpdatedAt:                  r.UpdatedAt,
@@ -516,7 +533,8 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 		in.TiltDeg != nil ||
 		in.AzimuthSource != nil ||
 		in.TiltSource != nil ||
-		in.ReservoirNominalCapacityMl != nil
+		in.ReservoirNominalCapacityMl != nil ||
+		in.PowerSensors != nil
 
 	hasSolarAngleEdit := in.MinimumSolarAngleDeg != nil
 	hasIntervalEdit := in.InspectionIntervalDays != nil
@@ -632,6 +650,32 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 		return ModuleDetailsDTO{}, err
 	}
 
+	cnt := int32(1)
+	if panelCount != nil && *panelCount > 0 {
+		cnt = *panelCount
+	}
+	powerSensorsBytes := current.PowerSensors
+	if in.PowerSensors != nil {
+		if err := validatePowerSensorsConfig(*in.PowerSensors, cnt); err != nil {
+			return ModuleDetailsDTO{}, err
+		}
+		if len(*in.PowerSensors) == 0 {
+			powerSensorsBytes = nil
+		} else {
+			powerSensorsBytes, err = json.Marshal(*in.PowerSensors)
+			if err != nil {
+				return ModuleDetailsDTO{}, err
+			}
+		}
+	} else if len(current.PowerSensors) > 0 {
+		var existingSensors []PowerSensorConfigDTO
+		if err := json.Unmarshal(current.PowerSensors, &existingSensors); err == nil {
+			if err := validatePowerSensorsConfig(existingSensors, cnt); err != nil {
+				return ModuleDetailsDTO{}, err
+			}
+		}
+	}
+
 	isComplete := isConfigurationComplete(
 		panelLength,
 		panelWidth,
@@ -679,6 +723,7 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 		MinimumSolarAngleDeg:       floatPtrToNumeric(minSolarAngle),
 		InspectionIntervalDays:     intervalDays,
 		ReservoirNominalCapacityMl: floatPtrToNumeric(reservoirCap),
+		PowerSensors:               powerSensorsBytes,
 		ConfiguredAt:               configuredAt,
 	})
 	if err != nil {

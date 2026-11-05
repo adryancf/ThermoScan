@@ -54,7 +54,10 @@ float ThermalAnalyzer::calculateBaseline(const std::vector<ScanAcquisition>& acq
 
 std::vector<HotspotCandidate> ThermalAnalyzer::findCandidates(const ScanAcquisition& acq,
                                                             float baseline_temp_c,
-                                                            size_t acq_index) const {
+                                                            size_t acq_index,
+                                                            float panel_start_cm,
+                                                            float panel_end_cm,
+                                                            uint8_t panel_index) const {
     std::vector<HotspotCandidate> candidates;
     if (!acq.valid || !acq.frame.valid) {
         return candidates;
@@ -73,7 +76,12 @@ std::vector<HotspotCandidate> ThermalAnalyzer::findCandidates(const ScanAcquisit
                 cand.row = row;
                 cand.temp_c = t;
                 cand.global_x_cm = calculateGlobalX(acq.x_position_cm, col, calibrated_fov_cm_);
+                if (panel_end_cm > panel_start_cm) {
+                    if (cand.global_x_cm < panel_start_cm) cand.global_x_cm = panel_start_cm;
+                    if (cand.global_x_cm > panel_end_cm) cand.global_x_cm = panel_end_cm;
+                }
                 cand.acquisition_index = acq_index;
+                cand.panel_index = panel_index;
                 candidates.push_back(cand);
             }
         }
@@ -84,7 +92,10 @@ std::vector<HotspotCandidate> ThermalAnalyzer::findCandidates(const ScanAcquisit
 
 std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcquisition>& acquisitions,
                                                      float tolerance_cm,
-                                                     bool only_confirmed) const {
+                                                     bool only_confirmed,
+                                                     float panel_start_cm,
+                                                     float panel_end_cm,
+                                                     uint8_t panel_index) const {
     const float eff_tolerance = (tolerance_cm > 0.0f) ? tolerance_cm : spatial_tolerance_cm_;
 
     // Consecutively confirmed spatial detection significantly mitigates spurious sensor noise
@@ -100,7 +111,7 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
     std::vector<std::vector<HotspotCandidate>> per_acq_candidates;
     per_acq_candidates.reserve(acquisitions.size());
     for (size_t i = 0; i < acquisitions.size(); ++i) {
-        per_acq_candidates.push_back(findCandidates(acquisitions[i], baseline, i));
+        per_acq_candidates.push_back(findCandidates(acquisitions[i], baseline, i, panel_start_cm, panel_end_cm, panel_index));
     }
 
     // Track confirmed status for each candidate
@@ -143,7 +154,12 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
                         candidate_confirmed[k + 1][idx_b] = true;
 
                         HotspotEvent ev;
+                        ev.panel_index = panel_index;
                         ev.target_x_cm = (cand_a.global_x_cm + cand_b.global_x_cm) / 2.0f;
+                        if (panel_end_cm > panel_start_cm) {
+                            if (ev.target_x_cm < panel_start_cm) ev.target_x_cm = panel_start_cm;
+                            if (ev.target_x_cm > panel_end_cm) ev.target_x_cm = panel_end_cm;
+                        }
                         ev.row = cand_a.row;
                         ev.max_temp_c = std::max(cand_a.temp_c, cand_b.temp_c);
                         ev.baseline_temp_c = baseline;
@@ -189,6 +205,7 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
                     }
                     if (!already_clustered) {
                         HotspotEvent ev;
+                        ev.panel_index = panel_index;
                         ev.target_x_cm = cand.global_x_cm;
                         ev.row = cand.row;
                         ev.max_temp_c = cand.temp_c;
@@ -208,7 +225,10 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
     const std::vector<QuantizedThermalFrame>& frames,
     float baseline_temp_c,
     float tolerance_cm,
-    bool only_confirmed) const {
+    bool only_confirmed,
+    float panel_start_cm,
+    float panel_end_cm,
+    uint8_t panel_index) const {
     const float eff_tolerance = (tolerance_cm > 0.0f) ? tolerance_cm : spatial_tolerance_cm_;
 
     if (frames.empty()) {
@@ -234,7 +254,12 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
                     cand.row = row;
                     cand.temp_c = QuantizedThermalFrame::toFloat(q);
                     cand.global_x_cm = calculateGlobalX(f.x_position_cm, col, calibrated_fov_cm_);
+                    if (panel_end_cm > panel_start_cm) {
+                        if (cand.global_x_cm < panel_start_cm) cand.global_x_cm = panel_start_cm;
+                        if (cand.global_x_cm > panel_end_cm) cand.global_x_cm = panel_end_cm;
+                    }
                     cand.acquisition_index = i;
+                    cand.panel_index = panel_index;
                     per_frame_candidates[i].push_back(cand);
                 }
             }
@@ -274,7 +299,12 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
                         candidate_confirmed[k + 1][idx_b] = true;
 
                         HotspotEvent ev;
+                        ev.panel_index = panel_index;
                         ev.target_x_cm = (cand_a.global_x_cm + cand_b.global_x_cm) / 2.0f;
+                        if (panel_end_cm > panel_start_cm) {
+                            if (ev.target_x_cm < panel_start_cm) ev.target_x_cm = panel_start_cm;
+                            if (ev.target_x_cm > panel_end_cm) ev.target_x_cm = panel_end_cm;
+                        }
                         ev.row = cand_a.row;
                         ev.max_temp_c = std::max(cand_a.temp_c, cand_b.temp_c);
                         ev.baseline_temp_c = baseline_temp_c;

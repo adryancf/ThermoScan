@@ -29,12 +29,14 @@ struct HotspotCandidate {
     float temp_c{0.0f};
     float global_x_cm{0.0f};
     size_t acquisition_index{0};
+    uint8_t panel_index{1};
 };
 
 /**
  * @brief Output struct representing a confirmed or evaluated hotspot event.
  */
 struct HotspotEvent {
+    uint8_t panel_index{1};
     float target_x_cm{0.0f};
     int row{0};
     float max_temp_c{0.0f};
@@ -104,7 +106,10 @@ public:
      */
     std::vector<HotspotCandidate> findCandidates(const ScanAcquisition& acq,
                                                 float baseline_temp_c,
-                                                size_t acq_index = 0) const;
+                                                size_t acq_index = 0,
+                                                float panel_start_cm = 0.0f,
+                                                float panel_end_cm = 0.0f,
+                                                uint8_t panel_index = 1) const;
 
     /**
      * @brief Evaluates the complete scan sequence.
@@ -122,7 +127,10 @@ public:
      */
     std::vector<HotspotEvent> analyzeScan(const std::vector<ScanAcquisition>& acquisitions,
                                          float tolerance_cm = -1.0f,
-                                         bool only_confirmed = true) const;
+                                         bool only_confirmed = true,
+                                         float panel_start_cm = 0.0f,
+                                         float panel_end_cm = 0.0f,
+                                         uint8_t panel_index = 1) const;
 
     /**
      * @brief Evaluates scan sequence from memory-efficient quantized thermal frames.
@@ -133,7 +141,10 @@ public:
     std::vector<HotspotEvent> analyzeQuantizedScan(const std::vector<QuantizedThermalFrame>& frames,
                                                   float baseline_temp_c,
                                                   float tolerance_cm = -1.0f,
-                                                  bool only_confirmed = true) const;
+                                                  bool only_confirmed = true,
+                                                  float panel_start_cm = 0.0f,
+                                                  float panel_end_cm = 0.0f,
+                                                  uint8_t panel_index = 1) const;
 
 private:
     float calibrated_fov_cm_{FOV_OPTICAL_CM};

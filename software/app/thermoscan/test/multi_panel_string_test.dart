@@ -76,6 +76,7 @@ class _MockModuleRepo extends ModuleRepository {
     required String moduleId,
     int limit = 50,
     int offset = 0,
+    int? panelIndex,
   }) async =>
       mockAllMeasurements;
 
@@ -85,6 +86,7 @@ class _MockModuleRepo extends ModuleRepository {
     required String inspectionId,
     int page = 1,
     int limit = 10,
+    int? panelIndex,
   }) async {
     return PagedMeasurements(
       page: 1,

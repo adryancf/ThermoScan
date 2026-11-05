@@ -52,7 +52,22 @@ Na tela de **Hardware Handshake** do aplicativo Flutter, existem 4 itens de veri
 
 ## 5. Roteiro de Demonstração Passo a Passo
 
-Recomendamos abrir o **Aplicativo Flutter** e o **Postman** lado a lado na tela.
+A coleção do Postman conta com uma pasta especial e automatizada no topo:
+👉 **`00 - Fluxo Completo: Simulação Real de String de 2 Painéis com Hotspots`**
+
+Essa pasta executa **de ponta a ponta** o cenário fidedigno de uma string de **2 painéis fotovoltaicos** ($L=68\text{ cm}$, gap $S=2\text{ cm}$, comprimento total $138\text{ cm}$), com:
+- **Painel 1 ($X \in [0, 68\text{ cm}]$, INA219 `0x40`):** Hotspot confirmado $H_1$ em $X = 15.0\text{ cm}$ ($54.1^\circ\text{C}$ vs baseline $31.8^\circ\text{C}$).
+- **Liberação de Memória:** `POST .../panels/1/result` seguido de descarte das matrizes do Painel 1 da RAM.
+- **Transição de Gap:** O carrinho translada de $X=68$ a $X=70\text{ cm}$ sem telemetria ou spray.
+- **Painel 2 ($X \in [70, 138\text{ cm}]$, INA219 `0x41`):** Hotspot confirmado $H_2$ em $X = 95.0\text{ cm}$ ($51.5^\circ\text{C}$ vs baseline $32.4^\circ\text{C}$).
+- **Liberação de Memória:** `POST .../panels/2/result` seguido de descarte das matrizes do Painel 2 da RAM.
+- **Finalização Consolidada:** `POST .../finalize` calculando baseline global da string ($32.1^\circ\text{C}$) e registrando anomalias de $H_1$ e $H_2$.
+- **Ciclo de Limpeza Sequencial:** Lavagem de $H_1$ ($X=15\text{ cm}$, Painel 1) $\rightarrow$ tentativa espúria no gap ($X=69\text{ cm}$, recusa com `target_in_gap`) $\rightarrow$ lavagem de $H_2$ ($X=95\text{ cm}$, Painel 2).
+- **Cooldown Único:** Repouso de 30 minutos após o término de todas as lavagens.
+- **Verificação Individual:** Inspeções térmicas de verificação confirmando resolução tanto de $H_1$ quanto de $H_2$.
+- **Consultas Mobile:** Visualização das telas SCR-10, SCR-11 (com filtro `?panel_index=1` e `?panel_index=2`), SCR-12 e SCR-21.
+
+Você pode rodar toda a pasta `00` com o **Collection Runner** do Postman (1 clique) ou executar passo a passo para acompanhar o Flutter atualizando em tempo real!
 
 ```text
 ┌───────────────────────────────────────┐        ┌─────────────────────────────────────┐
@@ -60,8 +75,9 @@ Recomendamos abrir o **Aplicativo Flutter** e o **Postman** lado a lado na tela.
 │                                       │        │                                     │
 │  [POST] /api/v1/devices/claim ────────┼───────>│  Checklist Handshake 2, 3 e 4 VERDES │
 │  [POST] .../devices/:id/telemetry ────┼───────>│  Frames no Canvas na Posição X      │
-│  [POST] .../inspections/:id/finalize ─┼───────>│  Hotspots Confirmados em Destaque   │
-│  [POST] .../devices/:id/cleanings ────┼───────>│  Histórico de Lavagem Registrado    │
+│  [POST] .../panels/:p/result ─────────┼───────>│  Painel 1 e 2 no Accordion & Chip  │
+│  [POST] .../inspections/:id/finalize ─┼───────>│  Hotspots H1 e H2 Confirmados       │
+│  [POST] .../devices/:id/cleanings ────┼───────>│  Histórico de Lavagem & Gap Recusado│
 └───────────────────────────────────────┘        └─────────────────────────────────────┘
 ```
 

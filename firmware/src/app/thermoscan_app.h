@@ -20,6 +20,7 @@
 #include "domain/solar_geometry.h"
 #include "domain/quantized_frame.h"
 #include "domain/temperature_histogram.h"
+#include "domain/panel_geometry.h"
 #include "utils/heap_tracker.h"
 #include "utils/uuid_generator.h"
 
@@ -79,6 +80,8 @@ public:
     const char* getStateName() const;
     const domain::CleaningStateMachine& getCleaningStateMachine() const { return cleaning_sm_; }
     const AppConfig& getConfig() const { return config_; }
+    const std::vector<QueuedHotspot>& getCleaningQueue() const { return cleaning_queue_; }
+    const std::vector<ConfirmedHotspotOutput>& getAllConfirmedHotspots() const { return all_confirmed_hotspots_; }
 
     // Configuration sync query and getters
     bool isConfigUpdatePending() const { return config_update_pending_; }
@@ -123,6 +126,11 @@ private:
     domain::HotspotEvent active_hotspot_{};
     std::string active_anomaly_id_{};
     float baseline_temp_c_{25.0f};
+    float panel_baselines_[16]{};
+
+    std::vector<QueuedHotspot> cleaning_queue_;
+    std::vector<ConfirmedHotspotOutput> all_confirmed_hotspots_;
+    size_t active_queue_index_{0};
 
     uint32_t last_ping_time_{0};
     uint32_t next_inspection_time_{0};

@@ -326,6 +326,11 @@ SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_
 FROM anomaly_events
 WHERE id = $1 AND module_id = $2;
 
+-- name: GetAnomalyEventBySourceEventID :one
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE source_event_id = $1 AND module_id = $2;
+
 -- name: GetLatestOpenAnomalyEventByModule :one
 SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
 FROM anomaly_events

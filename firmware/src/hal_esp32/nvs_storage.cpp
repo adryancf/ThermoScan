@@ -1,6 +1,7 @@
 #if defined(ARDUINO) || defined(ESP32)
 
 #include "nvs_storage.h"
+#include <ArduinoJson.h>
 
 namespace hal_esp32 {
 
@@ -140,6 +141,54 @@ bool NvsStorage::getNextInspectionTimestamp(uint32_t& out) {
     return true;
 }
 
+bool NvsStorage::saveCleaningQueue(const std::vector<QueuedHotspot>& queue) {
+    if (!initialized_ && !init()) return false;
+    JsonDocument doc;
+    JsonArray arr = doc.to<JsonArray>();
+    for (const auto& item : queue) {
+        JsonObject obj = arr.add<JsonObject>();
+        obj["p"] = item.panel_index;
+        obj["x"] = item.target_x_cm;
+        obj["aid"] = item.anomaly_event_id;
+        obj["cid"] = item.cleaning_operation_id;
+        obj["att"] = item.attempts;
+        obj["st"] = item.verification_status;
+        obj["b"] = item.baseline_temp_c;
+    }
+    String output;
+    serializeJson(doc, output);
+    return preferences_.putString(KEY_CLEAN_QUEUE, output) > 0;
+}
+
+bool NvsStorage::getCleaningQueue(std::vector<QueuedHotspot>& out) {
+    out.clear();
+    if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_CLEAN_QUEUE)) return false;
+    String raw = preferences_.getString(KEY_CLEAN_QUEUE, "");
+    if (raw.isEmpty()) return false;
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, raw);
+    if (err) return false;
+    JsonArray arr = doc.as<JsonArray>();
+    for (JsonObject obj : arr) {
+        QueuedHotspot item;
+        item.panel_index = obj["p"] | 1;
+        item.target_x_cm = obj["x"] | 0.0f;
+        item.anomaly_event_id = obj["aid"] | "";
+        item.cleaning_operation_id = obj["cid"] | "";
+        item.attempts = obj["att"] | 0;
+        item.verification_status = obj["st"] | "pending";
+        item.baseline_temp_c = obj["b"] | 25.0f;
+        out.push_back(item);
+    }
+    return true;
+}
+
+bool NvsStorage::clearCleaningQueue() {
+    if (!initialized_ && !init()) return false;
+    return preferences_.remove(KEY_CLEAN_QUEUE);
+}
+
 bool NvsStorage::saveAll(const StorageState& state) {
     if (!initialized_ && !init()) return false;
     bool ok = true;
@@ -155,6 +204,7 @@ bool NvsStorage::saveAll(const StorageState& state) {
     preferences_.putFloat("base_temp", state.baseline_temp_c);
     preferences_.putString("clean_op_id", state.cleaning_operation_id.c_str());
     preferences_.putString("insp_src_id", state.inspection_source_event_id.c_str());
+    preferences_.putUChar("act_p_idx", state.active_panel_index);
     return ok;
 }
 
@@ -172,6 +222,7 @@ bool NvsStorage::loadAll(StorageState& state) {
     state.baseline_temp_c = preferences_.getFloat("base_temp", 25.0f);
     state.cleaning_operation_id = preferences_.getString("clean_op_id", "").c_str();
     state.inspection_source_event_id = preferences_.getString("insp_src_id", "").c_str();
+    state.active_panel_index = preferences_.getUChar("act_p_idx", 1);
     return true;
 }
 

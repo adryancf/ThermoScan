@@ -261,6 +261,9 @@ std::string HttpCloudClient::buildTelemetryBatchJson(const IngestTelemetryBatchI
     for (const auto& m : input.batch) {
         JsonObject item = batchArr.add<JsonObject>();
         item["source_event_id"] = m.source_event_id.c_str();
+        if (m.panel_index > 0) {
+            item["panel_index"] = m.panel_index;
+        }
         if (m.measured_at_epoch > 0) {
             item["measured_at"] = formatEpochToRFC3339(m.measured_at_epoch);
         }
@@ -334,6 +337,65 @@ bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& inpu
     return (httpCode == HTTP_CODE_CREATED || httpCode == HTTP_CODE_OK);
 }
 
+std::string HttpCloudClient::buildPanelThermalResultJson(const PanelThermalResultInput& input) {
+    JsonDocument doc;
+    doc["baseline_temperature_c"] = input.baseline_temperature_c;
+    doc["truncated_by_memory"] = input.truncated_by_memory;
+    if (input.finished_at_epoch > 0) {
+        doc["finished_at"] = formatEpochToRFC3339(input.finished_at_epoch);
+    }
+
+    JsonArray hotspotsArr = doc["confirmed_hotspots"].to<JsonArray>();
+    for (const auto& ch : input.confirmed_hotspots) {
+        JsonObject h = hotspotsArr.add<JsonObject>();
+        h["source_event_id"] = ch.source_event_id.c_str();
+        if (ch.panel_index > 0) {
+            h["panel_index"] = ch.panel_index;
+        }
+        h["global_x_position_cm"] = ch.global_x_position_cm;
+        h["row_index"] = ch.row_index;
+        h["max_temperature_c"] = ch.max_temperature_c;
+        if (ch.detected_at_epoch > 0) {
+            h["detected_at"] = formatEpochToRFC3339(ch.detected_at_epoch);
+        }
+        h["origin_measurement_event_id"] = ch.origin_measurement_event_id.c_str();
+
+        JsonArray cids = h["confirming_event_ids"].to<JsonArray>();
+        for (const auto& cid : ch.confirming_event_ids) {
+            cids.add(cid.c_str());
+        }
+    }
+
+    std::string requestBody;
+    serializeJson(doc, requestBody);
+    return requestBody;
+}
+
+bool HttpCloudClient::submitPanelThermalResult(const std::string& inspection_source_event_id,
+                                               const PanelThermalResultInput& input) {
+    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/inspections/" +
+                      inspection_source_event_id + "/panels/" + std::to_string(input.panel_index) + "/result";
+    HTTPClient http;
+    http.begin(url.c_str());
+    appendAuthHeader(http);
+
+    std::string requestBody = buildPanelThermalResultJson(input);
+
+    int httpCode = http.POST(String(requestBody.c_str()));
+    if (httpCode == 401) {
+        auth_error_ = true;
+        http.end();
+        return false;
+    }
+
+    http.end();
+    return (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
+}
+
 std::string HttpCloudClient::buildFinalizeJson(const FinalizeInspectionInput& input) {
     JsonDocument doc;
     if (input.finished_at_epoch > 0) {
@@ -345,6 +407,9 @@ std::string HttpCloudClient::buildFinalizeJson(const FinalizeInspectionInput& in
     for (const auto& ch : input.confirmed_hotspots) {
         JsonObject h = hotspotsArr.add<JsonObject>();
         h["source_event_id"] = ch.source_event_id.c_str();
+        if (ch.panel_index > 0) {
+            h["panel_index"] = ch.panel_index;
+        }
         h["global_x_position_cm"] = ch.global_x_position_cm;
         h["row_index"] = ch.row_index;
         h["max_temperature_c"] = ch.max_temperature_c;
@@ -391,10 +456,14 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
 
         JsonDocument resDoc;
         if (!deserializeJson(resDoc, response.c_str())) {
-            if (resDoc["confirmed_anomalies"].is<JsonArray>() && resDoc["confirmed_anomalies"].size() > 0) {
-                if (resDoc["confirmed_anomalies"][0]["id"].is<const char*>()) {
-                    last_confirmed_anomaly_id_ = resDoc["confirmed_anomalies"][0]["id"].as<std::string>();
-                }
+            JsonArray arr;
+            if (resDoc["confirmed_anomalies"].is<JsonArray>()) {
+                arr = resDoc["confirmed_anomalies"].as<JsonArray>();
+            } else if (resDoc["latest_inspection"]["confirmed_anomalies"].is<JsonArray>()) {
+                arr = resDoc["latest_inspection"]["confirmed_anomalies"].as<JsonArray>();
+            }
+            if (arr.size() > 0 && arr[0]["id"].is<const char*>()) {
+                last_confirmed_anomaly_id_ = arr[0]["id"].as<std::string>();
             }
         }
         return true;
@@ -408,6 +477,9 @@ std::string HttpCloudClient::buildCleaningReportJson(const CleaningReportInput& 
     JsonDocument doc;
     if (!input.anomaly_event_id.empty()) {
         doc["anomaly_event_id"] = input.anomaly_event_id.c_str();
+    }
+    if (input.panel_index > 0) {
+        doc["panel_index"] = input.panel_index;
     }
     doc["target_x_position_cm"] = input.target_x_position_cm;
     doc["pump_actuated"] = input.pump_actuated;

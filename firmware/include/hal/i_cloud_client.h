@@ -8,6 +8,7 @@
 // Single measurement item in batch
 struct TelemetryMeasurementItem {
     std::string source_event_id;
+    uint8_t panel_index{0};                // 0 = omit / single-panel, >=1 = panel number
     uint32_t measured_at_epoch{0};
     float x_position_cm{0.0f};
     float max_temperature_c{0.0f};
@@ -28,15 +29,25 @@ struct IngestTelemetryBatchInput {
     std::vector<TelemetryMeasurementItem> batch; // Máximo 5 itens por lote!
 };
 
-// Hotspot structure for inspection finalization
+// Hotspot structure for inspection finalization and per-panel results
 struct ConfirmedHotspotOutput {
     std::string source_event_id;
+    uint8_t panel_index{0};
     float global_x_position_cm{0.0f};
     int row_index{0};
     float max_temperature_c{0.0f};
     uint32_t detected_at_epoch{0};
     std::string origin_measurement_event_id;
     std::vector<std::string> confirming_event_ids; // Mínimo 2 IDs distintos da mesma inspeção
+};
+
+// Input for per-panel thermal result: POST /inspections/{inspectionSourceEventId}/panels/{panelIndex}/result
+struct PanelThermalResultInput {
+    uint8_t panel_index{1};
+    float baseline_temperature_c{0.0f};
+    bool truncated_by_memory{false};
+    uint32_t finished_at_epoch{0};
+    std::vector<ConfirmedHotspotOutput> confirmed_hotspots;
 };
 
 // Input for POST /inspections/{inspectionSourceEventId}/finalize
@@ -50,6 +61,7 @@ struct FinalizeInspectionInput {
 // Sensor capacitivo é binário: estimated_water_volume_ml NÃO é transmitido
 struct CleaningReportInput {
     std::string anomaly_event_id; // UUID autêntico da anomalia confirmada
+    uint8_t panel_index{0};
     float target_x_position_cm{0.0f};
     bool pump_actuated{false};
     int attempt_number{0}; // 1..3 se pump_actuated, 0 se recusado (serializa null)
@@ -93,6 +105,12 @@ public:
     virtual bool getConfiguration(std::string& out_config_json) = 0;
     virtual bool ackConfiguration(uint32_t config_version) = 0;
     virtual bool ingestTelemetryBatch(const IngestTelemetryBatchInput& input) = 0;
+    virtual bool submitPanelThermalResult(const std::string& inspection_source_event_id,
+                                          const PanelThermalResultInput& input) {
+        (void)inspection_source_event_id;
+        (void)input;
+        return true;
+    }
     virtual bool finalizeInspection(const std::string& inspection_source_event_id,
                                     const FinalizeInspectionInput& input) = 0;
     virtual bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) = 0;

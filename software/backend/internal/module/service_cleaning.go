@@ -150,11 +150,23 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		})
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, ErrNotFound
+				aBySrc, errSrc := qtx.GetAnomalyEventBySourceEventID(ctx, db.GetAnomalyEventBySourceEventIDParams{
+					SourceEventID: parsed,
+					ModuleID:      moduleID,
+				})
+				if errSrc != nil {
+					if errors.Is(errSrc, pgx.ErrNoRows) {
+						return nil, ErrNotFound
+					}
+					return nil, errSrc
+				}
+				anomID = aBySrc.ID
+			} else {
+				return nil, err
 			}
-			return nil, err
+		} else {
+			anomID = a.ID
 		}
-		anomID = a.ID
 	} else {
 		// Look up latest open anomaly for this module
 		a, err := qtx.GetLatestOpenAnomalyEventByModule(ctx, moduleID)

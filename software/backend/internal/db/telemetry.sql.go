@@ -522,6 +522,56 @@ func (q *Queries) GetAnomalyEventByID(ctx context.Context, arg GetAnomalyEventBy
 	return i, err
 }
 
+const getAnomalyEventBySourceEventID = `-- name: GetAnomalyEventBySourceEventID :one
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE source_event_id = $1 AND module_id = $2
+`
+
+type GetAnomalyEventBySourceEventIDParams struct {
+	SourceEventID pgtype.UUID
+	ModuleID      pgtype.UUID
+}
+
+type GetAnomalyEventBySourceEventIDRow struct {
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	PanelIndex               int32
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+func (q *Queries) GetAnomalyEventBySourceEventID(ctx context.Context, arg GetAnomalyEventBySourceEventIDParams) (GetAnomalyEventBySourceEventIDRow, error) {
+	row := q.db.QueryRow(ctx, getAnomalyEventBySourceEventID, arg.SourceEventID, arg.ModuleID)
+	var i GetAnomalyEventBySourceEventIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.OriginMeasurementID,
+		&i.ConfirmingMeasurementIds,
+		&i.SourceEventID,
+		&i.PanelIndex,
+		&i.XPositionCm,
+		&i.DetectedAt,
+		&i.Status,
+		&i.ActuatedAttemptsCount,
+		&i.RetryPending,
+		&i.ClosedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCleaningOperationByID = `-- name: GetCleaningOperationByID :one
 SELECT
     c.id,

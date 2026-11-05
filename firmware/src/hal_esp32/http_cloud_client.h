@@ -37,6 +37,8 @@ public:
     bool getConfiguration(std::string& out_config_json) override;
     bool ackConfiguration(uint32_t config_version) override;
     bool ingestTelemetryBatch(const IngestTelemetryBatchInput& input) override;
+    bool submitPanelThermalResult(const std::string& inspection_source_event_id,
+                                  const PanelThermalResultInput& input) override;
     bool finalizeInspection(const std::string& inspection_source_event_id,
                             const FinalizeInspectionInput& input) override;
     bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) override;
@@ -55,6 +57,7 @@ public:
 
     // JSON payload builders (directly testable)
     static std::string buildTelemetryBatchJson(const IngestTelemetryBatchInput& input);
+    static std::string buildPanelThermalResultJson(const PanelThermalResultInput& input);
     static std::string buildFinalizeJson(const FinalizeInspectionInput& input);
     static std::string buildCleaningReportJson(const CleaningReportInput& input);
 

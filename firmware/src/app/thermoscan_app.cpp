@@ -124,8 +124,35 @@ void ThermoscanApp::restoreStateFromNvs() {
         current_cleaning_op_id_ = s.cleaning_operation_id;
         inspection_source_event_id_ = s.inspection_source_event_id;
 
-        // SAFE RECOVERY: If a spray cycle was completed before power cut and awaiting verification
-        if (s.pending_verification && s.spray_ended_timestamp > 0) {
+        // Restore cleaning queue from NVS
+        storage_->getCleaningQueue(cleaning_queue_);
+
+        if (!cleaning_queue_.empty()) {
+            bool has_cleaned = false;
+            bool has_pending = false;
+            for (const auto& qh : cleaning_queue_) {
+                if (qh.verification_status == "cleaned") has_cleaned = true;
+                if (qh.verification_status == "pending") has_pending = true;
+            }
+
+            if (has_cleaned && s.spray_ended_timestamp > 0) {
+                cleaning_sm_.restoreState(CleaningStatus::COMPLETED,
+                                          AnomalyResult::OPEN,
+                                          s.effective_attempts,
+                                          s.spray_ended_timestamp);
+                state_ = AppState::WAITING_VERIFICATION;
+            } else if (has_pending) {
+                cleaning_sm_.restoreState(CleaningStatus::IDLE,
+                                          AnomalyResult::OPEN,
+                                          s.effective_attempts,
+                                          0);
+                state_ = AppState::CLEANING;
+            } else {
+                cleaning_queue_.clear();
+                storage_->clearCleaningQueue();
+                state_ = AppState::IDLE;
+            }
+        } else if (s.pending_verification && s.spray_ended_timestamp > 0) {
             cleaning_sm_.restoreState(CleaningStatus::COMPLETED,
                                       AnomalyResult::OPEN,
                                       s.effective_attempts,
@@ -244,9 +271,25 @@ void ThermoscanApp::handleIdle() {
 
     if (manual_cleaning_requested_) {
         manual_cleaning_requested_ = false;
+        cleaning_queue_.clear();
+        domain::PanelPositionInfo pos = domain::resolvePanelPosition(
+            config_.panel_count, config_.panel_length_cm, config_.panel_spacing_cm, manual_cleaning_target_x_);
+        QueuedHotspot qh;
+        qh.panel_index = pos.panel_index;
+        qh.target_x_cm = manual_cleaning_target_x_;
+        qh.anomaly_event_id = utils::generateUUIDv4();
+        qh.cleaning_operation_id = "";
+        qh.attempts = 0;
+        qh.verification_status = "pending";
+        qh.baseline_temp_c = baseline_temp_c_;
+        cleaning_queue_.push_back(qh);
+
         active_hotspot_.target_x_cm = manual_cleaning_target_x_;
         active_hotspot_.confirmed = true;
         cleaning_sm_.resetForNewAnomaly();
+        if (storage_ != nullptr) {
+            storage_->saveCleaningQueue(cleaning_queue_);
+        }
         state_ = AppState::CLEANING;
         return;
     }
@@ -272,110 +315,177 @@ void ThermoscanApp::handleScanning() {
     inspection_scheduled_for_ = (time_provider_ && time_provider_->isTimeSynchronized())
                                 ? inspection_started_at_ : 0;
 
-    histogram_.reset();
-    quantized_frames_.clear();
+    all_confirmed_hotspots_.clear();
     current_batch_.clear();
     scan_truncated_by_memory_ = false;
 
     utils::HeapTracker::start();
 
-    const float max_x = config_.panel_length_cm;
-    float current_x = 0.0f;
+    const uint8_t total_panels = (config_.panel_count > 0) ? static_cast<uint8_t>(config_.panel_count) : 1;
 
-    // Local structures to maintain lifetime of batch pointers during ingestion
-    std::vector<std::vector<float>> batch_frames_data;
-    std::vector<PowerSnapshot> batch_power_data;
-    batch_frames_data.reserve(5);
-    batch_power_data.reserve(5);
+    for (uint8_t p = 1; p <= total_panels; ++p) {
+        float p_start = 0.0f, p_end = 0.0f;
+        domain::getPanelBounds(p, config_.panel_length_cm, config_.panel_spacing_cm, p_start, p_end);
 
-    while (current_x <= max_x) {
-        // Truncation check: safe limit of 35 acquisitions (0 to 68 cm rail, ~73 cm thermal coverage)
-        if (quantized_frames_.size() >= SCAN_MAX_ACQUISITIONS) {
-            scan_truncated_by_memory_ = true;
-            break;
-        }
+        histogram_.reset();
+        quantized_frames_.clear();
+        bool panel_truncated = false;
 
-        if (motion_ != nullptr) {
-            motion_->moveToXCm(current_x);
-        }
+        float current_x = p_start;
 
-        ThermalFrame frame;
-        bool frame_ok = false;
-        if (camera_ != nullptr) {
-            frame_ok = camera_->captureFrame(frame);
-        }
+        std::vector<std::vector<float>> batch_frames_data;
+        std::vector<PowerSnapshot> batch_power_data;
+        batch_frames_data.reserve(5);
+        batch_power_data.reserve(5);
 
-        PowerSnapshot power;
-        if (power_meter_ != nullptr) {
-            power_meter_->readSnapshot(power);
-        }
-
-        if (frame_ok) {
-            histogram_.addFrame(frame);
-
-            std::string meas_id = utils::generateUUIDv4();
-            uint32_t meas_time = getCurrentTime();
-
-            domain::QuantizedThermalFrame qf;
-            qf.loadFromThermalFrame(frame, current_x, meas_time, meas_id);
-            quantized_frames_.push_back(qf);
-
-            // Compute frame max temperature
-            float max_temp = -999.0f;
-            for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-                if (frame.pixels[i] > max_temp) max_temp = frame.pixels[i];
+        while (current_x <= p_end + 1e-3f) {
+            if (quantized_frames_.size() >= MAX_PANEL_ACQUISITIONS) {
+                panel_truncated = true;
+                scan_truncated_by_memory_ = true;
+                break;
             }
 
-            // Prepare batch buffers
-            std::vector<float> frame_copy(frame.pixels, frame.pixels + ThermalFrame::PIXEL_COUNT);
-            batch_frames_data.push_back(frame_copy);
-            batch_power_data.push_back(power);
-
-            TelemetryMeasurementItem item;
-            item.source_event_id = meas_id;
-            item.measured_at_epoch = meas_time;
-            item.x_position_cm = current_x;
-            item.max_temperature_c = max_temp;
-
-            size_t idx = batch_power_data.size() - 1;
-            if (batch_power_data[idx].valid) {
-                item.voltage_v = &batch_power_data[idx].voltage_v;
-                item.current_a = &batch_power_data[idx].current_a;
-                item.power_w = &batch_power_data[idx].power_w;
-            } else {
-                item.voltage_v = nullptr;
-                item.current_a = nullptr;
-                item.power_w = nullptr;
+            if (motion_ != nullptr) {
+                motion_->moveToXCm(current_x);
             }
 
-            item.thermal_frame = batch_frames_data[idx].data();
-            item.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
-            current_batch_.push_back(item);
+            ThermalFrame frame;
+            bool frame_ok = false;
+            if (camera_ != nullptr) {
+                frame_ok = camera_->captureFrame(frame);
+            }
 
-            // Check if batch is full (5 items) or scan reached end/truncation
-            const bool is_last_step = ((current_x + STEP_SIZE_CM) > max_x) ||
-                                      (quantized_frames_.size() >= SCAN_MAX_ACQUISITIONS);
+            PowerSnapshot power;
+            if (power_meter_ != nullptr) {
+                power_meter_->readSnapshotForPanel(p, power);
+            }
 
-            if (current_batch_.size() >= 5 || is_last_step) {
-                if (cloud_ != nullptr) {
-                    IngestTelemetryBatchInput batch_input;
-                    batch_input.inspection_source_event_id = inspection_source_event_id_;
-                    batch_input.inspection_type = "scheduled";
-                    batch_input.started_at_epoch = inspection_started_at_;
-                    batch_input.scheduled_for_epoch = inspection_scheduled_for_;
-                    batch_input.batch = current_batch_;
+            if (frame_ok) {
+                histogram_.addFrame(frame);
 
-                    cloud_->ingestTelemetryBatch(batch_input);
+                std::string meas_id = utils::generateUUIDv4();
+                uint32_t meas_time = getCurrentTime();
+
+                domain::QuantizedThermalFrame qf;
+                qf.loadFromThermalFrame(frame, current_x, meas_time, meas_id);
+                quantized_frames_.push_back(qf);
+
+                float max_temp = -999.0f;
+                for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+                    if (frame.pixels[i] > max_temp) max_temp = frame.pixels[i];
                 }
 
-                // Immediately release batch transmission buffers from RAM
-                current_batch_.clear();
-                batch_frames_data.clear();
-                batch_power_data.clear();
+                std::vector<float> frame_copy(frame.pixels, frame.pixels + ThermalFrame::PIXEL_COUNT);
+                batch_frames_data.push_back(frame_copy);
+                batch_power_data.push_back(power);
+
+                TelemetryMeasurementItem item;
+                item.source_event_id = meas_id;
+                item.panel_index = p;
+                item.measured_at_epoch = meas_time;
+                item.x_position_cm = current_x;
+                item.max_temperature_c = max_temp;
+
+                size_t idx = batch_power_data.size() - 1;
+                if (batch_power_data[idx].valid) {
+                    item.voltage_v = &batch_power_data[idx].voltage_v;
+                    item.current_a = &batch_power_data[idx].current_a;
+                    item.power_w = &batch_power_data[idx].power_w;
+                } else {
+                    item.voltage_v = nullptr;
+                    item.current_a = nullptr;
+                    item.power_w = nullptr;
+                }
+
+                item.thermal_frame = batch_frames_data[idx].data();
+                item.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
+                current_batch_.push_back(item);
+
+                const bool is_last_step = ((current_x + STEP_SIZE_CM) > (p_end + 1e-3f)) ||
+                                          (quantized_frames_.size() >= MAX_PANEL_ACQUISITIONS);
+
+                if (current_batch_.size() >= 5 || is_last_step) {
+                    if (cloud_ != nullptr) {
+                        IngestTelemetryBatchInput batch_input;
+                        batch_input.inspection_source_event_id = inspection_source_event_id_;
+                        batch_input.inspection_type = "scheduled";
+                        batch_input.started_at_epoch = inspection_started_at_;
+                        batch_input.scheduled_for_epoch = inspection_scheduled_for_;
+                        batch_input.batch = current_batch_;
+
+                        cloud_->ingestTelemetryBatch(batch_input);
+                    }
+
+                    current_batch_.clear();
+                    batch_frames_data.clear();
+                    batch_power_data.clear();
+                }
             }
+
+            current_x += STEP_SIZE_CM;
         }
 
-        current_x += STEP_SIZE_CM;
+        // Panel baseline calculation
+        float panel_baseline = histogram_.calculateMedian();
+        if (panel_baseline <= 0.0f) {
+            panel_baseline = 25.0f;
+        }
+        if (p < 16) {
+            panel_baselines_[p] = panel_baseline;
+        }
+        baseline_temp_c_ = panel_baseline;
+
+        auto confirmed = thermal_analyzer_.analyzeQuantizedScan(
+            quantized_frames_, panel_baseline, ThermalAnalyzer::DEFAULT_POSITION_TOLERANCE_CM, true);
+
+        PanelThermalResultInput p_input;
+        p_input.panel_index = p;
+        p_input.baseline_temperature_c = panel_baseline;
+        p_input.truncated_by_memory = panel_truncated;
+        p_input.finished_at_epoch = getCurrentTime();
+
+        for (const auto& ev : confirmed) {
+            ConfirmedHotspotOutput ho;
+            ho.source_event_id = utils::generateUUIDv4();
+            ho.panel_index = p;
+            ho.global_x_position_cm = ev.target_x_cm;
+            ho.row_index = ev.row;
+            ho.max_temperature_c = ev.max_temp_c;
+            ho.detected_at_epoch = p_input.finished_at_epoch;
+            ho.origin_measurement_event_id = ev.origin_measurement_event_id;
+            ho.confirming_event_ids = ev.confirming_event_ids;
+            p_input.confirmed_hotspots.push_back(ho);
+            all_confirmed_hotspots_.push_back(ho);
+        }
+
+        // Submit panel thermal result with retry & backoff
+        bool result_accepted = false;
+        if (cloud_ != nullptr) {
+            for (int retry = 0; retry < 3; ++retry) {
+                if (cloud_->submitPanelThermalResult(inspection_source_event_id_, p_input)) {
+                    result_accepted = true;
+                    break;
+                }
+#if defined(ARDUINO) || defined(ESP32)
+                delay(500 * (retry + 1));
+#endif
+            }
+        } else {
+            result_accepted = true;
+        }
+
+        // Release quantized memory per panel strictly after transmission
+        quantized_frames_.clear();
+        quantized_frames_.shrink_to_fit();
+
+        // Inter-panel gap traversal: move carriage across gap without capturing or spraying
+        if (p < total_panels) {
+            float next_start = 0.0f, next_end = 0.0f;
+            domain::getPanelBounds(p + 1, config_.panel_length_cm, config_.panel_spacing_cm, next_start, next_end);
+            if (motion_ != nullptr) {
+                motion_->moveToXCm(next_start);
+            }
+        }
     }
 
     // Return linear carriage to origin X = 0.0 cm
@@ -385,34 +495,14 @@ void ThermoscanApp::handleScanning() {
 
     utils::HeapTracker::update();
 
-    if (!quantized_frames_.empty()) {
-        state_ = AppState::ANALYZING;
-    } else {
-        state_ = AppState::IDLE;
-    }
+    state_ = AppState::ANALYZING;
 }
 
 void ThermoscanApp::handleAnalyzing() {
-    baseline_temp_c_ = histogram_.calculateMedian();
-
-    auto confirmed = thermal_analyzer_.analyzeQuantizedScan(
-        quantized_frames_, baseline_temp_c_, ThermalAnalyzer::DEFAULT_POSITION_TOLERANCE_CM, true);
-
     FinalizeInspectionInput fin;
     fin.finished_at_epoch = getCurrentTime();
-    fin.baseline_temperature_c = baseline_temp_c_;
-
-    for (const auto& ev : confirmed) {
-        ConfirmedHotspotOutput ho;
-        ho.source_event_id = utils::generateUUIDv4();
-        ho.global_x_position_cm = ev.target_x_cm;
-        ho.row_index = ev.row;
-        ho.max_temperature_c = ev.max_temp_c;
-        ho.detected_at_epoch = fin.finished_at_epoch;
-        ho.origin_measurement_event_id = ev.origin_measurement_event_id;
-        ho.confirming_event_ids = ev.confirming_event_ids;
-        fin.confirmed_hotspots.push_back(ho);
-    }
+    fin.baseline_temperature_c = 0.0f; // backend computes consolidated average across panel results
+    fin.confirmed_hotspots = all_confirmed_hotspots_;
 
     if (cloud_ != nullptr) {
         cloud_->finalizeInspection(inspection_source_event_id_, fin);
@@ -421,27 +511,44 @@ void ThermoscanApp::handleAnalyzing() {
 
     utils::HeapTracker::stop();
 
-    // Release quantized thermal frame matrices strictly after successful finalization
-    quantized_frames_.clear();
-    quantized_frames_.shrink_to_fit();
+    cleaning_queue_.clear();
 
-    if (!confirmed.empty()) {
-        // Pick primary anomaly with highest thermal delta
-        domain::HotspotEvent worst = confirmed[0];
-        for (const auto& ev : confirmed) {
-            if (ev.max_temp_c > worst.max_temp_c) {
-                worst = ev;
-            }
+    if (!all_confirmed_hotspots_.empty()) {
+        // Sort hotspots by ascending global X position
+        std::sort(all_confirmed_hotspots_.begin(), all_confirmed_hotspots_.end(),
+                  [](const ConfirmedHotspotOutput& a, const ConfirmedHotspotOutput& b) {
+                      return a.global_x_position_cm < b.global_x_position_cm;
+                  });
+
+        for (const auto& ho : all_confirmed_hotspots_) {
+            QueuedHotspot qh;
+            qh.panel_index = ho.panel_index;
+            qh.target_x_cm = ho.global_x_position_cm;
+            qh.anomaly_event_id = !active_anomaly_id_.empty() ? active_anomaly_id_ : ho.source_event_id;
+            qh.cleaning_operation_id = "";
+            qh.attempts = 0;
+            qh.verification_status = "pending";
+            qh.baseline_temp_c = (ho.panel_index < 16 && panel_baselines_[ho.panel_index] > 0.0f)
+                                 ? panel_baselines_[ho.panel_index] : baseline_temp_c_;
+            cleaning_queue_.push_back(qh);
         }
-        active_hotspot_ = worst;
+
+        active_hotspot_.target_x_cm = cleaning_queue_[0].target_x_cm;
+        active_hotspot_.confirmed = true;
         cleaning_sm_.resetForNewAnomaly();
+
+        if (storage_ != nullptr) {
+            storage_->saveCleaningQueue(cleaning_queue_);
+        }
         saveCurrentStateToNvs();
         state_ = AppState::CLEANING;
     } else {
-        // No anomalies detected: schedule next periodic scan
         const uint32_t now = getCurrentTime();
         if (now > 0) {
             next_inspection_time_ = now + static_cast<uint32_t>(config_.interval_days * 86400);
+        }
+        if (storage_ != nullptr) {
+            storage_->clearCleaningQueue();
         }
         saveCurrentStateToNvs();
         state_ = AppState::SYNCING;
@@ -449,86 +556,118 @@ void ThermoscanApp::handleAnalyzing() {
 }
 
 void ThermoscanApp::handleCleaning() {
-    const bool water_ok = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
-
-    // Evaluate pre-spray safety interlocks
-    if (!cleaning_sm_.evaluateBeforeSpray(baseline_temp_c_, water_ok)) {
-        // Interlock refused spray: status refused, pump_actuated false, attempt not consumed
-        CleaningReportInput cr;
-        cr.anomaly_event_id = active_anomaly_id_;
-        cr.target_x_position_cm = active_hotspot_.target_x_cm;
-        cr.pump_actuated = false;
-        cr.attempt_number = 0;
-        cr.duration_seconds = 0.0f;
-        cr.status = "refused";
-        cr.failure_reason = cleaning_sm_.getReason();
-
-        if (cloud_ != nullptr) {
-            std::string out_id;
-            cloud_->ingestCleaningReport(cr, out_id);
-        }
-        saveCurrentStateToNvs();
+    if (cleaning_queue_.empty()) {
         state_ = AppState::SYNCING;
         return;
     }
 
-    // Position carriage at target X and align nozzle
-    if (motion_ != nullptr) {
-        motion_->moveToXCm(active_hotspot_.target_x_cm);
-    }
-    if (spray_ != nullptr) {
-        spray_->setNozzleAngle(90.0f);
-#if defined(ARDUINO) || defined(ESP32)
-        delay(SERVO_SETTLE_DELAY_MS);
-#endif
-    }
+    bool any_sprayed = false;
+    uint32_t last_spray_end = 0;
 
-    // Start spray sequence
-    cleaning_sm_.startSpray();
-    const uint32_t start_time = getCurrentTime();
-
-    if (spray_ != nullptr) {
-        spray_->startPump();
-    }
-
-    // Active fluid supervision during 3.5s spray duration (35 checks * 100ms)
-    bool spray_interrupted = false;
-    for (int i = 0; i < 35; ++i) {
-        const bool fluid = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
-        const uint32_t check_now = getCurrentTime();
-        if (!cleaning_sm_.monitorDuringSpray(fluid, check_now)) {
-            // Fluid depleted: immediately halt pump and record interruption timestamp
-            if (spray_ != nullptr) {
-                spray_->stopPump();
+    for (size_t i = 0; i < cleaning_queue_.size(); ++i) {
+        auto& qh = cleaning_queue_[i];
+        if (qh.verification_status != "pending") {
+            if (qh.verification_status == "cleaned") {
+                any_sprayed = true;
             }
-            spray_interrupted = true;
+            continue;
+        }
+
+        // Check if target is in gap
+        domain::PanelPositionInfo pos = domain::resolvePanelPosition(
+            config_.panel_count, config_.panel_length_cm, config_.panel_spacing_cm, qh.target_x_cm);
+
+        const bool water_ok = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
+        const bool is_in_gap = pos.in_gap;
+
+        // Evaluate pre-spray safety interlocks with is_in_gap
+        if (!cleaning_sm_.evaluateBeforeSpray(qh.baseline_temp_c, water_ok, is_in_gap)) {
+            CleaningReportInput cr;
+            cr.anomaly_event_id = qh.anomaly_event_id;
+            cr.panel_index = qh.panel_index;
+            cr.target_x_position_cm = qh.target_x_cm;
+            cr.pump_actuated = false;
+            cr.attempt_number = 0;
+            cr.duration_seconds = 0.0f;
+            cr.status = "refused";
+            cr.failure_reason = cleaning_sm_.getReason();
+
+            if (cloud_ != nullptr) {
+                std::string out_id;
+                cloud_->ingestCleaningReport(cr, out_id);
+            }
+            qh.verification_status = "refused";
+            if (storage_ != nullptr) {
+                storage_->saveCleaningQueue(cleaning_queue_);
+            }
+            // If failure reason is target_in_gap, continue to next hotspot without consuming attempts
+            if (is_in_gap) {
+                continue;
+            }
+            // If water depleted or extreme overheat, stop cleaning loop
             break;
         }
-#if defined(ARDUINO) || defined(ESP32)
-        delay(100);
-#endif
-    }
 
-    const uint32_t end_time = getCurrentTime();
-    if (!spray_interrupted) {
-        if (spray_ != nullptr) {
-            spray_->stopPump();
+        // Position carriage at target X and align nozzle
+        if (motion_ != nullptr) {
+            motion_->moveToXCm(qh.target_x_cm);
         }
-        cleaning_sm_.finishSpray(end_time);
-    }
+        if (spray_ != nullptr) {
+            spray_->setNozzleAngle(90.0f);
+#if defined(ARDUINO) || defined(ESP32)
+            delay(SERVO_SETTLE_DELAY_MS);
+#endif
+        }
 
-    // Report cleaning actuation record to cloud
-    CleaningReportInput cr;
-    cr.anomaly_event_id = active_anomaly_id_;
-    cr.target_x_position_cm = active_hotspot_.target_x_cm;
-    cr.pump_actuated = true;
-    cr.attempt_number = cleaning_sm_.getEffectiveAttempts();
-    cr.duration_seconds = (end_time >= start_time) ? (end_time - start_time) : 3.5f;
-    cr.status = (cleaning_sm_.getStatus() == domain::CleaningStatus::COMPLETED) ? "completed" : "failed";
-    cr.failure_reason = cleaning_sm_.getReason();
+        cleaning_sm_.startSpray();
+        const uint32_t start_time = getCurrentTime();
 
-    if (cloud_ != nullptr) {
-        cloud_->ingestCleaningReport(cr, current_cleaning_op_id_);
+        if (spray_ != nullptr) {
+            spray_->startPump();
+        }
+
+        bool spray_interrupted = false;
+        for (int step = 0; step < 35; ++step) {
+            const bool fluid = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
+            const uint32_t check_now = getCurrentTime();
+            if (!cleaning_sm_.monitorDuringSpray(fluid, check_now)) {
+                if (spray_ != nullptr) spray_->stopPump();
+                spray_interrupted = true;
+                break;
+            }
+#if defined(ARDUINO) || defined(ESP32)
+            delay(100);
+#endif
+        }
+
+        const uint32_t end_time = getCurrentTime();
+        if (!spray_interrupted) {
+            if (spray_ != nullptr) spray_->stopPump();
+            cleaning_sm_.finishSpray(end_time);
+        }
+        last_spray_end = end_time;
+        any_sprayed = true;
+
+        CleaningReportInput cr;
+        cr.anomaly_event_id = qh.anomaly_event_id;
+        cr.panel_index = qh.panel_index;
+        cr.target_x_position_cm = qh.target_x_cm;
+        cr.pump_actuated = true;
+        cr.attempt_number = cleaning_sm_.getEffectiveAttempts();
+        cr.duration_seconds = (end_time >= start_time) ? (end_time - start_time) : 3.5f;
+        cr.status = (cleaning_sm_.getStatus() == domain::CleaningStatus::COMPLETED) ? "completed" : "failed";
+        cr.failure_reason = cleaning_sm_.getReason();
+
+        if (cloud_ != nullptr) {
+            cloud_->ingestCleaningReport(cr, qh.cleaning_operation_id);
+        }
+
+        qh.attempts = cleaning_sm_.getEffectiveAttempts();
+        qh.verification_status = "cleaned";
+
+        if (storage_ != nullptr) {
+            storage_->saveCleaningQueue(cleaning_queue_);
+        }
     }
 
     // Return carriage to home
@@ -536,9 +675,16 @@ void ThermoscanApp::handleCleaning() {
         motion_->moveToXCm(0.0f);
     }
 
-    // Persist active verification state to NVS
-    saveCurrentStateToNvs();
-    state_ = AppState::WAITING_VERIFICATION;
+    if (any_sprayed) {
+        if (last_spray_end > 0) {
+            cleaning_sm_.setSprayEndedTimestamp(last_spray_end);
+        }
+        saveCurrentStateToNvs();
+        state_ = AppState::WAITING_VERIFICATION;
+    } else {
+        saveCurrentStateToNvs();
+        state_ = AppState::SYNCING;
+    }
 }
 
 void ThermoscanApp::handleWaitingVerification() {
@@ -564,113 +710,138 @@ void ThermoscanApp::handleWaitingVerification() {
 }
 
 void ThermoscanApp::handleVerifying() {
-    float x1 = active_hotspot_.target_x_cm;
-    float x2 = (x1 + 2.0f <= config_.panel_length_cm) ? (x1 + 2.0f) : (x1 - 2.0f);
-    if (x2 < 0.0f) x2 = 0.0f;
-
-    std::string verif_insp_id = utils::generateUUIDv4();
-    uint32_t now = getCurrentTime();
-
-    IngestTelemetryBatchInput batch_input;
-    batch_input.inspection_source_event_id = verif_insp_id;
-    batch_input.inspection_type = "verification";
-    batch_input.cleaning_operation_id = current_cleaning_op_id_;
-    batch_input.started_at_epoch = now;
-    batch_input.scheduled_for_epoch = now;
-
-    // Measurement 1
-    if (motion_ != nullptr) motion_->moveToXCm(x1);
-    ThermalFrame frame1;
-    bool valid1 = (camera_ != nullptr) ? camera_->captureFrame(frame1) : false;
-    PowerSnapshot power1;
-    if (power_meter_ != nullptr) power_meter_->readSnapshot(power1);
-
-    TelemetryMeasurementItem item1;
-    item1.source_event_id = utils::generateUUIDv4();
-    item1.measured_at_epoch = now;
-    item1.x_position_cm = x1;
-    float max_t1 = -999.0f;
-    if (valid1) {
-        for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-            if (frame1.pixels[i] > max_t1) max_t1 = frame1.pixels[i];
+    bool any_retry_allowed = false;
+    for (auto& qh : cleaning_queue_) {
+        if (qh.verification_status != "cleaned") {
+            continue;
         }
-    }
-    item1.max_temperature_c = max_t1;
-    if (power1.valid) {
-        item1.voltage_v = &power1.voltage_v;
-        item1.current_a = &power1.current_a;
-        item1.power_w = &power1.power_w;
-    } else {
-        item1.voltage_v = nullptr;
-        item1.current_a = nullptr;
-        item1.power_w = nullptr;
-    }
-    item1.thermal_frame = frame1.pixels;
-    item1.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
-    batch_input.batch.push_back(item1);
 
-    // Measurement 2
-    if (motion_ != nullptr) motion_->moveToXCm(x2);
-    ThermalFrame frame2;
-    bool valid2 = (camera_ != nullptr) ? camera_->captureFrame(frame2) : false;
-    PowerSnapshot power2;
-    if (power_meter_ != nullptr) power_meter_->readSnapshot(power2);
-
-    TelemetryMeasurementItem item2;
-    item2.source_event_id = utils::generateUUIDv4();
-    item2.measured_at_epoch = now + 1;
-    item2.x_position_cm = x2;
-    float max_t2 = -999.0f;
-    if (valid2) {
-        for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-            if (frame2.pixels[i] > max_t2) max_t2 = frame2.pixels[i];
+        // Determine bounds of target panel
+        float p_start = 0.0f, p_end = config_.panel_length_cm;
+        if (qh.panel_index > 0) {
+            domain::getPanelBounds(qh.panel_index, config_.panel_length_cm, config_.panel_spacing_cm, p_start, p_end);
         }
-    }
-    item2.max_temperature_c = max_t2;
-    if (power2.valid) {
-        item2.voltage_v = &power2.voltage_v;
-        item2.current_a = &power2.current_a;
-        item2.power_w = &power2.power_w;
-    } else {
-        item2.voltage_v = nullptr;
-        item2.current_a = nullptr;
-        item2.power_w = nullptr;
-    }
-    item2.thermal_frame = frame2.pixels;
-    item2.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
-    batch_input.batch.push_back(item2);
 
-    if (cloud_ != nullptr && (valid1 || valid2)) {
-        cloud_->ingestTelemetryBatch(batch_input);
-    }
+        float x1 = qh.target_x_cm;
+        float x2 = (x1 + 2.0f <= p_end) ? (x1 + 2.0f) : (x1 - 2.0f);
+        if (x2 < p_start) x2 = p_start;
 
-    bool hotspot_still_present = false;
-    if (valid1 && (max_t1 - baseline_temp_c_) >= HOTSPOT_THRESHOLD_DELTA_C) {
-        hotspot_still_present = true;
-    }
-    if (valid2 && (max_t2 - baseline_temp_c_) >= HOTSPOT_THRESHOLD_DELTA_C) {
-        hotspot_still_present = true;
-    }
+        std::string verif_insp_id = utils::generateUUIDv4();
+        uint32_t now = getCurrentTime();
 
-    domain::AnomalyResult result = cleaning_sm_.processVerificationResult(hotspot_still_present, (valid1 || valid2));
+        IngestTelemetryBatchInput batch_input;
+        batch_input.inspection_source_event_id = verif_insp_id;
+        batch_input.inspection_type = "verification";
+        batch_input.cleaning_operation_id = qh.cleaning_operation_id;
+        batch_input.started_at_epoch = now;
+        batch_input.scheduled_for_epoch = now;
 
-    // Finalize verification inspection on cloud (this allows the backend to update cleaning & anomaly)
-    if (cloud_ != nullptr) {
-        FinalizeInspectionInput vfin;
-        vfin.finished_at_epoch = now + 2;
-        vfin.baseline_temperature_c = baseline_temp_c_;
-        if (hotspot_still_present) {
-            ConfirmedHotspotOutput ho;
-            ho.source_event_id = utils::generateUUIDv4();
-            ho.global_x_position_cm = x1;
-            ho.max_temperature_c = (max_t1 > max_t2) ? max_t1 : max_t2;
-            ho.detected_at_epoch = now + 1;
-            ho.origin_measurement_event_id = item1.source_event_id;
-            ho.confirming_event_ids.push_back(item1.source_event_id);
-            ho.confirming_event_ids.push_back(item2.source_event_id);
-            vfin.confirmed_hotspots.push_back(ho);
+        // Measurement 1
+        if (motion_ != nullptr) motion_->moveToXCm(x1);
+        ThermalFrame frame1;
+        bool valid1 = (camera_ != nullptr) ? camera_->captureFrame(frame1) : false;
+        PowerSnapshot power1;
+        if (power_meter_ != nullptr) power_meter_->readSnapshotForPanel(qh.panel_index, power1);
+
+        TelemetryMeasurementItem item1;
+        item1.source_event_id = utils::generateUUIDv4();
+        item1.panel_index = qh.panel_index;
+        item1.measured_at_epoch = now;
+        item1.x_position_cm = x1;
+        float max_t1 = -999.0f;
+        if (valid1) {
+            for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+                if (frame1.pixels[i] > max_t1) max_t1 = frame1.pixels[i];
+            }
         }
-        cloud_->finalizeInspection(verif_insp_id, vfin);
+        item1.max_temperature_c = max_t1;
+        if (power1.valid) {
+            item1.voltage_v = &power1.voltage_v;
+            item1.current_a = &power1.current_a;
+            item1.power_w = &power1.power_w;
+        } else {
+            item1.voltage_v = nullptr;
+            item1.current_a = nullptr;
+            item1.power_w = nullptr;
+        }
+        item1.thermal_frame = frame1.pixels;
+        item1.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
+        batch_input.batch.push_back(item1);
+
+        // Measurement 2
+        if (motion_ != nullptr) motion_->moveToXCm(x2);
+        ThermalFrame frame2;
+        bool valid2 = (camera_ != nullptr) ? camera_->captureFrame(frame2) : false;
+        PowerSnapshot power2;
+        if (power_meter_ != nullptr) power_meter_->readSnapshotForPanel(qh.panel_index, power2);
+
+        TelemetryMeasurementItem item2;
+        item2.source_event_id = utils::generateUUIDv4();
+        item2.panel_index = qh.panel_index;
+        item2.measured_at_epoch = now + 1;
+        item2.x_position_cm = x2;
+        float max_t2 = -999.0f;
+        if (valid2) {
+            for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+                if (frame2.pixels[i] > max_t2) max_t2 = frame2.pixels[i];
+            }
+        }
+        item2.max_temperature_c = max_t2;
+        if (power2.valid) {
+            item2.voltage_v = &power2.voltage_v;
+            item2.current_a = &power2.current_a;
+            item2.power_w = &power2.power_w;
+        } else {
+            item2.voltage_v = nullptr;
+            item2.current_a = nullptr;
+            item2.power_w = nullptr;
+        }
+        item2.thermal_frame = frame2.pixels;
+        item2.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
+        batch_input.batch.push_back(item2);
+
+        if (cloud_ != nullptr && (valid1 || valid2)) {
+            cloud_->ingestTelemetryBatch(batch_input);
+        }
+
+        // Compare against panel baseline
+        float verif_baseline = (qh.baseline_temp_c > 0.0f) ? qh.baseline_temp_c : baseline_temp_c_;
+        bool hotspot_still_present = false;
+        if (valid1 && (max_t1 - verif_baseline) >= HOTSPOT_THRESHOLD_DELTA_C) {
+            hotspot_still_present = true;
+        }
+        if (valid2 && (max_t2 - verif_baseline) >= HOTSPOT_THRESHOLD_DELTA_C) {
+            hotspot_still_present = true;
+        }
+
+        domain::AnomalyResult result = cleaning_sm_.processVerificationResult(hotspot_still_present, (valid1 || valid2));
+        if (result == domain::AnomalyResult::OPEN || result == domain::AnomalyResult::PENDING_EVALUATION) {
+            any_retry_allowed = true;
+        }
+
+        if (cloud_ != nullptr) {
+            FinalizeInspectionInput vfin;
+            vfin.finished_at_epoch = now + 2;
+            vfin.baseline_temperature_c = verif_baseline;
+            if (hotspot_still_present) {
+                ConfirmedHotspotOutput ho;
+                ho.source_event_id = utils::generateUUIDv4();
+                ho.panel_index = qh.panel_index;
+                ho.global_x_position_cm = x1;
+                ho.max_temperature_c = (max_t1 > max_t2) ? max_t1 : max_t2;
+                ho.detected_at_epoch = now + 1;
+                ho.origin_measurement_event_id = item1.source_event_id;
+                ho.confirming_event_ids.push_back(item1.source_event_id);
+                ho.confirming_event_ids.push_back(item2.source_event_id);
+                vfin.confirmed_hotspots.push_back(ho);
+            }
+            cloud_->finalizeInspection(verif_insp_id, vfin);
+        }
+
+        qh.verification_status = (result == domain::AnomalyResult::RESOLVED) ? "verified" : "unresolved";
+        if (storage_ != nullptr) {
+            storage_->saveCleaningQueue(cleaning_queue_);
+        }
     }
 
     // Return to home position
@@ -678,19 +849,12 @@ void ThermoscanApp::handleVerifying() {
         motion_->moveToXCm(0.0f);
     }
 
-    if (result == domain::AnomalyResult::RESOLVED) {
-        active_hotspot_ = domain::HotspotEvent{};
-        active_anomaly_id_.clear();
-        saveCurrentStateToNvs();
-        state_ = AppState::SYNCING;
-    } else if (result == domain::AnomalyResult::UNRESOLVED) {
-        saveCurrentStateToNvs();
-        state_ = AppState::SYNCING;
-    } else {
-        // PENDING_EVALUATION or OPEN (retry allowed after conditions recover)
-        saveCurrentStateToNvs();
-        state_ = AppState::IDLE;
+    cleaning_queue_.clear();
+    if (storage_ != nullptr) {
+        storage_->clearCleaningQueue();
     }
+    saveCurrentStateToNvs();
+    state_ = any_retry_allowed ? AppState::IDLE : AppState::SYNCING;
 }
 
 void ThermoscanApp::handleSyncing() {

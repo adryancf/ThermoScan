@@ -46,6 +46,11 @@ public:
     bool saveNextInspectionTimestamp(uint32_t timestamp) override;
     bool getNextInspectionTimestamp(uint32_t& out) override;
 
+    // Cleaning queue persistence (IStorage interface)
+    bool saveCleaningQueue(const std::vector<QueuedHotspot>& queue) override;
+    bool getCleaningQueue(std::vector<QueuedHotspot>& out) override;
+    bool clearCleaningQueue() override;
+
     // Aggregate state persistence methods (IStorage interface)
     bool saveAll(const StorageState& state) override;
     bool loadAll(StorageState& state) override;
@@ -86,6 +91,7 @@ private:
     static constexpr const char* KEY_SPRAY_END    = "spray_end";
     static constexpr const char* KEY_PENDING_VER  = "pend_ver";
     static constexpr const char* KEY_NEXT_INSP    = "next_insp";
+    static constexpr const char* KEY_CLEAN_QUEUE  = "clean_q";
 
     static constexpr const char* KEY_PANEL_LEN    = "p_len";
     static constexpr const char* KEY_PANEL_WIDTH  = "p_width";

@@ -41,13 +41,14 @@ public:
      * Evaluates baseline temperature, water supply, and cleaning attempt budget.
      *
      * Interlocks:
+     * - is_in_gap == true -> REFUSED ("target_in_gap"). No attempt consumed.
      * - baseline_temp_c > 60.0°C (MAX_BASE_TEMP_C) -> REFUSED ("thermal_shock_risk"). No attempt consumed.
      * - water_available == false -> REFUSED ("insufficient_water"). No attempt consumed.
      * - effective_attempts >= 3 (MAX_CLEANING_ATTEMPTS) -> REFUSED ("max_attempts_exceeded"). No attempt consumed.
      *
      * @return true if safe to proceed with spray, false if refused.
      */
-    bool evaluateBeforeSpray(float baseline_temp_c, bool water_available);
+    bool evaluateBeforeSpray(float baseline_temp_c, bool water_available, bool is_in_gap = false);
 
     /**
      * @brief Initiates spray actuation.
@@ -119,6 +120,7 @@ public:
     AnomalyResult getAnomalyResult() const { return anomaly_result_; }
     uint8_t getEffectiveAttempts() const { return effective_attempts_; }
     uint32_t getSprayEndedTimestamp() const { return spray_ended_timestamp_; }
+    void setSprayEndedTimestamp(uint32_t ts) { spray_ended_timestamp_ = ts; }
     const std::string& getReason() const { return reason_; }
 
     // State management

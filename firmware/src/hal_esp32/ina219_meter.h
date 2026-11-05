@@ -21,6 +21,7 @@ public:
 
     bool init() override;
     bool readSnapshot(PowerSnapshot& out) override;
+    bool readSnapshotForPanel(uint8_t panel_index, PowerSnapshot& out) override;
 
 private:
     uint8_t i2c_addr_;

@@ -3,6 +3,18 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
+
+// Persisted cleaning queue entry
+struct QueuedHotspot {
+    uint8_t panel_index{1};
+    float target_x_cm{0.0f};
+    std::string anomaly_event_id;
+    std::string cleaning_operation_id;
+    uint8_t attempts{0};
+    std::string verification_status{"pending"}; // "pending", "cleaned", "verified", "refused"
+    float baseline_temp_c{25.0f};
+};
 
 // Comprehensive NVS state representation
 struct StorageState {
@@ -18,6 +30,7 @@ struct StorageState {
     float baseline_temp_c{0.0f};
     std::string cleaning_operation_id;
     std::string inspection_source_event_id;
+    uint8_t active_panel_index{1};
 };
 
 class IStorage {
@@ -50,6 +63,11 @@ public:
 
     virtual bool saveNextInspectionTimestamp(uint32_t timestamp) = 0;
     virtual bool getNextInspectionTimestamp(uint32_t& out) = 0;
+
+    // Cleaning queue persistence
+    virtual bool saveCleaningQueue(const std::vector<QueuedHotspot>& /*queue*/) { return true; }
+    virtual bool getCleaningQueue(std::vector<QueuedHotspot>& /*out*/) { return true; }
+    virtual bool clearCleaningQueue() { return true; }
 
     // Aggregate state persistence methods
     virtual bool saveAll(const StorageState& state) = 0;

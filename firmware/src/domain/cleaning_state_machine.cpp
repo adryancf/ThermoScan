@@ -2,7 +2,13 @@
 
 namespace domain {
 
-bool CleaningStateMachine::evaluateBeforeSpray(float baseline_temp_c, bool water_available) {
+bool CleaningStateMachine::evaluateBeforeSpray(float baseline_temp_c, bool water_available, bool is_in_gap) {
+    if (is_in_gap) {
+        status_ = CleaningStatus::REFUSED;
+        reason_ = "target_in_gap";
+        return false;
+    }
+
     if (baseline_temp_c > MAX_BASE_TEMP_C) {
         status_ = CleaningStatus::REFUSED;
         reason_ = "thermal_shock_risk";

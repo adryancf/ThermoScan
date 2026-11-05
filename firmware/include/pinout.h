@@ -33,6 +33,38 @@ constexpr uint8_t I2C_SDA_PIN = PIN_I2C_SDA;
 constexpr uint8_t I2C_SCL_PIN = PIN_I2C_SCL;
 
 // ----------------------------------------------------------------------------
+// INA219 Power Meter Fixed Panel I2C Address Mapping
+// ----------------------------------------------------------------------------
+#ifndef INA219_ADDR_PANEL_1
+#define INA219_ADDR_PANEL_1 0x40
+#endif
+
+#ifndef INA219_ADDR_PANEL_2
+#define INA219_ADDR_PANEL_2 0x41
+#endif
+
+#ifndef INA219_ADDR_PANEL_3
+#define INA219_ADDR_PANEL_3 0x42
+#endif
+
+#ifndef INA219_ADDR_DEFAULT
+#define INA219_ADDR_DEFAULT INA219_ADDR_PANEL_1
+#endif
+
+/**
+ * @brief Resolves I2C address for a given panel index (1-indexed).
+ * Returns 0x00 if panel has no mapped INA sensor (sensor absent).
+ */
+static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
+    switch (panel_index) {
+        case 1: return INA219_ADDR_PANEL_1;
+        case 2: return INA219_ADDR_PANEL_2;
+        case 3: return INA219_ADDR_PANEL_3;
+        default: return 0x00;
+    }
+}
+
+// ----------------------------------------------------------------------------
 // NEMA17 Stepper Motor / DRV8825 Driver Pins
 // ----------------------------------------------------------------------------
 #ifndef PIN_STEPPER_STEP
@@ -153,5 +185,12 @@ constexpr uint32_t SERVO_SETTLE_DELAY_MS = 300;
 #define MAX_SCAN_ACQUISITIONS 35
 #endif
 constexpr size_t SCAN_MAX_ACQUISITIONS        = MAX_SCAN_ACQUISITIONS;
+
+// Maximum scan acquisitions buffered in RAM per panel.
+// In multi-panel mode, buffered frames are released after each panel result is confirmed by the backend.
+#ifndef MAX_PANEL_ACQUISITIONS
+#define MAX_PANEL_ACQUISITIONS 35
+#endif
+constexpr size_t PANEL_MAX_ACQUISITIONS       = MAX_PANEL_ACQUISITIONS;
 
 #endif // THERMOSCAN_PINOUT_H

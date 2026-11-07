@@ -391,6 +391,9 @@ type IngestTelemetryInput struct {
 	StartedAt               *time.Time                   `json:"started_at"`
 	InspectionType          *string                      `json:"inspection_type"`
 	CleaningOperationID     *string                      `json:"cleaning_operation_id"`
+	// Unit of thermal_frame pixels: "celsius" (default, legacy floats) or
+	// "decicelsius" (integers in tenths of °C, e.g. 275 == 27.5 °C). Stored values are always °C.
+	ThermalFrameUnit        *string                      `json:"thermal_frame_unit"`
 	// Single item shorthand:
 	SourceEventID           *string                      `json:"source_event_id"`
 	PanelIndex              *int32                       `json:"panel_index,omitempty"`

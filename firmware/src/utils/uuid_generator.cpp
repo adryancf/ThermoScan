@@ -4,6 +4,9 @@
 
 #if defined(ESP32)
 #include "esp_system.h"
+#if __has_include("esp_random.h")
+#include "esp_random.h"  // ESP-IDF 5 / Arduino-ESP32 3.x moved esp_random() here
+#endif
 #else
 #include <random>
 #endif

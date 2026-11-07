@@ -135,9 +135,11 @@ void test_telemetry_batch_json_contract() {
     TEST_ASSERT_TRUE(f1[20].isNull());
     // Pixel 30 (350C) -> null
     TEST_ASSERT_TRUE(f1[30].isNull());
-    // Pixel 100 (55.5C) -> valid float
+    // Pixel 100 (55.5C) -> integer tenths of °C
+    TEST_ASSERT_EQUAL_STRING("decicelsius", doc["thermal_frame_unit"].as<const char*>());
     TEST_ASSERT_FALSE(f1[100].isNull());
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 55.5f, f1[100].as<float>());
+    TEST_ASSERT_TRUE(f1[100].is<int>());
+    TEST_ASSERT_EQUAL_INT(555, f1[100].as<int>());
 
     // Item 2 validation: nullable electricals must be JSON null (no fake zeros!)
     JsonObject b2 = batchArr[1];

@@ -300,6 +300,8 @@ std::string HttpCloudClient::buildTelemetryBatchJson(const IngestTelemetryBatchI
     JsonDocument doc;
     doc["inspection_source_event_id"] = input.inspection_source_event_id.c_str();
     doc["inspection_type"] = input.inspection_type.c_str();
+    // thermal_frame pixels are integers in tenths of a degree Celsius (275 == 27.5 °C).
+    doc["thermal_frame_unit"] = "decicelsius";
 
     if (!input.cleaning_operation_id.empty()) {
         doc["cleaning_operation_id"] = input.cleaning_operation_id.c_str();
@@ -349,7 +351,8 @@ std::string HttpCloudClient::buildTelemetryBatchJson(const IngestTelemetryBatchI
                 if (std::isnan(t) || std::isinf(t) || t < -40.0f || t > 300.0f) {
                     frameArr.add(nullptr);
                 } else {
-                    frameArr.add(t);
+                    // -400..3000 fits int16; integers serialize ~40% shorter than floats
+                    frameArr.add(static_cast<int16_t>(std::lround(t * 10.0f)));
                 }
             }
         } else {
@@ -359,9 +362,12 @@ std::string HttpCloudClient::buildTelemetryBatchJson(const IngestTelemetryBatchI
         }
     }
 
+    // Allocate the body once at its exact size. Letting std::string grow by doubling kept
+    // old+new buffers alive at once and aborted the ESP32 with bad_alloc on the first batch.
     std::string requestBody;
+    requestBody.reserve(measureJson(doc) + 1);
     serializeJson(doc, requestBody);
-    return requestBody;
+    return requestBody;  // doc is released here, before the HTTP/TLS connection opens
 }
 
 bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& input) {
@@ -374,13 +380,25 @@ bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& inpu
     Serial.printf("[TELEMETRY] Sending batch with %u measurements (Inspection: %s, Type: %s)...\n",
                   input.batch.size(), input.inspection_source_event_id.c_str(), input.inspection_type.c_str());
 
+    // Build the body first so the JsonDocument is freed before TLS buffers are allocated.
+    std::string requestBody = buildTelemetryBatchJson(input);
+#if defined(ARDUINO) || defined(ESP32)
+    Serial.printf("[TELEMETRY] Body %u bytes | free heap %u | largest block %u\n",
+                  static_cast<unsigned>(requestBody.size()),
+                  static_cast<unsigned>(ESP.getFreeHeap()),
+                  static_cast<unsigned>(ESP.getMaxAllocHeap()));
+#endif
+
     HTTPClient http;
     http.begin(url.c_str());
     appendAuthHeader(http);
 
-    std::string requestBody = buildTelemetryBatchJson(input);
-
-    int httpCode = http.POST(String(requestBody.c_str()));
+#if defined(ARDUINO) || defined(ESP32)
+    // Send the buffer directly: no extra Arduino String copy of the whole body.
+    int httpCode = http.POST(reinterpret_cast<uint8_t*>(&requestBody[0]), requestBody.size());
+#else
+    int httpCode = http.POST(requestBody);
+#endif
     http.end();
 
     if (httpCode == 401) {

@@ -486,6 +486,21 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		return nil, ErrBatchTooLarge
 	}
 
+	// Normalize thermal_frame to °C (firmware may send integer tenths of °C to shrink payloads)
+	frameUnit := "celsius"
+	if input.ThermalFrameUnit != nil && strings.TrimSpace(*input.ThermalFrameUnit) != "" {
+		frameUnit = strings.ToLower(strings.TrimSpace(*input.ThermalFrameUnit))
+	}
+	switch frameUnit {
+	case "celsius":
+	case "decicelsius":
+		for i := range items {
+			items[i].ThermalFrame = deciCelsiusFrameToCelsius(items[i].ThermalFrame)
+		}
+	default:
+		return nil, fmt.Errorf("%w: unsupported thermal_frame_unit %q (expected \"celsius\" or \"decicelsius\")", ErrInvalidInput, frameUnit)
+	}
+
 	// Validate mandatory inspection_source_event_id
 	if input.InspectionSourceEventID == nil || strings.TrimSpace(*input.InspectionSourceEventID) == "" {
 		return nil, fmt.Errorf("%w: inspection_source_event_id is required", ErrInvalidInput)
@@ -1674,4 +1689,24 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 		})
 	}
 	return out, nil
+}
+
+// deciCelsiusFrameToCelsius converts a thermal frame of integer tenths of °C to °C,
+// preserving nulls (invalid pixels) and leaving non-finite values for validation to reject.
+func deciCelsiusFrameToCelsius(frame []*float64) []*float64 {
+	if frame == nil {
+		return nil
+	}
+	out := make([]*float64, len(frame))
+	for i, v := range frame {
+		if v == nil {
+			continue
+		}
+		c := *v / 10.0
+		if isFinite(c) {
+			c = math.Round(c*10) / 10 // avoid float noise such as 27.500000000000004
+		}
+		out[i] = &c
+	}
+	return out
 }

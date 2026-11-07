@@ -40,10 +40,10 @@ backend-logs: ## Acompanha os logs em tempo real do backend Docker
 	@$(MAKE) -C backend docker-logs
 
 # --- MOBILE COMMANDS ---
-mobile-apk: ## Gera o APK release para Android com auto-detecção de IP
+mobile-apk: ## Gera o APK release para Android apontando para https://api-thermoscan.realan.space/api/v1
 	@$(MAKE) -C app/thermoscan apk
 
-mobile-apk-debug: ## Gera o APK debug para Android
+mobile-apk-debug: ## Gera o APK debug para Android apontando para https://api-thermoscan.realan.space/api/v1
 	@$(MAKE) -C app/thermoscan apk-debug
 
 mobile-serve: ## Inicia servidor HTTP Python para baixar o APK no celular

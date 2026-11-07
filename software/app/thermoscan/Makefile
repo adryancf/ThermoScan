@@ -7,10 +7,10 @@ SHELL := /bin/bash
 FLUTTER ?= /home/acf/develop/flutter/bin/flutter
 PYTHON  ?= /usr/bin/python3
 
-# Network auto-detection: detects Wi-Fi/LAN IP of this machine
+API_URL ?= https://api-thermoscan.realan.space/api/v1
+
+# Network auto-detection: detects Wi-Fi/LAN IP of this machine (for serving APK locally)
 HOST_IP ?= $(shell hostname -I | awk '{print $$1}')
-API_PORT ?= 8080
-API_URL ?= http://$(HOST_IP):$(API_PORT)/api/v1
 
 # Output directories & server settings
 APK_DIR      ?= build/app/outputs/flutter-apk
@@ -27,8 +27,8 @@ help: ## Exibe a lista de comandos disponíveis
 	@echo "=================================================="
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
-	@echo "IP detectado para o backend: $(HOST_IP)"
 	@echo "API_URL configurada: $(API_URL)"
+	@echo "IP detectado para download local do APK: $(HOST_IP)"
 	@echo ""
 
 apk: ## Gera o APK de release injetando a API_URL (pode sobrescrever com API_URL=http://...)

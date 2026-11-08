@@ -469,8 +469,8 @@ void main() {
       expect(find.byKey(const Key('panel_accordion_insp-1_2')), findsOneWidget);
       expect(find.byKey(const Key('panel_accordion_insp-1_3')), findsOneWidget);
 
-      // Header shows Painel 1 with baseline
-      expect(find.textContaining('Painel 1 (X: 10..10 cm)'), findsOneWidget);
+      // Header shows Panel 1 with baseline
+      expect(find.textContaining('Panel 1 (X: 10..10 cm)'), findsOneWidget);
       expect(find.textContaining('Baseline: 28.0°C'), findsWidgets);
     });
   });
@@ -527,12 +527,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Check RECUSADA (NO GAP) status badge
-      expect(find.text('RECUSADA (NO GAP)'), findsOneWidget);
+      // Check REFUSED (IN GAP) status badge
+      expect(find.text('REFUSED (IN GAP)'), findsOneWidget);
       expect(find.textContaining('Target located in inter-panel gap'), findsOneWidget);
 
-      // Check normal verified cleaning with Painel 2
-      expect(find.textContaining('Painel 2 • Wash Attempt #1'), findsOneWidget);
+      // Check normal verified cleaning with Panel 2
+      expect(find.textContaining('Panel 2 • Wash Attempt #1'), findsOneWidget);
       expect(find.text('VERIFIED POST-CLEAN'), findsOneWidget);
     });
   });

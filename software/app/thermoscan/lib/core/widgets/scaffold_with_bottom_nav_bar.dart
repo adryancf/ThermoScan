@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
 import 'package:thermoscan/features/auth/domain/auth_user.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 
@@ -62,6 +63,8 @@ class ScaffoldWithBottomNavBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(authControllerProvider).user;
     final selectedIndex = _calculateSelectedIndex(currentLocation);
+    final alertsSummary = ref.watch(alertsSummaryProvider).valueOrNull;
+    final hasActiveAlerts = (alertsSummary?.total ?? 0) > 0;
 
     // Suppress Bottom Navigation Bar for System Admin (companies only)
     final isSystemAdmin = user?.isSystemAdmin ?? false;
@@ -101,7 +104,7 @@ class ScaffoldWithBottomNavBar extends ConsumerWidget {
                 icon: Icons.warning_amber_rounded,
                 activeIcon: Icons.warning_rounded,
                 label: 'Alerts',
-                hasNotificationBadge: true,
+                hasNotificationBadge: hasActiveAlerts,
                 onTap: () => _onTabSelected(1, context, user),
               ),
 

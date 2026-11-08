@@ -15,6 +15,7 @@ import 'package:thermoscan/features/modules/presentation/module_details_screen.d
 import 'package:thermoscan/features/modules/presentation/module_hardware_handshake_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_installation_wizard_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_overview_screen.dart';
+import 'package:thermoscan/features/modules/presentation/module_thermal_inspection_screen.dart';
 import 'package:thermoscan/features/modules/presentation/modules_home_screen.dart';
 import 'package:thermoscan/features/profile/presentation/profile_screen.dart';
 import 'package:thermoscan/features/users/presentation/clients_list_screen.dart';
@@ -162,6 +163,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final moduleId = state.pathParameters['moduleId'] ?? '';
           return ModuleHardwareHandshakeScreen(moduleId: moduleId);
+        },
+      ),
+      GoRoute(
+        path: '/modules/:moduleId/thermal-inspection',
+        builder: (context, state) {
+          final moduleId = state.pathParameters['moduleId'] ?? '';
+          return ModuleThermalInspectionScreen(moduleId: moduleId);
         },
       ),
 

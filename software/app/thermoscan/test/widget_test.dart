@@ -787,9 +787,9 @@ void main() {
     await tester.tap(find.text('PV-001 Roof Array'));
     await tester.pumpAndSettle();
 
-    // Verify SCR-10 Radiometric Scan & Telemetry metrics
-    expect(find.text('Radiometric Thermal Panorama'), findsOneWidget);
-    expect(find.text('Thermal Frames (5 cm Sectors)'), findsOneWidget);
+    // Verify SCR-10 Clean Thermal Preview & Telemetry metrics on Overview
+    expect(find.text('Thermal Inspection Map'), findsOneWidget);
+    expect(find.text('Open Full Thermal Inspection Studio →'), findsOneWidget);
     expect(find.text('Peak Temperature'), findsOneWidget);
     expect(find.text('Baseline Temperature'), findsOneWidget);
     expect(find.text('Active Power'), findsOneWidget);

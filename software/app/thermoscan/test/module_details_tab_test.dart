@@ -2004,12 +2004,275 @@ void main() {
       expect(find.text('Cleanings'), findsOneWidget);
       expect(find.text('Configuration'), findsOneWidget);
 
-      // 2x2 Sensor Grid items & Connectivity status
+      // Modernized Executive Health Banner & Compact Hardware Status
+      expect(find.text('Awaiting Initial Scan'), findsOneWidget);
+      expect(find.text('Robot Online'), findsOneWidget);
+      expect(find.text('Water Available'), findsOneWidget);
+      expect(find.text('Sensors Ready'), findsOneWidget);
+
+      // Open detailed diagnostics modal via 'View Diagnostics' button
+      expect(find.text('View Diagnostics'), findsOneWidget);
+      await tester.tap(find.text('View Diagnostics'));
+      await tester.pumpAndSettle();
+
+      // Detailed Diagnostics modal items
       expect(find.text('Limits Check Passed'), findsOneWidget);
       expect(find.text('Thermal Sensor Active'), findsOneWidget);
       expect(find.text('Water Reservoir'), findsOneWidget);
       expect(find.text('ESP32 Connectivity'), findsOneWidget);
-      expect(find.text('Online'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Executive Health Banner shows Solar Array Healthy with baseline when no anomalies',
+        (tester) async {
+      const activeMod = PvModule(
+        id: 'mod-healthy',
+        companyId: 'c1',
+        installerTechnicianId: 'u1',
+        installerName: 'Tech',
+        installerEmail: 'tech@ts.com',
+        name: 'Healthy Array',
+        macAddress: 'AA:BB:CC:11:22:33',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        panelLengthCm: 200,
+        panelWidthCm: 100,
+        panelCount: 3,
+        panelSpacingCm: 2.5,
+        latitude: -23.5505,
+        longitude: -46.6333,
+        elevationM: 760,
+        azimuthDeg: 0,
+        tiltDeg: 22,
+        minimumSolarAngleDeg: 15,
+        configuredAt: '2026-11-01T08:00:00Z',
+        createdAt: '2026-10-30T10:00:00Z',
+        updatedAt: '2026-10-30T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      );
+
+      final details = const ModuleDetails(
+        module: activeMod,
+        responsibleManagers: [],
+        companyManagers: [],
+        companyTechnicians: [],
+        companyClients: [],
+      );
+
+      final mockRepo = _MockModuleRepo(
+        details: details,
+        status: const DeviceStatus(
+          moduleId: 'mod-healthy',
+          macAddress: 'AA:BB:CC:11:22:33',
+          monitoringStatus: 'active',
+          isConfigured: true,
+          isOnline: true,
+          waterAvailable: true,
+          waterStatus: 'available',
+          limitsCheckPassed: true,
+          thermalSensorActive: true,
+        ),
+      );
+      mockRepo.mockLatestInspection = const LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-1',
+          moduleId: 'mod-healthy',
+          sourceEventId: 'evt-1',
+          type: 'scheduled',
+          baselineTemperatureC: 38.5,
+          scheduledFor: '2026-11-01T10:00:00Z',
+          status: 'completed',
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:30:00Z',
+        ),
+        totalMeasurements: 5,
+        confirmedAnomalies: [],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider
+                .overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: const MaterialApp(
+            home: ModuleDetailsScreen(moduleId: 'mod-healthy'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Solar Array Healthy'), findsOneWidget);
+      expect(
+        find.text(
+          'All panels operating within normal baseline temperature (38.5°C). No hotspots detected.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('HEALTHY'), findsOneWidget);
+    });
+
+    testWidgets(
+        'Executive Health Banner shows Hotspot on Panel X with relative delta when anomaly confirmed',
+        (tester) async {
+      const activeMod = PvModule(
+        id: 'mod-hotspot',
+        companyId: 'c1',
+        installerTechnicianId: 'u1',
+        installerName: 'Tech',
+        installerEmail: 'tech@ts.com',
+        name: 'Hotspot Array',
+        macAddress: 'AA:BB:CC:44:55:66',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        panelLengthCm: 200,
+        panelWidthCm: 100,
+        panelCount: 3,
+        panelSpacingCm: 2.5,
+        latitude: -23.5505,
+        longitude: -46.6333,
+        elevationM: 760,
+        azimuthDeg: 0,
+        tiltDeg: 22,
+        minimumSolarAngleDeg: 15,
+        configuredAt: '2026-11-01T08:00:00Z',
+        createdAt: '2026-10-30T10:00:00Z',
+        updatedAt: '2026-10-30T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      );
+
+      final details = const ModuleDetails(
+        module: activeMod,
+        responsibleManagers: [],
+        companyManagers: [],
+        companyTechnicians: [],
+        companyClients: [],
+      );
+
+      final mockRepo = _MockModuleRepo(
+        details: details,
+        status: const DeviceStatus(
+          moduleId: 'mod-hotspot',
+          macAddress: 'AA:BB:CC:44:55:66',
+          monitoringStatus: 'active',
+          isConfigured: true,
+          isOnline: true,
+          waterAvailable: true,
+          waterStatus: 'available',
+          limitsCheckPassed: true,
+          thermalSensorActive: true,
+        ),
+      );
+      mockRepo.mockLatestInspection = const LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-hotspot',
+          moduleId: 'mod-hotspot',
+          sourceEventId: 'evt-2',
+          type: 'scheduled',
+          baselineTemperatureC: 35.0,
+          scheduledFor: '2026-11-01T10:00:00Z',
+          status: 'completed',
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:30:00Z',
+        ),
+        totalMeasurements: 1,
+        confirmedAnomalies: [
+          ConfirmedAnomaly(
+            id: 'anom-1',
+            moduleId: 'mod-hotspot',
+            originMeasurementId: 'm-1',
+            confirmingMeasurementIds: ['m-1'],
+            sourceEventId: 'evt-2',
+            panelIndex: 2,
+            localXPositionCm: 50.0,
+            xPositionCm: 252.5,
+            detectedAt: '2026-11-01T10:15:00Z',
+            status: 'open',
+            actuatedAttemptsCount: 0,
+            retryPending: false,
+          ),
+        ],
+      );
+
+      // Add a measurement with 48.0°C (delta +13.0°C above baseline 35.0°C)
+      mockRepo.mockAllMeasurements = [
+        const ModuleMeasurement(
+          id: 'm-1',
+          moduleId: 'mod-hotspot',
+          inspectionId: 'insp-hotspot',
+          sourceEventId: 'evt-2',
+          panelIndex: 2,
+          localXPositionCm: 50.0,
+          measuredAt: '2026-11-01T10:15:00Z',
+          xPositionCm: 252.5,
+          maxTemperatureC: 48.0,
+          receivedAt: '2026-11-01T10:15:05Z',
+        ),
+      ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider
+                .overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: const MaterialApp(
+            home: ModuleDetailsScreen(moduleId: 'mod-hotspot'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hotspot on Panel 2'), findsOneWidget);
+      expect(
+        find.text(
+          '+13.0°C above baseline (35.0°C). Robot cleaning recommended.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('HOTSPOT DETECTED'), findsOneWidget);
+      expect(find.text('Relative Delta'), findsOneWidget);
+      expect(find.text('+13.0°C'), findsOneWidget);
+      expect(find.textContaining('Last inspected:'), findsOneWidget);
+
+      // Verify CleanThermalPreviewCard on Overview
+      expect(find.text('Thermal Inspection Map'), findsOneWidget);
+      expect(find.text('Open Full Thermal Inspection Studio →'), findsOneWidget);
+      expect(find.text('Hotspot +13.0°C ΔT'), findsOneWidget);
+
+      // Verify Hotspot Cleaning Status Card
+      expect(find.text('Hotspot Cleaning Status'), findsOneWidget);
+      expect(find.text('Automated Cleaning Scheduled'), findsOneWidget);
+
+      // Verify 4 Key Telemetry Metrics
+      expect(find.text('Peak Temperature'), findsOneWidget);
+      expect(find.text('48.0°C'), findsNWidgets(2));
+      expect(find.text('Baseline Temperature'), findsOneWidget);
+      expect(find.text('35.0°C'), findsNWidgets(2));
+      expect(find.text('DC Output'), findsOneWidget);
+      expect(find.text('Active Power'), findsOneWidget);
     });
 
     testWidgets('Device Verification Screen shows 2-step Setup verification', (tester) async {
@@ -2138,6 +2401,131 @@ void main() {
         find.text('A module with this MAC address is already registered.'),
         findsWidgets,
       );
+    });
+
+    testWidgets(
+        'Overview isolates current inspection measurements from historical inspections and hides cool-down card when cleaning is already resolved',
+        (tester) async {
+      const activeMod = PvModule(
+        id: 'mod-iso',
+        companyId: 'c1',
+        installerTechnicianId: 'u1',
+        installerName: 'Tech',
+        installerEmail: 'tech@ts.com',
+        name: 'Isolated Array',
+        macAddress: 'AA:BB:CC:99:88:77',
+        isActive: true,
+        monitoringStatus: 'active',
+        inspectionIntervalDays: 7,
+        panelLengthCm: 100,
+        panelWidthCm: 100,
+        panelCount: 2,
+        panelSpacingCm: 2.0,
+        configuredAt: '2026-11-01T08:00:00Z',
+        createdAt: '2026-10-30T10:00:00Z',
+        updatedAt: '2026-10-30T10:00:00Z',
+        userRelationship: 'installer_technician',
+        permissions: ModulePermissions(
+          canEditGeometryAndLocation: true,
+          canEditSolarAngle: true,
+          canEditInterval: true,
+          canManageAccess: true,
+        ),
+      );
+
+      const details = ModuleDetails(
+        module: activeMod,
+        responsibleManagers: [],
+        companyManagers: [],
+        companyTechnicians: [],
+        companyClients: [],
+      );
+
+      final mockRepo = _MockModuleRepo(
+        details: details,
+        status: const DeviceStatus(
+          moduleId: 'mod-iso',
+          macAddress: 'AA:BB:CC:99:88:77',
+          monitoringStatus: 'active',
+          isConfigured: true,
+          isOnline: true,
+          waterAvailable: true,
+          waterStatus: 'available',
+          limitsCheckPassed: true,
+          thermalSensorActive: true,
+        ),
+      );
+
+      // Latest inspection is healthy with baseline 30.0°C
+      mockRepo.mockLatestInspection = const LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-current',
+          moduleId: 'mod-iso',
+          sourceEventId: 'evt-current',
+          type: 'scheduled',
+          baselineTemperatureC: 30.0,
+          scheduledFor: '2026-11-07T12:00:00Z',
+          status: 'completed',
+          createdAt: '2026-11-07T12:00:00Z',
+          updatedAt: '2026-11-07T12:15:00Z',
+        ),
+        totalMeasurements: 1,
+        confirmedAnomalies: [],
+      );
+
+      // List contains current healthy measurement (32.0°C) AND old resolved hotspot measurement (68.0°C)
+      mockRepo.mockAllMeasurements = [
+        const ModuleMeasurement(
+          id: 'm-current',
+          moduleId: 'mod-iso',
+          inspectionId: 'insp-current',
+          sourceEventId: 'evt-current',
+          panelIndex: 1,
+          localXPositionCm: 20.0,
+          measuredAt: '2026-11-07T12:10:00Z',
+          xPositionCm: 20.0,
+          maxTemperatureC: 32.0,
+          receivedAt: '2026-11-07T12:10:05Z',
+        ),
+        const ModuleMeasurement(
+          id: 'm-old-hotspot',
+          moduleId: 'mod-iso',
+          inspectionId: 'insp-old',
+          sourceEventId: 'evt-old',
+          panelIndex: 1,
+          localXPositionCm: 20.0,
+          measuredAt: '2026-11-01T10:15:00Z',
+          xPositionCm: 20.0,
+          maxTemperatureC: 68.0,
+          receivedAt: '2026-11-01T10:15:05Z',
+        ),
+      ];
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider
+                .overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(mockRepo),
+          ],
+          child: const MaterialApp(
+            home: ModuleDetailsScreen(moduleId: 'mod-iso'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Must show 32.0°C peak reading from current inspection, NEVER 68.0°C from old inspection
+      expect(find.text('32.0°C'), findsWidgets);
+      expect(find.text('68.0°C'), findsNothing);
+      expect(find.text('ELEVATED'), findsNothing);
+
+      // Default mock cleanings has status='completed' and postCleaningResult='resolved';
+      // Cool-down card must NOT be rendered on a healthy resolved module.
+      expect(find.text('COOL-DOWN (30M)'), findsNothing);
     });
   });
 }

@@ -796,6 +796,30 @@ class ThermalPanoramaPainter extends CustomPainter {
       }
     }
 
+    // Draw clean panel outlines so individual panels in the string have crisp boundaries
+    final panelBorderPaint = Paint()
+      ..color = const Color(0xFF334155)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke;
+
+    for (final pb in panorama.panelBounds) {
+      if (panorama.focusedPanelIndex != null &&
+          pb.panelIndex != panorama.focusedPanelIndex) {
+        continue;
+      }
+      final left = (pb.startXCm - panorama.minDomainX) * pxPerCm;
+      final right = (pb.endXCm - panorama.minDomainX) * pxPerCm;
+      if (right <= 0 || left >= size.width) continue;
+
+      final panelRect = Rect.fromLTRB(
+        left.clamp(0.0, size.width),
+        0,
+        right.clamp(0.0, size.width),
+        size.height,
+      );
+      canvas.drawRect(panelRect, panelBorderPaint);
+    }
+
     // Draw mechanical gap spacers on top so inter-panel gaps remain crisp and un-colored
     final gapPaint = Paint()
       ..color = gapSpacerColor

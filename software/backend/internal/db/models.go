@@ -157,6 +157,7 @@ type Module struct {
 	ReservoirNominalCapacityMl pgtype.Numeric
 	PowerSensors               []byte
 	ConfiguredAt               *time.Time
+	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 }

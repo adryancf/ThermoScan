@@ -49,6 +49,7 @@ type ModuleDTO struct {
 	TotalLengthCm              *float64             `json:"total_length_cm,omitempty"`
 	PowerSensors               any                  `json:"power_sensors,omitempty"`
 	ConfiguredAt               *string              `json:"configured_at"`
+	NextInspectionAt           *string              `json:"next_inspection_at,omitempty"`
 	CreatedAt                  string               `json:"created_at"`
 	UpdatedAt                  string               `json:"updated_at"`
 	UserRelationship           string               `json:"user_relationship"`
@@ -312,6 +313,7 @@ type DeviceStatusDTO struct {
 	LimitsCheckPassed   bool                 `json:"limits_check_passed"`
 	ThermalSensorActive bool                 `json:"thermal_sensor_active"`
 	LatestMeasurementAt    *string              `json:"latest_measurement_at,omitempty"`
+	NextInspectionAt       *string              `json:"next_inspection_at,omitempty"`
 	ConfigurationSync      ConfigurationSyncDTO `json:"configuration_sync"`
 	ManualInspectionPending bool                 `json:"manual_inspection_pending"`
 	PingIntervalSeconds    int                  `json:"ping_interval_seconds"`
@@ -319,9 +321,10 @@ type DeviceStatusDTO struct {
 }
 
 type RecordDevicePingInput struct {
-	WaterAvailable      *bool `json:"water_available"`
-	LimitsCheckPassed   *bool `json:"limits_check_passed"`
-	ThermalSensorActive *bool `json:"thermal_sensor_active"`
+	WaterAvailable      *bool      `json:"water_available"`
+	LimitsCheckPassed   *bool      `json:"limits_check_passed"`
+	ThermalSensorActive *bool      `json:"thermal_sensor_active"`
+	NextInspectionAt    *time.Time `json:"next_inspection_at,omitempty"`
 }
 
 type ClaimDeviceInput struct {
@@ -358,6 +361,10 @@ type DeviceGeometryDTO struct {
 type DeviceConfigurationDTO struct {
 	ConfigVersion       int32             `json:"config_version"`
 	Geometry            DeviceGeometryDTO `json:"geometry"`
+	Latitude            *float64          `json:"latitude,omitempty"`
+	Longitude           *float64          `json:"longitude,omitempty"`
+	AzimuthDeg          *float64          `json:"azimuth_deg,omitempty"`
+	TiltDeg             *float64          `json:"tilt_deg,omitempty"`
 	MinSolarAngle       *float64          `json:"min_solar_angle"`
 	IntervalDays        int32             `json:"interval_days"`
 	PingIntervalSeconds int               `json:"ping_interval_seconds"`
@@ -365,10 +372,11 @@ type DeviceConfigurationDTO struct {
 }
 
 type AcknowledgeDeviceConfigurationInput struct {
-	ConfigVersion int32   `json:"config_version"`
-	Applied       bool    `json:"applied"`
-	Checksum      string  `json:"checksum"`
-	Error         *string `json:"error,omitempty"`
+	ConfigVersion    int32      `json:"config_version"`
+	Applied          bool       `json:"applied"`
+	Checksum         string     `json:"checksum"`
+	Error            *string    `json:"error,omitempty"`
+	NextInspectionAt *time.Time `json:"next_inspection_at,omitempty"`
 }
 
 type IngestMeasurementItemInput struct {

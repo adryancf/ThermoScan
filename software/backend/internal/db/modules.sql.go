@@ -524,7 +524,7 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 }
 
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, power_sensors, configured_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, power_sensors, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -563,6 +563,7 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.ReservoirNominalCapacityMl,
 		&i.PowerSensors,
 		&i.ConfiguredAt,
+		&i.NextInspectionAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -599,6 +600,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -645,6 +647,7 @@ type GetModuleByIDRow struct {
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
+	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -685,6 +688,7 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.ThermalSensorActive,
 		&i.LastPingAt,
 		&i.ConfiguredAt,
+		&i.NextInspectionAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ConfigVersion,
@@ -696,7 +700,7 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 }
 
 const getModuleByIDForDevice = `-- name: GetModuleByIDForDevice :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, power_sensors, configured_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, power_sensors, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE id = $1
 `
 
@@ -735,6 +739,7 @@ func (q *Queries) GetModuleByIDForDevice(ctx context.Context, id pgtype.UUID) (M
 		&i.ReservoirNominalCapacityMl,
 		&i.PowerSensors,
 		&i.ConfiguredAt,
+		&i.NextInspectionAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -769,6 +774,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -813,6 +819,7 @@ type GetModuleByIDForUpdateRow struct {
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
+	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -851,6 +858,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.ThermalSensorActive,
 		&i.LastPingAt,
 		&i.ConfiguredAt,
+		&i.NextInspectionAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ConfigVersion,
@@ -862,7 +870,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, power_sensors, configured_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, power_sensors, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -901,6 +909,7 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.ReservoirNominalCapacityMl,
 		&i.PowerSensors,
 		&i.ConfiguredAt,
+		&i.NextInspectionAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1304,6 +1313,7 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.power_sensors,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     mc.operational_email_enabled,
@@ -1353,6 +1363,7 @@ type ListModulesForClientRow struct {
 	ReservoirNominalCapacityMl pgtype.Numeric
 	PowerSensors               []byte
 	ConfiguredAt               *time.Time
+	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	OperationalEmailEnabled    bool
@@ -1402,6 +1413,7 @@ func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForCl
 			&i.ReservoirNominalCapacityMl,
 			&i.PowerSensors,
 			&i.ConfiguredAt,
+			&i.NextInspectionAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OperationalEmailEnabled,
@@ -1450,6 +1462,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -1498,6 +1511,7 @@ type ListModulesForManagerRow struct {
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
+	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -1544,6 +1558,7 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.ThermalSensorActive,
 			&i.LastPingAt,
 			&i.ConfiguredAt,
+			&i.NextInspectionAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ConfigVersion,
@@ -1591,6 +1606,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -1643,6 +1659,7 @@ type ListModulesForTechnicianRow struct {
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
+	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -1694,6 +1711,7 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.ThermalSensorActive,
 			&i.LastPingAt,
 			&i.ConfiguredAt,
+			&i.NextInspectionAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ConfigVersion,
@@ -1880,6 +1898,7 @@ UPDATE modules
 SET config_applied_version = $2,
     config_applied_at = $3,
     config_apply_error = $4,
+    next_inspection_at = coalesce($5, next_inspection_at),
     updated_at = NOW()
 WHERE id = $1
 `
@@ -1889,6 +1908,7 @@ type UpdateModuleConfigAckParams struct {
 	ConfigAppliedVersion int32
 	ConfigAppliedAt      *time.Time
 	ConfigApplyError     pgtype.Text
+	NextInspectionAt     *time.Time
 }
 
 func (q *Queries) UpdateModuleConfigAck(ctx context.Context, arg UpdateModuleConfigAckParams) error {
@@ -1897,6 +1917,7 @@ func (q *Queries) UpdateModuleConfigAck(ctx context.Context, arg UpdateModuleCon
 		arg.ConfigAppliedVersion,
 		arg.ConfigAppliedAt,
 		arg.ConfigApplyError,
+		arg.NextInspectionAt,
 	)
 	return err
 }
@@ -2076,15 +2097,17 @@ const updateModuleDeviceHealth = `-- name: UpdateModuleDeviceHealth :one
 UPDATE modules
 SET limits_check_passed = coalesce($1, limits_check_passed),
     thermal_sensor_active = coalesce($2, thermal_sensor_active),
+    next_inspection_at = coalesce($3, next_inspection_at),
     last_ping_at = now(),
     updated_at = now()
-WHERE id = $3
-RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at
+WHERE id = $4
+RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at, next_inspection_at
 `
 
 type UpdateModuleDeviceHealthParams struct {
 	LimitsCheckPassed   pgtype.Bool
 	ThermalSensorActive pgtype.Bool
+	NextInspectionAt    *time.Time
 	ID                  pgtype.UUID
 }
 
@@ -2094,10 +2117,16 @@ type UpdateModuleDeviceHealthRow struct {
 	LimitsCheckPassed   bool
 	ThermalSensorActive bool
 	LastPingAt          *time.Time
+	NextInspectionAt    *time.Time
 }
 
 func (q *Queries) UpdateModuleDeviceHealth(ctx context.Context, arg UpdateModuleDeviceHealthParams) (UpdateModuleDeviceHealthRow, error) {
-	row := q.db.QueryRow(ctx, updateModuleDeviceHealth, arg.LimitsCheckPassed, arg.ThermalSensorActive, arg.ID)
+	row := q.db.QueryRow(ctx, updateModuleDeviceHealth,
+		arg.LimitsCheckPassed,
+		arg.ThermalSensorActive,
+		arg.NextInspectionAt,
+		arg.ID,
+	)
 	var i UpdateModuleDeviceHealthRow
 	err := row.Scan(
 		&i.ID,
@@ -2105,6 +2134,7 @@ func (q *Queries) UpdateModuleDeviceHealth(ctx context.Context, arg UpdateModule
 		&i.LimitsCheckPassed,
 		&i.ThermalSensorActive,
 		&i.LastPingAt,
+		&i.NextInspectionAt,
 	)
 	return i, err
 }

@@ -55,6 +55,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	if err := bootstrap.RunMigrations(startupCtx, pool, logger); err != nil {
+		logger.Error("failed to run database migrations", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
+
 	queries := db.New(pool)
 
 	if _, err := bootstrap.EnsureSystemAdmin(startupCtx, queries, cfg.BootstrapAdminName, cfg.BootstrapAdminEmail, logger); err != nil {

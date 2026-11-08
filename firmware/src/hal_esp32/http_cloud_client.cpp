@@ -167,6 +167,16 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     doc["limits_check_passed"] = limits_ok;
     doc["thermal_sensor_active"] = thermal_ok;
 
+    if (storage_ != nullptr) {
+        uint32_t next_insp = 0;
+        if (storage_->getNextInspectionTimestamp(next_insp) && next_insp > 0) {
+            std::string next_insp_str = formatEpochToRFC3339(next_insp);
+            if (!next_insp_str.empty()) {
+                doc["next_inspection_at"] = next_insp_str.c_str();
+            }
+        }
+    }
+
     std::string requestBody;
     serializeJson(doc, requestBody);
 
@@ -273,6 +283,16 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
     doc["checksum"] = checksum.c_str();
     if (!applied && !error.empty()) {
         doc["error"] = error.c_str();
+    }
+
+    if (storage_ != nullptr) {
+        uint32_t next_insp = 0;
+        if (storage_->getNextInspectionTimestamp(next_insp) && next_insp > 0) {
+            std::string next_insp_str = formatEpochToRFC3339(next_insp);
+            if (!next_insp_str.empty()) {
+                doc["next_inspection_at"] = next_insp_str.c_str();
+            }
+        }
     }
 
     std::string requestBody;

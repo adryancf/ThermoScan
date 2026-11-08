@@ -99,6 +99,11 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		c := row.ConfiguredAt.UTC().Format(time.RFC3339)
 		configuredAtStr = &c
 	}
+	var nextInspectionAtStr *string
+	if row.NextInspectionAt != nil {
+		n := row.NextInspectionAt.UTC().Format(time.RFC3339)
+		nextInspectionAtStr = &n
+	}
 	isConfigured := row.ConfiguredAt != nil && row.MonitoringStatus != StatusPendingConfiguration
 
 	isOnline := false
@@ -133,6 +138,7 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		WaterStatus:         "unknown",
 		LimitsCheckPassed:   row.LimitsCheckPassed,
 		ThermalSensorActive: row.ThermalSensorActive,
+		NextInspectionAt:    nextInspectionAtStr,
 		ConfigurationSync:   syncDTO,
 		PingIntervalSeconds: s.PingIntervalSeconds(),
 		OnlineWindowSeconds: s.OnlineWindowSeconds(),
@@ -228,6 +234,7 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		ID:                  moduleID,
 		LimitsCheckPassed:   limitsPassed,
 		ThermalSensorActive: thermalActive,
+		NextInspectionAt:    input.NextInspectionAt,
 	})
 
 	// Only record reservoir ping if water_available was explicitly provided
@@ -373,6 +380,10 @@ func (s *Service) GetDeviceConfiguration(ctx context.Context, moduleID pgtype.UU
 			PanelSpacingCm: pSpc,
 			TotalLengthCm:  totalLengthCm,
 		},
+		Latitude:            pgFloat8ToFloatPtr(mod.Latitude),
+		Longitude:           pgFloat8ToFloatPtr(mod.Longitude),
+		AzimuthDeg:          numericToFloatPtr(mod.AzimuthDeg),
+		TiltDeg:             numericToFloatPtr(mod.TiltDeg),
 		MinSolarAngle:       numericToFloatPtr(mod.MinimumSolarAngleDeg),
 		IntervalDays:        mod.InspectionIntervalDays,
 		PingIntervalSeconds: s.PingIntervalSeconds(),
@@ -427,6 +438,7 @@ func (s *Service) AcknowledgeDeviceConfiguration(ctx context.Context, moduleID p
 		ConfigAppliedVersion: appliedVersion,
 		ConfigAppliedAt:      appliedAt,
 		ConfigApplyError:     applyErr,
+		NextInspectionAt:     req.NextInspectionAt,
 	}); err != nil {
 		return nil, err
 	}

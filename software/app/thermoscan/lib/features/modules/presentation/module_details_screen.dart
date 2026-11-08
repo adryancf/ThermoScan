@@ -587,6 +587,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             // 2. Executive Health Hero Banner
             _buildExecutiveHealthBanner(
               mod: mod,
+              deviceStatus: deviceStatus,
               latestInspection: latestInspection,
               latestMeasurement: latestMeasurement,
               measurements: currentMeasurements,
@@ -605,7 +606,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             const SizedBox(height: 16),
 
             // 4. Module Info Collapsible Card / Accordion
-            _buildModuleInfoCard(mod, details),
+            _buildModuleInfoCard(mod, details, deviceStatus),
             const SizedBox(height: 16),
 
             // 5. Device Verification Shortcut
@@ -742,6 +743,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   /// Strict relative threshold: baseline + 10°C or confirmed inspection anomaly.
   Widget _buildExecutiveHealthBanner({
     required PvModule mod,
+    required DeviceStatus? deviceStatus,
     required LatestInspection? latestInspection,
     required ModuleMeasurement? latestMeasurement,
     required List<ModuleMeasurement> measurements,
@@ -919,21 +921,63 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
           ),
           if (latestMeasurement?.measuredAt != null ||
               (measurements.isNotEmpty && measurements.first.measuredAt.isNotEmpty) ||
-              latestInspection?.inspection.createdAt != null) ...[
+              latestInspection?.inspection.createdAt != null ||
+              (deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt) != null) ...[
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
               children: [
-                const Icon(
-                  Icons.schedule_rounded,
-                  size: 13,
-                  color: AppColors.textSecondary,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  'Last inspected: ${_formatReadableTimestamp(latestMeasurement?.measuredAt ?? (measurements.isNotEmpty ? measurements.first.measuredAt : null) ?? latestInspection?.inspection.createdAt)}',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
+                if (latestMeasurement?.measuredAt != null ||
+                    (measurements.isNotEmpty && measurements.first.measuredAt.isNotEmpty) ||
+                    latestInspection?.inspection.createdAt != null)
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.schedule_rounded,
+                        size: 13,
+                        color: AppColors.textSecondary,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Last inspected: ${_formatReadableTimestamp(latestMeasurement?.measuredAt ?? (measurements.isNotEmpty ? measurements.first.measuredAt : null) ?? latestInspection?.inspection.createdAt)}',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ),
+                InkWell(
+                  onTap: () => _showScanHistoryModal(context, mod, deviceStatus),
+                  borderRadius: BorderRadius.circular(4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.event_repeat_rounded,
+                        size: 13,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        (deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt) != null
+                            ? 'Next scan: ${_formatReadableTimestamp(deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt)}'
+                            : 'Scan history',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      const Icon(
+                        Icons.arrow_forward_ios_rounded,
+                        size: 9,
+                        color: AppColors.primary,
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -1782,8 +1826,248 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     );
   }
 
+  /// Inspection Schedule & Previous Scans Modal Bottom Sheet
+  void _showScanHistoryModal(
+    BuildContext context,
+    PvModule mod,
+    DeviceStatus? status,
+  ) {
+    final nextScanStr = status?.nextInspectionAt ?? mod.nextInspectionAt;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (modalCtx) {
+        return SafeArea(
+          child: Container(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(modalCtx).size.height * 0.75,
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.calendar_month_rounded,
+                          size: 20,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Inspection Schedule & History',
+                          style: AppTypography.h3,
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded, size: 20),
+                      onPressed: () => Navigator.of(modalCtx).pop(),
+                      color: AppColors.textSecondary,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Automated periodic thermal inspection schedule calculated by the ESP32 robot.',
+                  style: AppTypography.bodySmall,
+                ),
+                const SizedBox(height: 16),
+
+                // 1. Next Scheduled Scan Hero Card
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'NEXT SCHEDULED SCAN',
+                            style: AppTypography.caption.copyWith(
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: nextScanStr != null ? AppColors.primarySoft : AppColors.warningBackground,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              nextScanStr != null ? 'PROGRAMMED' : 'AWAITING SYNC',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w800,
+                                color: nextScanStr != null ? AppColors.primary : AppColors.warning,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        nextScanStr != null
+                            ? _formatReadableTimestamp(nextScanStr)
+                            : 'Device has not reported scheduled scan yet',
+                        style: AppTypography.h3.copyWith(
+                          fontSize: 16,
+                          color: nextScanStr != null ? AppColors.textPrimary : AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Periodic inspection interval: every ${mod.inspectionIntervalDays} day${mod.inspectionIntervalDays > 1 ? "s" : ""}.',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                Text(
+                  'Previous Scans',
+                  style: AppTypography.bodySmall.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // 2. Previous Inspections List
+                Expanded(
+                  child: Consumer(
+                    builder: (context, ref, _) {
+                      final inspAsync = ref.watch(moduleInspectionsProvider(mod.id));
+                      return inspAsync.when(
+                        loading: () => const Center(
+                          child: CircularProgressIndicator(),
+                        ),
+                        error: (err, _) => Center(
+                          child: Text(
+                            'Failed to load inspection history: $err',
+                            style: AppTypography.caption.copyWith(color: AppColors.error),
+                          ),
+                        ),
+                        data: (inspections) {
+                          if (inspections.isEmpty) {
+                            return Center(
+                              child: Text(
+                                'No previous inspection scans recorded.',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            );
+                          }
+
+                          return ListView.separated(
+                            itemCount: inspections.length,
+                            separatorBuilder: (context, index) => const Divider(height: 1),
+                            itemBuilder: (ctx, index) {
+                              final insp = inspections[index];
+                              final isCompleted = insp.status == 'completed';
+                              final hasBaseline = insp.baselineTemperatureC != null && insp.baselineTemperatureC! > 0;
+                              final scanDate = insp.finishedAt ?? insp.startedAt ?? insp.scheduledFor;
+
+                              return ListTile(
+                                dense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                                leading: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: isCompleted ? AppColors.successBackground : AppColors.warningBackground,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    isCompleted ? Icons.check_circle_outline_rounded : Icons.pending_outlined,
+                                    size: 18,
+                                    color: isCompleted ? AppColors.success : AppColors.warning,
+                                  ),
+                                ),
+                                title: Text(
+                                  insp.type == 'verification'
+                                      ? 'Post-Cleaning Verification'
+                                      : 'Periodic Routine Scan',
+                                  style: AppTypography.bodySmall.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  '${_formatReadableTimestamp(scanDate)}${hasBaseline ? " · Baseline: ${insp.baselineTemperatureC!.toStringAsFixed(1)}°C" : ""}',
+                                  style: AppTypography.caption.copyWith(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                                trailing: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: isCompleted ? AppColors.successBackground : AppColors.surface,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: isCompleted ? AppColors.successBorder : AppColors.border,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    insp.status.toUpperCase(),
+                                    style: TextStyle(
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800,
+                                      color: isCompleted ? AppColors.success : AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// Module Info Collapsible Card / Accordion
-  Widget _buildModuleInfoCard(PvModule mod, ModuleDetails details) {
+  Widget _buildModuleInfoCard(PvModule mod, ModuleDetails details, DeviceStatus? deviceStatus) {
     final perms = mod.permissions;
 
     return Container(
@@ -1988,6 +2272,49 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     label: 'Scan Interval',
                     value: 'Every ${mod.inspectionIntervalDays} days',
                     isMono: true,
+                  ),
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: () => _showScanHistoryModal(context, mod, deviceStatus),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.calendar_month_outlined,
+                            size: 16,
+                            color: AppColors.primary,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Next Scan',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            (deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt) != null
+                                ? _formatReadableTimestamp(deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt)
+                                : 'Awaiting sync',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: (deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt) != null ? 'monospace' : null,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            Icons.arrow_forward_ios_rounded,
+                            size: 10,
+                            color: AppColors.primary,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                   if (mod.reservoirNominalCapacityMl != null) ...[
                     const SizedBox(height: 8),

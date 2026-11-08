@@ -296,6 +296,29 @@ class ModuleRepository {
     }
   }
 
+  Future<List<ModuleInspection>> listInspections({
+    required String moduleId,
+    int limit = 20,
+    int offset = 0,
+  }) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/inspections',
+        queryParameters: {
+          'limit': limit,
+          'offset': offset,
+        },
+      );
+      final rawList = response.data?['inspections'] as List<dynamic>? ?? const [];
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .map(ModuleInspection.fromJson)
+          .toList();
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
   Future<PagedMeasurements> listInspectionMeasurements({
     required String moduleId,
     required String inspectionId,

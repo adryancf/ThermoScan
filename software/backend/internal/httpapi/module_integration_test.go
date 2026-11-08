@@ -909,10 +909,14 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected 200 getting device configuration, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var devCfgResp struct {
-		ConfigVersion       int32   `json:"config_version"`
-		MinSolarAngle       float64 `json:"min_solar_angle"`
-		IntervalDays        int32   `json:"interval_days"`
-		PingIntervalSeconds int     `json:"ping_interval_seconds"`
+		ConfigVersion       int32    `json:"config_version"`
+		MinSolarAngle       float64  `json:"min_solar_angle"`
+		IntervalDays        int32    `json:"interval_days"`
+		PingIntervalSeconds int      `json:"ping_interval_seconds"`
+		Latitude            *float64 `json:"latitude"`
+		Longitude           *float64 `json:"longitude"`
+		AzimuthDeg          *float64 `json:"azimuth_deg"`
+		TiltDeg             *float64 `json:"tilt_deg"`
 		Geometry            struct {
 			PanelLengthCm  float64 `json:"panel_length_cm"`
 			PanelWidthCm   float64 `json:"panel_width_cm"`
@@ -932,6 +936,10 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	}
 	if devCfgResp.Geometry.PanelCount != 10 {
 		t.Fatalf("expected panel_count 10, got %d", devCfgResp.Geometry.PanelCount)
+	}
+	if devCfgResp.Latitude == nil || devCfgResp.Longitude == nil || devCfgResp.AzimuthDeg == nil || devCfgResp.TiltDeg == nil {
+		t.Fatalf("expected device configuration to include coordinates and orientation, got lat=%v lon=%v az=%v tilt=%v",
+			devCfgResp.Latitude, devCfgResp.Longitude, devCfgResp.AzimuthDeg, devCfgResp.TiltDeg)
 	}
 
 	// Test POST /api/v1/devices/{id}/configuration/ack with STALE config version -> 409 Conflict
@@ -999,16 +1007,30 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected applied_version %d and non-nil applied_at, got %+v", initialVer, successAckResp.ConfigurationSync)
 	}
 
-	// Verify device status endpoint reflects synced configuration
+	// Test ping with next_inspection_at
+	nextScanTime := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
+	nextScanStr := nextScanTime.Format(time.RFC3339)
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/ping", claimResp.DeviceToken, map[string]any{
+		"water_available":       true,
+		"limits_check_passed":   true,
+		"thermal_sensor_active": true,
+		"next_inspection_at":    nextScanStr,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 pinging device with next_inspection_at, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify device status endpoint reflects next_inspection_at
 	rec = doJSON(http.MethodGet, "/api/v1/modules/"+claimResp.ModuleID+"/device-status", tech1Auth.AccessToken, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 getting device status, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var devStatusCheck struct {
 		DeviceStatus struct {
-			IsOnline            bool `json:"is_online"`
-			PingIntervalSeconds int  `json:"ping_interval_seconds"`
-			OnlineWindowSeconds int  `json:"online_window_seconds"`
+			IsOnline            bool    `json:"is_online"`
+			PingIntervalSeconds int     `json:"ping_interval_seconds"`
+			OnlineWindowSeconds int     `json:"online_window_seconds"`
+			NextInspectionAt    *string `json:"next_inspection_at"`
 			ConfigurationSync   struct {
 				State string `json:"state"`
 			} `json:"configuration_sync"`
@@ -1016,6 +1038,9 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &devStatusCheck); err != nil {
 		t.Fatalf("failed to decode dev status check: %v", err)
+	}
+	if devStatusCheck.DeviceStatus.NextInspectionAt == nil || *devStatusCheck.DeviceStatus.NextInspectionAt != nextScanStr {
+		t.Fatalf("expected next_inspection_at %q, got %+v", nextScanStr, devStatusCheck.DeviceStatus.NextInspectionAt)
 	}
 	if devStatusCheck.DeviceStatus.ConfigurationSync.State != "synced" {
 		t.Fatalf("expected device status sync state synced, got %q", devStatusCheck.DeviceStatus.ConfigurationSync.State)

@@ -138,6 +138,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -177,6 +178,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -218,6 +220,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -260,6 +263,7 @@ SELECT
     m.thermal_sensor_active,
     m.last_ping_at,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -302,6 +306,7 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.power_sensors,
     m.configured_at,
+    m.next_inspection_at,
     m.created_at,
     m.updated_at,
     mc.operational_email_enabled,
@@ -632,16 +637,18 @@ RETURNING id, mac_address, device_token, monitoring_status, inspection_interval_
 UPDATE modules
 SET limits_check_passed = coalesce(sqlc.narg('limits_check_passed'), limits_check_passed),
     thermal_sensor_active = coalesce(sqlc.narg('thermal_sensor_active'), thermal_sensor_active),
+    next_inspection_at = coalesce(sqlc.narg('next_inspection_at'), next_inspection_at),
     last_ping_at = now(),
     updated_at = now()
 WHERE id = sqlc.arg('id')
-RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at;
+RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at, next_inspection_at;
 
 -- name: UpdateModuleConfigAck :exec
 UPDATE modules
 SET config_applied_version = $2,
     config_applied_at = $3,
     config_apply_error = $4,
+    next_inspection_at = coalesce(sqlc.narg('next_inspection_at'), next_inspection_at),
     updated_at = NOW()
 WHERE id = $1;
 

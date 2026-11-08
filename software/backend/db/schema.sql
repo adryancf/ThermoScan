@@ -89,6 +89,7 @@ CREATE TABLE modules (
     reservoir_nominal_capacity_ml numeric(12,3) CHECK (reservoir_nominal_capacity_ml > 0),
     power_sensors jsonb NULL CHECK (power_sensors IS NULL OR jsonb_typeof(power_sensors) = 'array'),
     configured_at timestamptz,
+    next_inspection_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (company_id, id),

@@ -89,6 +89,7 @@ class PvModule {
     required this.inspectionIntervalDays,
     this.reservoirNominalCapacityMl,
     this.configuredAt,
+    this.nextInspectionAt,
     required this.createdAt,
     required this.updatedAt,
     required this.userRelationship,
@@ -127,6 +128,7 @@ class PvModule {
   final int inspectionIntervalDays;
   final double? reservoirNominalCapacityMl;
   final String? configuredAt;
+  final String? nextInspectionAt;
   final String createdAt;
   final String updatedAt;
   final String userRelationship;
@@ -286,6 +288,7 @@ class PvModule {
       reservoirNominalCapacityMl:
           (json['reservoir_nominal_capacity_ml'] as num?)?.toDouble(),
       configuredAt: json['configured_at'] as String?,
+      nextInspectionAt: (json['next_inspection_at'] ?? json['nextInspectionAt']) as String?,
       createdAt: json['created_at'] as String? ?? '',
       updatedAt: json['updated_at'] as String? ?? '',
       userRelationship: json['user_relationship'] as String? ?? '',
@@ -338,6 +341,7 @@ class PvModule {
       'inspection_interval_days': inspectionIntervalDays,
       if (reservoirNominalCapacityMl != null) 'reservoir_nominal_capacity_ml': reservoirNominalCapacityMl,
       if (configuredAt != null) 'configured_at': configuredAt,
+      if (nextInspectionAt != null) 'next_inspection_at': nextInspectionAt,
       'created_at': createdAt,
       'updated_at': updatedAt,
       'user_relationship': userRelationship,
@@ -1074,6 +1078,7 @@ class DeviceStatus {
     required this.limitsCheckPassed,
     required this.thermalSensorActive,
     this.latestMeasurementAt,
+    this.nextInspectionAt,
     this.configurationSync,
     this.pingIntervalSeconds,
     this.onlineWindowSeconds,
@@ -1092,6 +1097,7 @@ class DeviceStatus {
   final bool limitsCheckPassed;
   final bool thermalSensorActive;
   final String? latestMeasurementAt;
+  final String? nextInspectionAt;
   final ConfigurationSyncInfo? configurationSync;
   final int? pingIntervalSeconds;
   final int? onlineWindowSeconds;
@@ -1156,6 +1162,7 @@ class DeviceStatus {
       limitsCheckPassed: json['limits_check_passed'] as bool? ?? false,
       thermalSensorActive: json['thermal_sensor_active'] as bool? ?? false,
       latestMeasurementAt: json['latest_measurement_at'] as String?,
+      nextInspectionAt: (json['next_inspection_at'] ?? json['nextInspectionAt']) as String?,
       configurationSync: syncInfo,
       pingIntervalSeconds: (json['ping_interval_seconds'] ??
               json['pingIntervalSeconds'] as num?)
@@ -1182,6 +1189,8 @@ class DeviceStatus {
       'thermal_sensor_active': thermalSensorActive,
       if (latestMeasurementAt != null)
         'latest_measurement_at': latestMeasurementAt,
+      if (nextInspectionAt != null)
+        'next_inspection_at': nextInspectionAt,
       if (configurationSync != null)
         'configuration_sync': configurationSync!.toJson(),
       if (pingIntervalSeconds != null)

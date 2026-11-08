@@ -1129,6 +1129,17 @@ void ThermoscanApp::handleVerifying() {
             storage_->saveCleaningQueue(cleaning_queue_);
         }
     }
+
+    if (!any_retry_allowed && cleaning_queue_.empty()) {
+        const uint32_t now = getCurrentTime();
+        if (now > 0 && next_inspection_time_ <= now) {
+            next_inspection_time_ = now + static_cast<uint32_t>(config_.interval_days * 86400);
+            if (storage_ != nullptr) {
+                storage_->saveNextInspectionTimestamp(next_inspection_time_);
+            }
+        }
+    }
+
     saveCurrentStateToNvs();
     state_ = any_retry_allowed ? AppState::IDLE : AppState::SYNCING;
 }
@@ -1242,6 +1253,33 @@ void ThermoscanApp::handleSyncing() {
         }
     }
 
+    // 7. Orientation validation (optional azimuth 0..360, tilt 0..90)
+    float azimuth = config_.azimuth;
+    if (doc["azimuth_deg"].is<float>()) {
+        azimuth = doc["azimuth_deg"].as<float>();
+    } else if (doc["azimuth"].is<float>()) {
+        azimuth = doc["azimuth"].as<float>();
+    }
+    if (azimuth < 0.0f || azimuth >= 360.0f) {
+        last_config_error_ = "invalid_azimuth";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
+    float tilt = config_.tilt;
+    if (doc["tilt_deg"].is<float>()) {
+        tilt = doc["tilt_deg"].as<float>();
+    } else if (doc["tilt"].is<float>()) {
+        tilt = doc["tilt"].as<float>();
+    }
+    if (tilt < 0.0f || tilt > 90.0f) {
+        last_config_error_ = "invalid_tilt";
+        config_sync_failed_waiting_ping_ = true;
+        state_ = AppState::IDLE;
+        return;
+    }
+
     // All parameters validated successfully!
     last_config_error_.clear();
     const bool interval_changed = (interval_d != config_.interval_days);
@@ -1257,6 +1295,8 @@ void ThermoscanApp::handleSyncing() {
     config_.ping_interval_seconds = ping_s;
     config_.latitude = lat;
     config_.longitude = lon;
+    config_.azimuth = azimuth;
+    config_.tilt = tilt;
 
     // Apply to NVS Flash
     if (storage_ != nullptr) {

@@ -349,6 +349,7 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 				ReservoirNominalCapacityMl: r.ReservoirNominalCapacityMl,
 				PowerSensors:               r.PowerSensors,
 				ConfiguredAt:               r.ConfiguredAt,
+				NextInspectionAt:           r.NextInspectionAt,
 				CreatedAt:                  r.CreatedAt,
 				UpdatedAt:                  r.UpdatedAt,
 				ConfigVersion:              r.ConfigVersion,
@@ -995,6 +996,12 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		configuredAtStr = &str
 	}
 
+	var nextInspectionAtStr *string
+	if r.NextInspectionAt != nil {
+		str := r.NextInspectionAt.UTC().Format(time.RFC3339)
+		nextInspectionAtStr = &str
+	}
+
 	var configApplyErr *string
 	if r.ConfigApplyError.Valid && strings.TrimSpace(r.ConfigApplyError.String) != "" {
 		errStr := r.ConfigApplyError.String
@@ -1066,6 +1073,7 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		TotalLengthCm:              totalLengthCm,
 		PowerSensors:               powerSensorsData,
 		ConfiguredAt:               configuredAtStr,
+		NextInspectionAt:           nextInspectionAtStr,
 		CreatedAt:                  r.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:                  r.UpdatedAt.UTC().Format(time.RFC3339),
 		UserRelationship:           rel,

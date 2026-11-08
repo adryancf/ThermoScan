@@ -11,6 +11,7 @@ import 'package:thermoscan/features/modules/data/device_sensor_service.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_blueprint_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_calibration_modal.dart';
 
 /// SCR-13: Module Configuration & Interval Change Log
@@ -335,6 +336,28 @@ class _ModuleConfigurationScreenState
                           'Physical panel dimensions in centimeters and number of panels in row.',
                       editable: perms.canEditGeometryAndLocation,
                       children: [
+                        ArrayGeometryBlueprintWidget(
+                          panelLengthCm:
+                              double.tryParse(_lengthCtrl.text.trim()) ?? 100.0,
+                          panelWidthCm:
+                              double.tryParse(_widthCtrl.text.trim()) ?? 100.0,
+                          panelCount:
+                              int.tryParse(_countCtrl.text.trim()) ?? 1,
+                          panelSpacingCm:
+                              double.tryParse(_spacingCtrl.text.trim()) ?? 0.0,
+                          onSwapDimensions: perms.canEditGeometryAndLocation
+                              ? () {
+                                  setState(() {
+                                    final temp = _lengthCtrl.text;
+                                    _lengthCtrl.text = _widthCtrl.text;
+                                    _widthCtrl.text = temp;
+                                  });
+                                }
+                              : null,
+                          onOpenMeasureGuide: () =>
+                              showHowToMeasureModal(context),
+                        ),
+                        const SizedBox(height: 16),
                         AppTextField(
                           label: 'Module Name',
                           controller: _nameCtrl,
@@ -349,130 +372,202 @@ class _ModuleConfigurationScreenState
                         ),
                         const SizedBox(height: 12),
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              child: AppTextField(
-                                label: 'Length (cm)',
-                                controller: _lengthCtrl,
-                                readOnly: !perms.canEditGeometryAndLocation,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
-                                validator: (v) {
-                                  if (!perms.canEditGeometryAndLocation) {
-                                    return null;
-                                  }
-                                  if (v == null || v.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  final n = double.tryParse(v.trim());
-                                  if (n == null || n <= 0) {
-                                    return 'Must be > 0';
-                                  }
-                                  return null;
-                                },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppTextField(
+                                    label: 'Length along Track (cm)',
+                                    controller: _lengthCtrl,
+                                    onChanged: (_) => setState(() {}),
+                                    readOnly: !perms.canEditGeometryAndLocation,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    validator: (v) {
+                                      if (!perms.canEditGeometryAndLocation) {
+                                        return null;
+                                      }
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Required';
+                                      }
+                                      final n = double.tryParse(v.trim());
+                                      if (n == null || n <= 0) {
+                                        return 'Must be > 0';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Parallel to robot rail',
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: AppTextField(
-                                label: 'Width (cm)',
-                                controller: _widthCtrl,
-                                readOnly: !perms.canEditGeometryAndLocation,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
-                                validator: (v) {
-                                  if (!perms.canEditGeometryAndLocation) {
-                                    return null;
-                                  }
-                                  if (v == null || v.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  final n = double.tryParse(v.trim());
-                                  if (n == null || n <= 0) {
-                                    return 'Must be > 0';
-                                  }
-                                  return null;
-                                },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppTextField(
+                                    label: 'Width across (cm)',
+                                    controller: _widthCtrl,
+                                    onChanged: (_) => setState(() {}),
+                                    readOnly: !perms.canEditGeometryAndLocation,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    validator: (v) {
+                                      if (!perms.canEditGeometryAndLocation) {
+                                        return null;
+                                      }
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Required';
+                                      }
+                                      final n = double.tryParse(v.trim());
+                                      if (n == null || n <= 0) {
+                                        return 'Must be > 0';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Perpendicular to rail',
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 12),
                         Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                              child: AppTextField(
-                                label: 'Panel Count',
-                                controller: _countCtrl,
-                                readOnly: !perms.canEditGeometryAndLocation,
-                                keyboardType: TextInputType.number,
-                                validator: (v) {
-                                  if (!perms.canEditGeometryAndLocation) {
-                                    return null;
-                                  }
-                                  if (v == null || v.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  final n = int.tryParse(v.trim());
-                                  if (n == null || n < 1) {
-                                    return 'Must be >= 1';
-                                  }
-                                  return null;
-                                },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppTextField(
+                                    label: 'Panel Count',
+                                    controller: _countCtrl,
+                                    onChanged: (_) => setState(() {}),
+                                    readOnly: !perms.canEditGeometryAndLocation,
+                                    keyboardType: TextInputType.number,
+                                    validator: (v) {
+                                      if (!perms.canEditGeometryAndLocation) {
+                                        return null;
+                                      }
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Required';
+                                      }
+                                      final n = int.tryParse(v.trim());
+                                      if (n == null || n < 1) {
+                                        return 'Must be >= 1';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Panels along rail',
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
-                              child: AppTextField(
-                                label: 'Gap Between Panels (cm)',
-                                controller: _spacingCtrl,
-                                readOnly: !perms.canEditGeometryAndLocation,
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                  decimal: true,
-                                ),
-                                validator: (v) {
-                                  if (!perms.canEditGeometryAndLocation) {
-                                    return null;
-                                  }
-                                  if (v == null || v.trim().isEmpty) {
-                                    return 'Required';
-                                  }
-                                  final n = double.tryParse(v.trim());
-                                  if (n == null || n < 0) {
-                                    return 'Must be >= 0';
-                                  }
-                                  return null;
-                                },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  AppTextField(
+                                    label: 'Gap Between Panels (cm)',
+                                    controller: _spacingCtrl,
+                                    onChanged: (_) => setState(() {}),
+                                    readOnly: !perms.canEditGeometryAndLocation,
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                      decimal: true,
+                                    ),
+                                    validator: (v) {
+                                      if (!perms.canEditGeometryAndLocation) {
+                                        return null;
+                                      }
+                                      if (v == null || v.trim().isEmpty) {
+                                        return 'Required';
+                                      }
+                                      final n = double.tryParse(v.trim());
+                                      if (n == null || n < 0) {
+                                        return 'Must be >= 0';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    'Spacing along rail',
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textSecondary,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 12),
-                        AppTextField(
-                          label: 'Water Tank Capacity (mL, optional)',
-                          hintText: 'e.g. 1000',
-                          controller: _reservoirCtrl,
-                          readOnly: !perms.canEditGeometryAndLocation,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          validator: (v) {
-                            if (!perms.canEditGeometryAndLocation ||
-                                v == null ||
-                                v.trim().isEmpty) {
-                              return null;
-                            }
-                            final n = double.tryParse(v.trim());
-                            if (n == null || n <= 0) {
-                              return 'Must be > 0';
-                            }
-                            return null;
-                          },
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            AppTextField(
+                              label: 'Water Tank Capacity (mL, optional)',
+                              hintText: 'e.g. 1000',
+                              controller: _reservoirCtrl,
+                              readOnly: !perms.canEditGeometryAndLocation,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              validator: (v) {
+                                if (!perms.canEditGeometryAndLocation ||
+                                    v == null ||
+                                    v.trim().isEmpty) {
+                                  return null;
+                                }
+                                final n = double.tryParse(v.trim());
+                                if (n == null || n <= 0) {
+                                  return 'Must be > 0';
+                                }
+                                return null;
+                              },
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Robot reservoir volume (e.g. 2000 mL = 2 Liters)',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textSecondary,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

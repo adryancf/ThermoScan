@@ -19,6 +19,10 @@ HTTP_PORT    ?= 8000
 RELEASE_APK  ?= $(APK_DIR)/app-release.apk
 DEBUG_APK    ?= $(APK_DIR)/app-debug.apk
 
+# Automatic Versioning based on Git Commit Count
+BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
+BUILD_NAME   ?= 1.0.$(BUILD_NUMBER)
+
 .PHONY: help apk apk-debug serve-apk serve run-apk clean analyze test
 
 help: ## Exibe a lista de comandos disponíveis
@@ -28,23 +32,25 @@ help: ## Exibe a lista de comandos disponíveis
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
 	@echo "API_URL configurada: $(API_URL)"
+	@echo "Versão automática calculada: v$(BUILD_NAME)+$(BUILD_NUMBER)"
 	@echo "IP detectado para download local do APK: $(HOST_IP)"
 	@echo ""
 
-apk: ## Gera o APK de release injetando a API_URL (pode sobrescrever com API_URL=http://...)
-	@echo "==> Compilando APK Release..."
+apk: ## Gera o APK de release injetando API_URL e auto-versionamento via Git
+	@echo "==> Compilando APK Release (v$(BUILD_NAME)+$(BUILD_NUMBER))..."
 	@echo "==> Usando API_BASE_URL: $(API_URL)"
-	@$(FLUTTER) build apk --release --dart-define=API_BASE_URL=$(API_URL)
+	@$(FLUTTER) build apk --release --dart-define=API_BASE_URL=$(API_URL) --build-name=$(BUILD_NAME) --build-number=$(BUILD_NUMBER)
 	@mkdir -p $(DIST_DIR)
 	@cp -f $(RELEASE_APK) $(DIST_DIR)/thermoscan.apk
+	@if [ -d ../../../dist ]; then cp -f $(RELEASE_APK) ../../../dist/thermoscan.apk; fi
 	@echo ""
 	@echo "==> APK gerado em: $(RELEASE_APK)"
 	@echo "==> Cópia pronta em: $(DIST_DIR)/thermoscan.apk"
 
-apk-debug: ## Gera o APK de debug injetando a API_URL
-	@echo "==> Compilando APK Debug..."
+apk-debug: ## Gera o APK de debug injetando API_URL e auto-versionamento via Git
+	@echo "==> Compilando APK Debug (v$(BUILD_NAME)+$(BUILD_NUMBER))..."
 	@echo "==> Usando API_BASE_URL: $(API_URL)"
-	@$(FLUTTER) build apk --debug --dart-define=API_BASE_URL=$(API_URL)
+	@$(FLUTTER) build apk --debug --dart-define=API_BASE_URL=$(API_URL) --build-name=$(BUILD_NAME) --build-number=$(BUILD_NUMBER)
 	@mkdir -p $(DIST_DIR)
 	@cp -f $(DEBUG_APK) $(DIST_DIR)/thermoscan-debug.apk
 	@echo ""

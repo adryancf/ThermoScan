@@ -442,7 +442,7 @@ void main() {
       // Candidate is NEVER displayed as HOTSPOT
       expect(find.text('HOTSPOT'), findsNothing);
       expect(find.text('HOTSPOT DETECTED'), findsNothing);
-      expect(find.text('Delta: +23.0°C (Normal)'), findsOneWidget);
+      expect(find.text('+23.0°C (Normal)'), findsOneWidget);
     });
 
     testWidgets('RadiometricScanCard highlights exclusively confirmedAnomalies from completed inspection', (tester) async {
@@ -541,9 +541,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // Exclusively highlights confirmed anomaly
-      expect(find.text('Delta: +27.0°C (Hotspot)'), findsWidgets);
+      expect(find.text('+27.0°C above normal (Hotspot)'), findsWidgets);
       expect(find.text('HOTSPOT 10.0cm'), findsOneWidget);
-      expect(find.text('HOTSPOT'), findsOneWidget);
+      expect(find.text('HOTSPOT'), findsWidgets);
     });
 
     testWidgets('RadiometricScanCard renders N/A for null electrical readings and never 0.0 V, 0.00 A, 0.0 W', (tester) async {
@@ -727,7 +727,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify page 1 rendered items strictly ordered by xPositionCm ASC
-      expect(find.text('Active Inspection (Paginated)'), findsOneWidget);
+      expect(find.text('Active Inspection'), findsOneWidget);
       expect(find.text('X = 10.0 cm'), findsOneWidget);
       expect(find.text('X = 12.0 cm'), findsOneWidget);
       expect(find.text('Page 1 of 2 (20 items)'), findsOneWidget);
@@ -1354,7 +1354,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('No thermal_frame matrix available'), findsOneWidget);
+        expect(find.text('Detailed heat map grid not available'), findsOneWidget);
         expect(
           find.byKey(const Key('notice_missing_thermal_frame')),
           findsOneWidget,
@@ -1467,7 +1467,7 @@ void main() {
           findsOneWidget,
         );
         expect(
-          find.text('Incomplete coverage: 2 of 35 expected acquisitions'),
+          find.text('Partial scan: 2 of 35 sections recorded'),
           findsOneWidget,
         );
         // Only 2 FOV strips rendered; NO fake strips generated for missing positions
@@ -1686,7 +1686,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.text('Inspection History (Grouped by Inspection)'),
+          find.text('Recorded Inspection Scans'),
           findsOneWidget,
         );
         expect(
@@ -2015,10 +2015,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // Detailed Diagnostics modal items
-      expect(find.text('Limits Check Passed'), findsOneWidget);
-      expect(find.text('Thermal Sensor Active'), findsOneWidget);
-      expect(find.text('Water Reservoir'), findsOneWidget);
-      expect(find.text('ESP32 Connectivity'), findsOneWidget);
+      expect(find.text('Track Sensors Ready'), findsOneWidget);
+      expect(find.text('Thermal Camera'), findsOneWidget);
+      expect(find.text('Water Tank'), findsOneWidget);
+      expect(find.text('Wi-Fi Connection'), findsOneWidget);
     });
 
     testWidgets(
@@ -2115,7 +2115,7 @@ void main() {
       expect(find.text('Solar Array Healthy'), findsOneWidget);
       expect(
         find.text(
-          'All panels operating within normal baseline temperature (38.5°C). No hotspots detected.',
+          'All panels operating within normal temperature (38.5°C). No hotspots detected.',
         ),
         findsOneWidget,
       );
@@ -2247,19 +2247,19 @@ void main() {
       expect(find.text('Hotspot on Panel 2'), findsOneWidget);
       expect(
         find.text(
-          '+13.0°C above baseline (35.0°C). Robot cleaning recommended.',
+          '+13.0°C above normal (35.0°C). Robot cleaning recommended.',
         ),
         findsOneWidget,
       );
       expect(find.text('HOTSPOT DETECTED'), findsOneWidget);
-      expect(find.text('Relative Delta'), findsOneWidget);
+      expect(find.text('Above Normal'), findsOneWidget);
       expect(find.text('+13.0°C'), findsOneWidget);
       expect(find.textContaining('Last inspected:'), findsOneWidget);
 
       // Verify CleanThermalPreviewCard on Overview
       expect(find.text('Thermal Inspection Map'), findsOneWidget);
-      expect(find.text('Open Full Thermal Inspection Studio →'), findsOneWidget);
-      expect(find.text('Hotspot +13.0°C ΔT'), findsOneWidget);
+      expect(find.text('View Detailed Thermal Map'), findsOneWidget);
+      expect(find.text('Hotspot +13.0°C above normal'), findsOneWidget);
 
       // Verify Hotspot Cleaning Status Card
       expect(find.text('Hotspot Cleaning Status'), findsOneWidget);
@@ -2268,7 +2268,7 @@ void main() {
       // Verify 4 Key Telemetry Metrics
       expect(find.text('Peak Temperature'), findsOneWidget);
       expect(find.text('48.0°C'), findsNWidgets(2));
-      expect(find.text('Baseline Temperature'), findsOneWidget);
+      expect(find.text('Normal Temperature'), findsOneWidget);
       expect(find.text('35.0°C'), findsNWidgets(2));
       expect(find.text('DC Output'), findsOneWidget);
       expect(find.text('Active Power'), findsOneWidget);
@@ -2384,7 +2384,7 @@ void main() {
         'New PV Array',
       );
       await tester.enterText(
-        find.widgetWithText(AppTextField, 'Device MAC Address'),
+        find.widgetWithText(AppTextField, 'Robot Device ID (MAC Address)'),
         'AA:BB:CC:DD:EE:01',
       );
       await tester.pumpAndSettle();
@@ -2395,7 +2395,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify it halted on Step 1 and displayed the MAC conflict error
-      expect(find.text('Module & Embedded Device'), findsOneWidget);
+      expect(find.text('Solar Panel & Cleaning Robot'), findsOneWidget);
       expect(
         find.text('A module with this MAC address is already registered.'),
         findsWidgets,

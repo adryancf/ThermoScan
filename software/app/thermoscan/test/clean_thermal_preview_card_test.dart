@@ -90,12 +90,12 @@ void main() {
 
     // Verify Semantic Thermal Scale
     expect(find.textContaining('Min'), findsOneWidget);
-    expect(find.textContaining('Baseline (35.0°C)'), findsOneWidget);
+    expect(find.textContaining('Normal (35.0°C)'), findsOneWidget);
     expect(find.textContaining('Max (38.5°C)'), findsOneWidget);
 
     // Verify Studio CTA button
     expect(
-      find.text('Open Full Thermal Inspection Studio →'),
+      find.text('View Detailed Thermal Map'),
       findsOneWidget,
     );
   });
@@ -160,8 +160,8 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    // Verify Hotspot Header Badge with Delta (+17.4°C ΔT)
-    expect(find.text('Hotspot +17.4°C ΔT'), findsOneWidget);
+    // Verify Hotspot Header Badge with Delta (+17.4°C above normal)
+    expect(find.text('Hotspot +17.4°C above normal'), findsOneWidget);
 
     // Verify Friendly Pin marker
     expect(find.text('Hotspot'), findsOneWidget);
@@ -208,7 +208,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Tap CTA button
-    await tester.tap(find.text('Open Full Thermal Inspection Studio →'));
+    await tester.tap(find.text('View Detailed Thermal Map'));
     await tester.pumpAndSettle();
 
     expect(navigatedRoute, '/modules/mod-clean-1/thermal-inspection');

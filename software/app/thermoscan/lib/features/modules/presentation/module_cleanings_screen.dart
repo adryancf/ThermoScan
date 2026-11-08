@@ -8,7 +8,7 @@ import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/module_sub_nav_bar.dart';
 
-/// SCR-12: Module Details — Actuator Wash Log / Cleanings
+/// SCR-12: Module Details — Cleaning History
 class ModuleCleaningsScreen extends ConsumerStatefulWidget {
   const ModuleCleaningsScreen({
     super.key,
@@ -73,12 +73,12 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Actuator Wash Log',
+                                  'Cleaning History',
                                   style: AppTypography.h2,
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Autonomous water spray cycles & post-clean verification',
+                                  'Automatic washing cycles & follow-up check',
                                   style: AppTypography.bodySmall,
                                 ),
                               ],
@@ -111,7 +111,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Safety Interlocks & Budget Limit',
+                                    'Automatic Washing Rules',
                                     style: AppTypography.h3.copyWith(
                                       fontSize: 14,
                                       fontWeight: FontWeight.w700,
@@ -119,7 +119,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Max 3 wash attempts per hotspot event. Each cycle evaluates capacitive water reserve (water_available) and thermal safety. Post-clean verification scans run ≥ 30 min after pump actuation.',
+                                    'Up to 3 washes per hotspot. Before spraying, the robot checks the water level and makes sure the panel isn’t too hot. A follow-up scan runs 30 minutes after washing.',
                                     style: AppTypography.caption.copyWith(
                                       color: AppColors.textSecondary,
                                       height: 1.4,
@@ -186,7 +186,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: ThermoScanAppBar(
-        title: mod != null ? '${mod.name} Cleanings' : 'Actuator Wash Log',
+        title: mod != null ? '${mod.name} Cleanings' : 'Cleaning History',
         role: user?.role,
         showBack: true,
       ),
@@ -221,12 +221,12 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
       statusBg = AppColors.warningBackground;
       statusBorder = AppColors.warningBorder;
       statusText = AppColors.warning;
-      statusLabel = 'REFUSED (IN GAP)';
+      statusLabel = 'SKIPPED (GAP BETWEEN PANELS)';
     } else if (c.status == 'refused') {
       statusBg = AppColors.warningBackground;
       statusBorder = AppColors.warningBorder;
       statusText = AppColors.warning;
-      statusLabel = 'REFUSED (SAFETY LOCK)';
+      statusLabel = 'PAUSED (SAFETY CHECK)';
     } else if (c.status == 'failed') {
       statusBg = AppColors.errorBackground;
       statusBorder = AppColors.errorBorder;
@@ -268,8 +268,8 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                   children: [
                     Text(
                       c.attemptNumber != null
-                          ? '${panelPrefix}Wash Attempt #${c.attemptNumber} • Localized Traverse'
-                          : '${panelPrefix}Wash Request • Localized Traverse',
+                          ? '${panelPrefix}Wash Attempt #${c.attemptNumber} • Spot Wash'
+                          : '${panelPrefix}Wash Request • Spot Wash',
                       style: AppTypography.h3.copyWith(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -380,7 +380,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
               ),
               Expanded(
                 child: _buildMetricCol(
-                  'Fluid Est.',
+                  'Water Used',
                   fluid,
                   AppColors.primary,
                 ),
@@ -438,7 +438,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Actuator spray routines execute autonomously when a localized thermal hotspot is confirmed across consecutive acquisitions and safety interlocks allow water delivery.',
+            'The robot washes panels automatically when a hotspot is confirmed across scans and water is available.',
             textAlign: TextAlign.center,
             style: AppTypography.bodySmall,
           ),

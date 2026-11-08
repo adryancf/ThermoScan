@@ -287,7 +287,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
               color: AppColors.primary,
             ),
             label: Text(
-              'Open Full Thermal Inspection Studio →',
+              'View Detailed Thermal Map',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.primary,
                 fontWeight: FontWeight.w700,
@@ -328,7 +328,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
   }) {
     if (hasHotspots) {
       final deltaText = delta != null && delta > 0
-          ? '+${delta.toStringAsFixed(1)}°C ΔT'
+          ? '+${delta.toStringAsFixed(1)}°C above normal'
           : 'Detected';
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -559,8 +559,8 @@ class CleanThermalPreviewCard extends StatelessWidget {
             ),
             Text(
               baselineTemp != null
-                  ? 'Baseline (${baselineTemp.toStringAsFixed(1)}°C)'
-                  : 'Baseline (Nominal)',
+                  ? 'Normal (${baselineTemp.toStringAsFixed(1)}°C)'
+                  : 'Normal',
               style: AppTypography.caption.copyWith(
                 color: AppColors.textPrimary,
                 fontWeight: FontWeight.w600,

@@ -48,11 +48,14 @@ class FieldAlert {
     if (panelIndex != null) {
       parts.add('Panel $panelIndex');
     }
-    if (xPositionCm != null) {
-      final locSuffix = localXPositionCm != null
-          ? ' (Local: ${localXPositionCm!.toStringAsFixed(1)} cm)'
-          : '';
-      parts.add('Position ${xPositionCm!.toStringAsFixed(1)} cm$locSuffix');
+    if (localXPositionCm != null && xPositionCm != null) {
+      parts.add(
+        '${localXPositionCm!.toStringAsFixed(1)} cm along panel (${xPositionCm!.toStringAsFixed(1)} cm on track)',
+      );
+    } else if (localXPositionCm != null) {
+      parts.add('${localXPositionCm!.toStringAsFixed(1)} cm along panel');
+    } else if (xPositionCm != null) {
+      parts.add('${xPositionCm!.toStringAsFixed(1)} cm on track');
     }
     return parts.join(' • ');
   }

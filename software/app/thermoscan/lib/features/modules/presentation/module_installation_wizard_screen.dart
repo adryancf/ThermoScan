@@ -842,12 +842,12 @@ class _ModuleInstallationWizardScreenState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Module & Embedded Device',
+            'Solar Panel & Cleaning Robot',
             style: AppTypography.h2,
           ),
           const SizedBox(height: 4),
           Text(
-            'Register the photovoltaic module label, embedded ESP32 MAC address, and responsible company Managers.',
+            'Set up panel name, robot device ID (MAC address), and assign responsible managers.',
             style: AppTypography.bodySmall,
           ),
           const SizedBox(height: 20),
@@ -874,7 +874,7 @@ class _ModuleInstallationWizardScreenState
                 ),
                 const SizedBox(height: 16),
                 AppTextField(
-                  label: 'Device MAC Address',
+                  label: 'Robot Device ID (MAC Address)',
                   hintText: 'AA:BB:CC:DD:EE:FF',
                   controller: _macCtrl,
                   readOnly: isMacLocked,
@@ -940,7 +940,7 @@ class _ModuleInstallationWizardScreenState
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              'Responsible Supervisory Managers',
+                              'Responsible Managers',
                               style: AppTypography.h3.copyWith(fontSize: 14),
                             ),
                           ),
@@ -1096,7 +1096,7 @@ class _ModuleInstallationWizardScreenState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SecondaryButton(
-                  label: 'Acquire Location from Device GPS',
+                  label: 'Use Current Phone Location (GPS)',
                   icon: Icons.my_location_outlined,
                   isLoading: _acquiringLocation,
                   onPressed: _acquireDeviceLocationSample,
@@ -1413,7 +1413,7 @@ class _ModuleInstallationWizardScreenState
                   ),
                   const SizedBox(height: 12),
                   AppTextField(
-                    label: 'Panel Azimuth (0° to <360° relative to True North)',
+                    label: 'Compass Direction / Azimuth (0°–360°)',
                     hintText: 'e.g. 15.0',
                     controller: _azimuthCtrl,
                     onChanged: _onManualAzimuthChanged,
@@ -1433,7 +1433,7 @@ class _ModuleInstallationWizardScreenState
                   ),
                   const SizedBox(height: 14),
                   AppTextField(
-                    label: 'Panel Tilt Angle (0° to 90°)',
+                    label: 'Tilt Angle (0°–90°)',
                     hintText: 'e.g. 23.5',
                     controller: _tiltCtrl,
                     onChanged: _onManualTiltChanged,
@@ -1562,7 +1562,7 @@ class _ModuleInstallationWizardScreenState
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Panels in Series',
+                            'Number of Panels in Row',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.textSecondary,
                               fontWeight: FontWeight.w600,
@@ -1628,7 +1628,7 @@ class _ModuleInstallationWizardScreenState
                     const SizedBox(width: 12),
                     Expanded(
                       child: AppTextField(
-                        label: 'Inter-Panel Spacing (cm)',
+                        label: 'Gap Between Panels (cm)',
                         hintText: '2.5',
                         controller: _spacingCtrl,
                         keyboardType: const TextInputType.numberWithOptions(
@@ -1648,7 +1648,7 @@ class _ModuleInstallationWizardScreenState
                 ),
                 const SizedBox(height: 14),
                 AppTextField(
-                  label: 'Minimum Solar Angle Threshold (0° to 90°)',
+                  label: 'Minimum Sun Height (0°–90°)',
                   hintText: '15.0',
                   controller: _solarAngleCtrl,
                   onChanged: (_) => setState(() => _solarAngleSource = 'manual'),
@@ -1657,7 +1657,7 @@ class _ModuleInstallationWizardScreenState
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
-                      return 'Minimum solar angle is required';
+                      return 'Minimum sun height is required';
                     }
                     final n = double.tryParse(v.trim());
                     if (n == null || n < 0 || n > 90) {
@@ -1714,7 +1714,7 @@ class _ModuleInstallationWizardScreenState
                 ),
                 const SizedBox(height: 14),
                 AppTextField(
-                  label: 'Nominal Reservoir Capacity (mL)',
+                  label: 'Water Tank Capacity (mL)',
                   hintText: '2000',
                   controller: _reservoirCtrl,
                   keyboardType: const TextInputType.numberWithOptions(
@@ -1722,7 +1722,7 @@ class _ModuleInstallationWizardScreenState
                   ),
                   validator: (v) {
                     if (v == null || v.trim().isEmpty) {
-                      return 'Reservoir nominal capacity is required';
+                      return 'Water tank capacity is required';
                     }
                     final n = double.tryParse(v.trim());
                     if (n == null || n <= 0) return 'Must be a positive number';
@@ -1980,11 +1980,11 @@ class _ModuleInstallationWizardScreenState
         const SizedBox(height: 16),
 
         _ReviewSectionCard(
-          title: 'Module & Device',
+          title: 'Solar Panel & Robot',
           onEdit: () => setState(() => _currentStep = 0),
           items: {
             'Name': _nameCtrl.text.trim(),
-            'MAC Address': _macCtrl.text.trim().toUpperCase(),
+            'Robot Device ID (MAC)': _macCtrl.text.trim().toUpperCase(),
             'Managers': assignedManagers.isEmpty
                 ? 'Automatically assigned from supervisory profile'
                 : assignedManagers,
@@ -2007,7 +2007,7 @@ class _ModuleInstallationWizardScreenState
           title: 'Surface Orientation',
           onEdit: () => setState(() => _currentStep = 2),
           items: {
-            'Azimuth':
+            'Compass Direction / Azimuth':
                 '${_azimuthCtrl.text.trim()}° (${_azimuthSource.toUpperCase()})',
             'Tilt Angle':
                 '${_tiltCtrl.text.trim()}° (${_tiltSource.toUpperCase()})',
@@ -2021,9 +2021,9 @@ class _ModuleInstallationWizardScreenState
           items: {
             'Dimensions':
                 '${_lengthCtrl.text.trim()} × ${_widthCtrl.text.trim()} cm',
-            'Panels in Series': _countCtrl.text.trim(),
-            'Panel Spacing': '${_spacingCtrl.text.trim()} cm',
-            'Min Solar Angle': '${_solarAngleCtrl.text.trim()}°',
+            'Number of Panels in Row': _countCtrl.text.trim(),
+            'Gap Between Panels': '${_spacingCtrl.text.trim()} cm',
+            'Min Sun Height': '${_solarAngleCtrl.text.trim()}°',
             'Scan Interval': 'Every ${_intervalCtrl.text.trim()} day(s)',
           },
         ),

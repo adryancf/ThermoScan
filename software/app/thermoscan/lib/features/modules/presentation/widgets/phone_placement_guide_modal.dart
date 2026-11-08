@@ -376,7 +376,7 @@ class _IsometricPlacementPainter extends CustomPainter {
     // ==========================================
     final slopeLabelPainter = TextPainter(
       text: const TextSpan(
-        text: '▼ DOWNHILL SLOPE (AZIMUTH FACING)',
+        text: '▼ DOWNHILL (DIRECTION PANEL FACES)',
         style: TextStyle(
           color: Color(0xFF64748B),
           fontSize: 9.5,

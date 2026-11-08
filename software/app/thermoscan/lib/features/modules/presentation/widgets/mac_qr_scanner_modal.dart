@@ -73,7 +73,7 @@ class _MacQrScannerModalState extends State<MacQrScannerModal> {
         backgroundColor: Colors.black,
         iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
-          'Scan Module MAC / QR Code',
+          'Scan Robot Device ID / QR Code',
           style: AppTypography.h3.copyWith(color: Colors.white),
         ),
         actions: [
@@ -110,7 +110,7 @@ class _MacQrScannerModalState extends State<MacQrScannerModal> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                'Point camera at the ESP32 MAC QR code or barcode on the hardware label.',
+                'Point camera at the robot’s QR code or barcode on the device label.',
                 textAlign: TextAlign.center,
                 style: AppTypography.bodySmall.copyWith(color: Colors.white),
               ),

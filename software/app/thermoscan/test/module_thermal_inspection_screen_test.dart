@@ -149,7 +149,7 @@ void main() {
 
     // Verify Badges
     expect(find.text('Operational'), findsOneWidget);
-    expect(find.text('1 anomaly(s)'), findsOneWidget);
+    expect(find.text('1 hotspot(s)'), findsOneWidget);
 
     // Verify RadiometricScanCard is present
     expect(find.byType(RadiometricScanCard), findsOneWidget);
@@ -182,12 +182,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('selected_frame_inspector')), findsNothing);
 
-    // Item 5: Verify '?' Help button in AppBar opens Radiometric Studio Inspection Guide modal
-    expect(find.text('Radiometric Studio Inspection Guide'), findsNothing);
+    // Item 5: Verify '?' Help button in AppBar opens How to Read This Thermal Map modal
+    expect(find.text('How to Read This Thermal Map'), findsNothing);
     expect(find.byKey(const Key('studio_help_button')), findsOneWidget);
     await tester.tap(find.byKey(const Key('studio_help_button')));
     await tester.pumpAndSettle();
-    expect(find.text('Radiometric Studio Inspection Guide'), findsOneWidget);
+    expect(find.text('How to Read This Thermal Map'), findsOneWidget);
   });
 
   testWidgets('Switches between Latest Scan and Historical Scan with clear indicators', (tester) async {

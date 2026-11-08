@@ -111,7 +111,7 @@ class Phase1RoleHomeScreen extends ConsumerWidget {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Telemetry & Diagnostics',
+                          'Solar Monitoring & Diagnostics',
                           style: AppTypography.h3,
                         ),
                       ),
@@ -119,7 +119,7 @@ class Phase1RoleHomeScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Monitoring features will be available in a later phase.',
+                    'Panel monitoring and cleaning controls will be available in an upcoming update.',
                     style: AppTypography.body,
                   ),
                   const SizedBox(height: 6),

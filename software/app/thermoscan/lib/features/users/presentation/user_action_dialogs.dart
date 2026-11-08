@@ -173,7 +173,7 @@ Future<void> confirmAndToggleUserStatus({
             Text(
               nextActive
                   ? 'Restore login access for ${targetUser.name} (${targetUser.email})?'
-                  : 'Suspend login access and revoke active sessions for ${targetUser.name} (${targetUser.email})?',
+                  : 'Suspend login access and sign out ${targetUser.name} (${targetUser.email}) on all devices?',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textPrimary,
               ),
@@ -297,7 +297,7 @@ Future<void> confirmAndDeleteUser({
             ),
             const SizedBox(height: 8),
             Text(
-              'This action is permanent and invalidates all active sessions. Users with associated operational history or installed modules cannot be deleted and must be deactivated instead.',
+              'This action is permanent and will sign the user out on all devices. Users with installed panels or activity history cannot be deleted and must be deactivated instead.',
               style: AppTypography.caption,
             ),
             const SizedBox(height: 20),

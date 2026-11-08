@@ -59,7 +59,7 @@ class _CompaniesHomeScreenState extends ConsumerState<CompaniesHomeScreen> {
         focusElevation: 0,
         hoverElevation: 0,
         highlightElevation: 0,
-        tooltip: 'Create Company',
+        tooltip: 'Add Company',
         child: const Icon(Icons.add, size: 26),
       ),
       body: SafeArea(
@@ -82,7 +82,7 @@ class _CompaniesHomeScreenState extends ConsumerState<CompaniesHomeScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'System Admin Provisioning Hub',
+                        'Manage Registered Companies',
                         style: AppTypography.bodySmall,
                       ),
                       const SizedBox(height: 16),
@@ -205,13 +205,13 @@ class _CompaniesHomeScreenState extends ConsumerState<CompaniesHomeScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  'Provision a customer company and generate temporary credentials for its initial Manager.',
+                                  'Add a customer company and generate temporary login credentials for its initial Manager.',
                                   textAlign: TextAlign.center,
                                   style: AppTypography.bodySmall,
                                 ),
                                 const SizedBox(height: 20),
                                 PrimaryButton(
-                                  label: 'Create First Company',
+                                  label: 'Add First Company',
                                   icon: Icons.add_business_outlined,
                                   onPressed: () =>
                                       context.push('/admin/companies/new'),

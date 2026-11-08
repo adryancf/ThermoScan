@@ -381,7 +381,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Update your display name and corporate email address.',
+                      'Update your display name and email address.',
                       style: AppTypography.bodySmall,
                     ),
                     const SizedBox(height: 16),
@@ -485,7 +485,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              'Rotate your password. You will be asked to log in again.',
+                              'Change your password. You will need to sign in again.',
                               style: AppTypography.bodySmall,
                             ),
                           ],

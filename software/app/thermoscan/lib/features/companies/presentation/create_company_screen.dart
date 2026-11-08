@@ -103,7 +103,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: ThermoScanAppBar(
-        title: 'Create Company',
+        title: 'Add Company',
         role: user?.role ?? 'system_admin',
         showBack: true,
       ),
@@ -118,7 +118,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Provision Company',
+                  'Add Company',
                   style: AppTypography.h2,
                 ),
                 const SizedBox(height: 4),
@@ -263,7 +263,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'A one-time temporary password will be generated upon creation and required to be rotated on first login.',
+                                'A one-time temporary password will be generated upon creation and must be changed on first sign-in.',
                                 style: AppTypography.caption,
                               ),
                             ),
@@ -286,7 +286,7 @@ class _CreateCompanyScreenState extends ConsumerState<CreateCompanyScreen> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: PrimaryButton(
-                        label: 'Create Company',
+                        label: 'Add Company',
                         isLoading: _isSubmitting,
                         onPressed: _handleCreateCompany,
                       ),

@@ -109,7 +109,7 @@ class _ModuleThermalInspectionScreenState
           children: [
             IconButton(
               key: const Key('studio_help_button'),
-              tooltip: 'Radiometric Studio Inspection Guide',
+              tooltip: 'How to Read This Thermal Map',
               icon: const Icon(
                 Icons.help_outline_rounded,
                 color: AppColors.primary,
@@ -148,7 +148,7 @@ class _ModuleThermalInspectionScreenState
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Failed to Load Module Telemetry',
+                    'Could Not Load Scan Data',
                     style: AppTypography.h3,
                     textAlign: TextAlign.center,
                   ),
@@ -533,13 +533,13 @@ class _ModuleThermalInspectionScreenState
             children: [
               _buildMetricBadge(
                 icon: Icons.filter_frames_rounded,
-                label: 'Frames Available',
-                value: '$totalMeasurements frames',
+                label: 'Scan Sections',
+                value: '$totalMeasurements sections',
               ),
               _buildMetricBadge(
                 icon: Icons.warning_amber_rounded,
                 label: 'Confirmed Hotspots',
-                value: '$confirmedCount anomaly(s)',
+                value: '$confirmedCount hotspot(s)',
                 valueColor:
                     confirmedCount > 0 ? AppColors.error : AppColors.success,
               ),
@@ -820,7 +820,7 @@ class _ModuleThermalInspectionScreenState
                                         ),
                                         if (insp.baselineTemperatureC != null)
                                           Text(
-                                            'Baseline: ${insp.baselineTemperatureC!.toStringAsFixed(1)} °C',
+                                            'Normal: ${insp.baselineTemperatureC!.toStringAsFixed(1)} °C',
                                             style:
                                                 AppTypography.caption.copyWith(
                                               color: AppColors.primary,
@@ -896,7 +896,7 @@ class _ModuleThermalInspectionScreenState
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Radiometric Studio Inspection Guide',
+                          'How to Read This Thermal Map',
                           style: AppTypography.h3.copyWith(fontSize: 17),
                         ),
                       ),
@@ -911,27 +911,27 @@ class _ModuleThermalInspectionScreenState
                   ),
                   const Divider(height: 20, color: AppColors.border),
                   _buildGuideItem(
-                    title: 'MLX90640 Radiometric Array (32×24)',
+                    title: 'High-Detail Thermal Camera (32×24 Grid)',
                     description:
-                        'Every pixel corresponds to a calibrated radiometric temperature reading (768 points per frame). Color ramps scale automatically between ambient cold and peak hot spots.',
+                        'Every pixel represents a real temperature reading from the thermal camera. Blue areas are cool, while orange and red show hotter parts of the panel.',
                   ),
                   const SizedBox(height: 12),
                   _buildGuideItem(
-                    title: 'Robot Carriage Timeline & 1D Profile',
+                    title: 'Temperature Along the Track',
                     description:
-                        'The carriage timeline tracks each frame position (X in cm) along the rail and plots peak frame temperatures against the panel baseline to pinpoint localized overheating.',
+                        'Shows where each scan was taken along the panels and charts the temperatures so you can see spikes and hot areas immediately.',
                   ),
                   const SizedBox(height: 12),
                   _buildGuideItem(
-                    title: 'Dual-Frame Persistence Confirmation',
+                    title: 'Double-Checked Hotspot Detection',
                     description:
-                        'To eliminate false positives caused by momentary cloud edges, glints, or transient specular reflection, anomalies require thermal persistence across consecutive frames before confirmation.',
+                        'To avoid false alarms from passing clouds or sun glare, the robot checks if the hot spot appears in two overlapping scans.',
                   ),
                   const SizedBox(height: 12),
                   _buildGuideItem(
-                    title: 'Interactive Studio Exploration',
+                    title: 'Interactive Heat Map',
                     description:
-                        'Toggle zoom mode to view full frame dimensions or crop to active PV surface. Click on frame indicators (F1..Fn) or individual cells in the matrix to inspect exact telemetry at that coordinate.',
+                        'Zoom in on specific panels or the entire row. Tap any section or cell to inspect the temperature reading at that exact spot.',
                   ),
                 ],
               ),

@@ -191,13 +191,13 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             ),
             const SizedBox(height: 14),
             Text(
-              'Awaiting Radiometric Telemetry',
+              'Waiting for First Scan',
               style: AppTypography.h3,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 6),
             Text(
-              'No thermal frames or electrical readings recorded yet by the ESP32. Real telemetry and physical frames will appear here upon the first hardware inspection scan.',
+              'No thermal readings recorded yet by the robot. Temperature maps and electrical readings will appear here after the first inspection scan.',
               style: AppTypography.bodySmall.copyWith(
                 color: AppColors.textSecondary,
               ),
@@ -330,12 +330,12 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     final String deltaText;
     if (hasConfirmedHotspots) {
       deltaText = delta != null
-          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
+          ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
           : 'Hotspot Confirmed';
     } else {
       deltaText = delta != null
-          ? 'Delta: ${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
-          : 'Delta: N/A';
+          ? '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
+          : 'Normal';
     }
 
     return Container(
@@ -367,7 +367,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Radiometric Thermal Panorama',
+                            'Panel Heat Map',
                             style: AppTypography.caption.copyWith(
                               fontWeight: FontWeight.w700,
                               color: AppColors.textPrimary,
@@ -376,7 +376,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            'Continuous radiometric scan & MLX90640 map',
+                            'Full temperature scan across your solar panels',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.textSecondary,
                               fontSize: 10,
@@ -472,7 +472,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                 ? 'Zoom: Panel $_focusedPanelIndex'
                                 : ((widget.module.panelCount != null &&
                                         widget.module.panelCount! > 1)
-                                    ? 'Zoom: Entire String'
+                                    ? 'Zoom: All Panels'
                                     : 'Zoom: Full Panel')),
                         style: AppTypography.caption.copyWith(
                           fontSize: 10,
@@ -574,7 +574,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                     ),
                                   ),
                                   child: const Text(
-                                    'No thermal_frame matrix available',
+                                    'Detailed heat map grid not available',
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 10,
@@ -972,7 +972,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
 
                             final deltaStr = anomDelta != null
                                 ? '+${anomDelta.toStringAsFixed(1)}°C'
-                                : '+ΔT°C';
+                                : '+10.0°C';
                             final panelPart = anomaly.panelIndex != null
                                 ? 'Panel ${anomaly.panelIndex}'
                                 : '';
@@ -1163,7 +1163,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                                 ),
                                               ),
                                               Text(
-                                                'Peak: ${anomPeak != null ? "${anomPeak.toStringAsFixed(1)}°C" : "N/A"}${anomDelta != null ? " • +${anomDelta.toStringAsFixed(1)}°C above baseline" : ""}',
+                                                'Peak: ${anomPeak != null ? "${anomPeak.toStringAsFixed(1)}°C" : "N/A"}${anomDelta != null ? " • +${anomDelta.toStringAsFixed(1)}°C above normal" : ""}',
                                                 style: AppTypography.caption
                                                     .copyWith(
                                                   fontSize: 9.0,
@@ -1250,7 +1250,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 ),
                 Text(
                   baselineTemp != null && baselineTemp > 0
-                      ? 'Baseline: ${baselineTemp.toStringAsFixed(1)}°C'
+                      ? 'Normal: ${baselineTemp.toStringAsFixed(1)}°C'
                       : 'Mid: ${((panorama.minValidTempC! + panorama.maxValidTempC!) / 2.0).toStringAsFixed(1)}°C',
                   style: AppTypography.caption.copyWith(
                     fontSize: 10,
@@ -1283,7 +1283,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 ),
                 if (baselineTemp != null && baselineTemp > 0)
                   Text(
-                    'Baseline: ${baselineTemp.toStringAsFixed(1)}°C',
+                    'Normal: ${baselineTemp.toStringAsFixed(1)}°C',
                     style: AppTypography.caption.copyWith(fontSize: 10),
                   ),
               ],
@@ -1352,27 +1352,27 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   value: '${peakTemp.toStringAsFixed(1)}°C',
                   subtext: hasConfirmedHotspots
                       ? (delta != null
-                          ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
+                          ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
                           : 'Hotspot confirmed')
                       : (delta != null
                           ? (delta >= 10.0
-                              ? 'Delta: +${delta.toStringAsFixed(1)}°C (Elevated)'
-                              : 'Nominal (+${delta.toStringAsFixed(1)}°C ΔT)')
-                          : 'Nominal baseline curve'),
+                              ? '+${delta.toStringAsFixed(1)}°C above normal (Elevated)'
+                              : 'Normal (+${delta.toStringAsFixed(1)}°C)')
+                          : 'Within normal range'),
                   isWarning: hasConfirmedHotspots,
                   deltaBadge: hasConfirmedHotspots
-                      ? 'HOTSPOT ΔT'
+                      ? 'HOTSPOT'
                       : (delta != null && delta >= 10.0 ? 'ELEVATED' : null),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildMetricTile(
-                  label: 'Baseline Temperature',
+                  label: 'Normal Temperature',
                   value: baselineTemp != null && baselineTemp > 0
                       ? '${baselineTemp.toStringAsFixed(1)}°C'
                       : 'N/A',
-                  subtext: 'Inspection reference baseline',
+                  subtext: 'Average panel temperature',
                   isWarning: false,
                   valueColor: AppColors.secondary,
                 ),
@@ -1453,7 +1453,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Advanced Telemetry & Frame Inspector',
+                          'Detailed Scan Sections & Readings',
                           style: AppTypography.caption.copyWith(
                             fontWeight: FontWeight.w700,
                             color: AppColors.textPrimary,
@@ -1461,7 +1461,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                           ),
                         ),
                         Text(
-                          'Inspect individual MLX90640 32×24 matrix frames and electrical readings',
+                          'Inspect individual scan points, thermal camera grids, and electrical output',
                           style: AppTypography.caption.copyWith(
                             fontSize: 9.5,
                             color: AppColors.textSecondary,
@@ -2048,7 +2048,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               ),
               const SizedBox(width: 6),
               Text(
-                'Dual-Frame Hotspot Confirmation',
+                'Confirmed Hotspots (Double-Checked)',
                 style: AppTypography.caption.copyWith(
                   color: AppColors.error,
                   fontWeight: FontWeight.w800,
@@ -2476,7 +2476,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'Thermal Profile Curve (1D Rail Gradient)',
+                      'Temperature Chart Along Panel',
                       style: AppTypography.caption.copyWith(
                         fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,
@@ -2507,7 +2507,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Peak Temperature vs. Rail Position (F1..F${sortedFrames.length})',
+                        'Highest Temperature by Position along the Track',
                         style: AppTypography.caption.copyWith(
                           fontSize: 10,
                           color: AppColors.textSecondary,
@@ -2516,7 +2516,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       ),
                       if (baselineTemp != null && baselineTemp > 0)
                         Text(
-                          'Baseline: ${baselineTemp.toStringAsFixed(1)}°C • Threshold: ${(baselineTemp + 10.0).toStringAsFixed(1)}°C',
+                          'Normal: ${baselineTemp.toStringAsFixed(1)}°C • Alert Level: ${(baselineTemp + 10.0).toStringAsFixed(1)}°C',
                           style: AppTypography.caption.copyWith(
                             fontSize: 9.5,
                             color: AppColors.textSecondary,
@@ -2959,7 +2959,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             ),
                             if (pixelDelta != null)
                               Text(
-                                '${pixelDelta >= 0 ? '+' : ''}${pixelDelta.toStringAsFixed(1)} °C vs Baseline',
+                                '${pixelDelta >= 0 ? '+' : ''}${pixelDelta.toStringAsFixed(1)} °C vs Normal',
                                 style: AppTypography.caption.copyWith(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
@@ -3026,7 +3026,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           key: const Key('notice_missing_thermal_frame'),
           icon: Icons.grid_off_rounded,
           text:
-              'Measurements without thermal_frame (${panorama.framesWithoutMatrixCount} of $loadedCount)',
+              'Summary temperature only (${panorama.framesWithoutMatrixCount} of $loadedCount sections)',
           isWarning: false,
         ),
       );
@@ -3038,7 +3038,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           key: const Key('notice_invalid_pixels'),
           icon: Icons.auto_fix_high_outlined,
           text:
-              'Invalid pixels detected: ${panorama.totalInvalidPixelsInFrames} (${panorama.complementedCellCount} complemented, ${panorama.unresolvedInvalidCellCount} unresolved)',
+              '${panorama.totalInvalidPixelsInFrames} sensor points smoothed from nearby scans',
           isWarning: panorama.unresolvedInvalidCellCount > 0,
         ),
       );
@@ -3050,7 +3050,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           key: const Key('notice_unlinked_anomalies'),
           icon: Icons.link_off_rounded,
           text:
-              'Anomaly confirming measurements not loaded (${panorama.anomaliesWithoutLoadedConfirmingFrames.length})',
+              'Hotspot verification frames pending (${panorama.anomaliesWithoutLoadedConfirmingFrames.length})',
           isWarning: true,
         ),
       );
@@ -3062,7 +3062,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           key: const Key('notice_partial_pagination'),
           icon: Icons.filter_list_rounded,
           text:
-              'Partial data loaded (pagination): $loadedCount of ${coverage.totalInspectionMeasurements} measurements',
+              'Showing $loadedCount of ${coverage.totalInspectionMeasurements} scan points',
           isWarning: true,
         ),
       );
@@ -3074,7 +3074,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           key: const Key('notice_incomplete_coverage'),
           icon: Icons.short_text_rounded,
           text:
-              'Incomplete coverage: $loadedCount of ${coverage.expectedAcquisitions} expected acquisitions',
+              'Partial scan: $loadedCount of ${coverage.expectedAcquisitions} sections recorded',
           isWarning: true,
         ),
       );
@@ -3086,7 +3086,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           key: const Key('notice_exceeded_coverage'),
           icon: Icons.info_outline_rounded,
           text:
-              'Exceeded expected coverage: $loadedCount of ${coverage.expectedAcquisitions} expected acquisitions',
+              'Extended scan: $loadedCount sections recorded (${coverage.expectedAcquisitions} expected)',
           isWarning: false,
         ),
       );

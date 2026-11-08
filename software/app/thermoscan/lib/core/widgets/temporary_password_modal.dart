@@ -149,7 +149,7 @@ class _TemporaryPasswordDialogState extends State<_TemporaryPasswordDialog> {
             Text(
               _copied
                   ? 'Copied to clipboard'
-                  : 'Shown once • Must be changed on first login',
+                  : 'Shown once • Must be changed on first sign-in',
               textAlign: TextAlign.center,
               style: AppTypography.caption.copyWith(
                 color: _copied ? AppColors.success : AppColors.textSecondary,

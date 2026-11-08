@@ -50,7 +50,7 @@ class ManagerAdminHomeScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Manage company modules, personnel, and client accounts',
+                  'Manage company solar panels, personnel, and client accounts',
                   style: AppTypography.bodySmall,
                 ),
                 const SizedBox(height: 20),
@@ -60,7 +60,7 @@ class ManagerAdminHomeScreen extends ConsumerWidget {
                   children: [
                     Expanded(
                       child: _MetricCard(
-                        label: 'Modules',
+                        label: 'Solar Panels',
                         value:
                             modulesAsync.isLoading ? '—' : '${modules.length}',
                       ),
@@ -94,11 +94,11 @@ class ManagerAdminHomeScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 20),
 
-                // Hub Card 0: PV Modules (SCR-09)
+                // Hub Card 0: Solar Panels (SCR-09)
                 _AdminHubCard(
                   icon: Icons.solar_power_outlined,
-                  title: 'PV Modules',
-                  subtitle: 'Company photovoltaic arrays, configuration & access',
+                  title: 'Solar Panels',
+                  subtitle: 'Solar panel systems, settings, and access',
                   badgeText:
                       modulesAsync.isLoading ? null : '${modules.length}',
                   onTap: () => context.push('/modules'),

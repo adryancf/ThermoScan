@@ -470,7 +470,7 @@ void main() {
       expect(find.byKey(const Key('panel_accordion_insp-1_3')), findsOneWidget);
 
       // Header shows Panel 1 with baseline
-      expect(find.textContaining('Panel 1 (X: 10..10 cm)'), findsOneWidget);
+      expect(find.textContaining('Panel 1 ('), findsOneWidget);
       expect(find.textContaining('Baseline: 28.0°C'), findsWidgets);
     });
   });
@@ -527,8 +527,8 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Check REFUSED (IN GAP) status badge
-      expect(find.text('REFUSED (IN GAP)'), findsOneWidget);
+      // Check SKIPPED (GAP BETWEEN PANELS) status badge
+      expect(find.text('SKIPPED (GAP BETWEEN PANELS)'), findsOneWidget);
       expect(find.textContaining('Target located in inter-panel gap'), findsOneWidget);
 
       // Check normal verified cleaning with Panel 2

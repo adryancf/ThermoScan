@@ -51,7 +51,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Autonomous ESP32 Telemetry Sync',
+                  'Automatic Alert Updates',
                   style: AppTypography.h3.copyWith(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,
@@ -60,7 +60,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Field units evaluate safety interlocks and solar geometry locally. Alerts are delivered immediately upon HTTPS REST sync.',
+                  'The robot checks panel temperatures and water levels automatically and sends alerts as soon as it connects.',
                   style: AppTypography.caption.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -112,7 +112,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Operational events, safety interlocks and anomalies',
+                            'Overheating warnings, cleaning updates, and system alerts',
                             style: AppTypography.bodySmall,
                           ),
                         ],
@@ -220,7 +220,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                                 const SizedBox(height: 6),
                                 Text(
                                   _filter == 'all'
-                                      ? 'All modules and safety interlocks are operating within normal parameters.'
+                                      ? 'All solar panels and cleaning robots are working normally.'
                                       : 'No active alerts matching the selected "$_filter" filter.',
                                   textAlign: TextAlign.center,
                                   style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
@@ -260,7 +260,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                               borderColor: alert.isCritical ? AppColors.error : AppColors.warning,
                               description: alert.description,
                               metaText: alert.metaText,
-                              actionLabel: alert.type == 'reservoir_low' ? 'Check Status' : 'View Module Details',
+                              actionLabel: alert.type == 'reservoir_low' ? 'Check Status' : 'View Panel Details',
                               onTap: () {
                                 if (alert.moduleId.isNotEmpty) {
                                   context.push('/modules/${alert.moduleId}');

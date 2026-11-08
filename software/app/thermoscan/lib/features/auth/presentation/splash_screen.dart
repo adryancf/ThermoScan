@@ -40,7 +40,7 @@ class SplashScreen extends StatelessWidget {
                     ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 260),
                       child: Text(
-                        'Solar Panel Health & Radiometric Telemetry',
+                        'Smart Solar Panel Monitoring & Cleaning',
                         textAlign: TextAlign.center,
                         style: AppTypography.body.copyWith(
                           color: AppColors.textSecondary,
@@ -66,7 +66,7 @@ class SplashScreen extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 8),
                   child: Text(
-                    'Verifying secure terminal session...',
+                    'Signing you in...',
                     style: AppTypography.caption,
                   ),
                 ),

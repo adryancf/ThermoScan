@@ -121,12 +121,12 @@ class _MandatoryPasswordChangeScreenState
               ),
               const SizedBox(height: 16),
               Text(
-                'Set Permanent Password',
+                'Create Your New Password',
                 style: AppTypography.h2,
               ),
               const SizedBox(height: 6),
               Text(
-                'Temporary password detected${user != null ? ' for ${user.email}' : ''}. You must set a permanent password before accessing the application.',
+                'Temporary password detected${user != null ? ' for ${user.email}' : ''}. Please set a new password to continue.',
                 style: AppTypography.bodySmall,
               ),
               const SizedBox(height: 20),
@@ -188,7 +188,7 @@ class _MandatoryPasswordChangeScreenState
                       ),
                       const SizedBox(height: 16),
                       AppTextField(
-                        label: 'New Permanent Password',
+                        label: 'New Password',
                         controller: _newPasswordController,
                         hintText: 'Minimum 8 characters',
                         isPassword: true,

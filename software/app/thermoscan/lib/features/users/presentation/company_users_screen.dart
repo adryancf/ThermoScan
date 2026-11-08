@@ -454,7 +454,7 @@ class _TeamUserCard extends StatelessWidget {
                 Expanded(
                   child: _CardActionButton(
                     icon: Icons.lock_reset,
-                    label: 'Reset Key',
+                    label: 'Reset Password',
                     onTap: onResetPassword,
                   ),
                 ),

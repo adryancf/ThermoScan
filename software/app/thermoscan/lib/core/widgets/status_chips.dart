@@ -113,3 +113,154 @@ class RoleChip extends StatelessWidget {
     );
   }
 }
+
+class ModuleStatusChip extends StatelessWidget {
+  const ModuleStatusChip({
+    super.key,
+    required this.status,
+  });
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg = AppColors.background;
+    Color border = AppColors.border;
+    Color text = AppColors.textSecondary;
+    String label = status;
+
+    switch (status) {
+      case 'active':
+        bg = AppColors.successBackground;
+        border = AppColors.successBorder;
+        text = AppColors.success;
+        label = 'Active';
+        break;
+      case 'pending_configuration':
+        bg = AppColors.warningBackground;
+        border = AppColors.warningBorder;
+        text = AppColors.warning;
+        label = 'Setup Needed';
+        break;
+      case 'maintenance':
+        bg = AppColors.warningBackground;
+        border = AppColors.warningBorder;
+        text = AppColors.warning;
+        label = 'Maintenance';
+        break;
+      case 'inactive':
+        bg = AppColors.errorBackground;
+        border = AppColors.errorBorder;
+        text = AppColors.error;
+        label = 'Inactive';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: text,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTypography.chip.copyWith(color: text),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CleaningStatusChip extends StatelessWidget {
+  const CleaningStatusChip({
+    super.key,
+    required this.status,
+  });
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    Color bg = AppColors.background;
+    Color border = AppColors.border;
+    Color text = AppColors.textSecondary;
+    String label = status;
+
+    switch (status) {
+      case 'resolved':
+      case 'verified_resolved':
+        bg = AppColors.successBackground;
+        border = AppColors.successBorder;
+        text = AppColors.success;
+        label = 'Fixed After Wash';
+        break;
+      case 'pending':
+        bg = AppColors.primarySoft.withValues(alpha: 0.3);
+        border = AppColors.primary.withValues(alpha: 0.3);
+        text = AppColors.primary;
+        label = 'Verification Pending';
+        break;
+      case 'refused':
+        bg = AppColors.warningBackground;
+        border = AppColors.warningBorder;
+        text = AppColors.warning;
+        label = 'Paused (Safety Check)';
+        break;
+      case 'target_in_gap':
+        bg = AppColors.warningBackground;
+        border = AppColors.warningBorder;
+        text = AppColors.warning;
+        label = 'Skipped (Gap Between Panels)';
+        break;
+      case 'unresolved':
+      case 'verified_unresolved':
+      case 'failed':
+        bg = AppColors.errorBackground;
+        border = AppColors.errorBorder;
+        text = AppColors.error;
+        label = 'Still Overheating';
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: text,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTypography.chip.copyWith(color: text),
+          ),
+        ],
+      ),
+    );
+  }
+}

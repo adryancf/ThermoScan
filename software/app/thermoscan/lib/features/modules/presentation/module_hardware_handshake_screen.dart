@@ -59,7 +59,7 @@ class _ModuleHardwareHandshakeScreenState
                   ),
                 ),
                 const SizedBox(width: 12),
-                Text('Device Verification Flow', style: AppTypography.h3),
+                Text('Robot Connection Flow', style: AppTypography.h3),
               ],
             ),
             const SizedBox(height: 14),
@@ -68,8 +68,8 @@ class _ModuleHardwareHandshakeScreenState
               'Module dimensions, tilt angle and solar coordinates are registered in the cloud.',
             ),
             _buildFlowStep(
-              '2. ESP32 Wi-Fi Sync',
-              'ESP32 connects to Wi-Fi and downloads the active operating parameters.',
+              '2. Robot Wi-Fi Sync',
+              'Robot connects to Wi-Fi and downloads settings.',
             ),
             _buildFlowStep(
               '3. Safety Checks',
@@ -154,7 +154,7 @@ class _ModuleHardwareHandshakeScreenState
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: ThermoScanAppBar(
-        title: 'Device Verification',
+        title: 'Robot Connection Check',
         role: user?.role,
         showBack: true,
         onBack: () => context.go('/modules/${widget.moduleId}'),
@@ -173,12 +173,12 @@ class _ModuleHardwareHandshakeScreenState
             children: [
               // Header
               Text(
-                'ESP32 Device Verification',
+                'Robot Connection & Safety Check',
                 style: AppTypography.h2,
               ),
               const SizedBox(height: 4),
               Text(
-                'Verifying live Wi-Fi connectivity, safety interlocks and cloud sync',
+                'Checking Wi-Fi, safety sensors, and cloud connection',
                 style: AppTypography.bodySmall,
               ),
               const SizedBox(height: 20),
@@ -309,10 +309,10 @@ class _ModuleHardwareHandshakeScreenState
                       _buildTwoPhaseConfigCard(
                         title: '1. System Configuration & Setup',
                         description: step1Passed
-                            ? 'Geometry saved in cloud and verified on ESP32.'
+                            ? 'Setup saved in cloud and verified on robot.'
                             : (subAPassed
-                                ? 'Configuration saved in cloud. Awaiting ESP32 confirmation.'
-                                : 'Pending initial geometry configuration.'),
+                                ? 'Setup saved in cloud. Waiting for robot confirmation.'
+                                : 'Pending initial panel setup.'),
                         isPassed: step1Passed,
                         isWarning: step1Warning,
                         isLoading: step1Loading,
@@ -328,8 +328,8 @@ class _ModuleHardwareHandshakeScreenState
                       _buildChecklistCard(
                         title: '2. Wi-Fi & HTTPS Connection',
                         description: status.isOnline
-                            ? 'ESP32 connected. Telemetry sync acknowledged by cloud API.'
-                            : 'Awaiting device ping. Ensure ESP32 is powered on and connected to Wi-Fi.',
+                            ? 'Robot connected. Ready to communicate with cloud.'
+                            : 'Waiting for robot. Ensure robot is turned on and connected to Wi-Fi.',
                         isPassed: status.isOnline,
                         isLoading: step2Loading,
                         isWarning: false,
@@ -344,7 +344,7 @@ class _ModuleHardwareHandshakeScreenState
                             ? 'Water level: OK. Cleaning cycles permitted.'
                             : status.waterAvailable == false
                                 ? 'Water level: Insufficient. Cleaning locked until tank refill.'
-                                : 'Awaiting fluid level reading from capacitive probe.',
+                                : 'Waiting for water tank level reading.',
                         isPassed: step3Passed,
                         isWarning: step3Warning,
                         isLoading: step3Loading,
@@ -354,10 +354,10 @@ class _ModuleHardwareHandshakeScreenState
 
                       // Item 4: Limit Switches & Thermal Camera
                       _buildChecklistCard(
-                        title: '4. Hardware Safety & Radiometer',
+                        title: '4. Track Sensors & Thermal Camera',
                         description: status.limitsCheckPassed
-                            ? 'Homing limit switches verified. Thermal sensor initialized.'
-                            : 'Awaiting sensor self-test and rail homing sequence.',
+                            ? 'Track sensors and thermal camera are ready.'
+                            : 'Waiting for sensor check and track test.',
                         isPassed: status.limitsCheckPassed,
                         isWarning: false,
                         isLoading: step4Loading,
@@ -788,7 +788,7 @@ class _ModuleHardwareHandshakeScreenState
                           ),
                           Text(
                             subBPassed
-                                ? 'Settings downloaded and applied to ESP32'
+                                ? 'Settings downloaded and applied to robot'
                                 : (subBWarning
                                     ? 'Failed: ${syncInfo.configApplyError ?? "Error applying configuration"}'
                                     : (subBLoading

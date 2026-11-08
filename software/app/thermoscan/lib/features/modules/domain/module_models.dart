@@ -230,7 +230,7 @@ class PvModule {
       case 'active':
         return 'Active';
       case 'pending_configuration':
-        return 'Pending Config';
+        return 'Setup Needed';
       case 'maintenance':
         return 'Maintenance';
       case 'inactive':

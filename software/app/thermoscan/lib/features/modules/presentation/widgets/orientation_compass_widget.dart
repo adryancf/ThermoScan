@@ -284,7 +284,7 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Azimuth (North Ref)',
+                    'Compass (Azimuth)',
                     style: AppTypography.caption.copyWith(
                       fontWeight: FontWeight.w600,
                     ),
@@ -353,7 +353,7 @@ class _OrientationCompassWidgetState extends State<OrientationCompassWidget> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Tilt (0°-90°)',
+                    'Tilt Angle (0°–90°)',
                     style: AppTypography.caption.copyWith(
                       fontWeight: FontWeight.w600,
                     ),

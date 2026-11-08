@@ -176,10 +176,10 @@ class _OrientationCalibrationModalState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Calibrate Orientation', style: AppTypography.h3),
+                        Text('Measure Panel Angle', style: AppTypography.h3),
                         const SizedBox(height: 2),
                         Text(
-                          'Place phone on panel to capture live azimuth & tilt',
+                          'Place phone flat on panel to measure direction and tilt angle',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.textSecondary,
                           ),

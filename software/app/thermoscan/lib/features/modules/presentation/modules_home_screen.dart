@@ -41,19 +41,19 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
     final modulesAsync = ref.watch(modulesListProvider);
     final isTechnician = user?.isTechnician ?? false;
 
-    String subtitle = 'Accessible photovoltaic modules';
+    String subtitle = 'Accessible solar panels';
     if (user?.isManager ?? false) {
-      subtitle = 'All photovoltaic modules registered in your company';
+      subtitle = 'All solar panel systems in your company';
     } else if (isTechnician) {
-      subtitle = 'Modules you installed or were granted access to view';
+      subtitle = 'Solar panels you installed or can access';
     } else if (user?.isClient ?? false) {
-      subtitle = 'Photovoltaic modules assigned to your account';
+      subtitle = 'Solar panels assigned to your account';
     }
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: ThermoScanAppBar(
-        title: widget.showBackButton ? 'Company Modules' : 'ThermoScan',
+        title: widget.showBackButton ? 'Company Panels' : 'ThermoScan',
         role: user?.role ?? 'technician',
         showBack: widget.showBackButton,
       ),
@@ -78,7 +78,7 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'PV Modules',
+                                  'Solar Panels',
                                   style: AppTypography.h2,
                                 ),
                                 const SizedBox(height: 4),
@@ -112,8 +112,8 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
                       ),
                       const SizedBox(height: 16),
                       AppTextField(
-                        label: 'Search Modules',
-                        hintText: 'Filter by module name or MAC address...',
+                        label: 'Search Panels',
+                        hintText: 'Search by panel name or device ID...',
                         controller: _searchCtrl,
                         prefixIcon: Icons.search,
                         onChanged: (val) => setState(() {
@@ -140,7 +140,7 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
                             ),
                             const SizedBox(width: 8),
                             _FilterChipButton(
-                              label: 'Pending Config',
+                              label: 'Setup Needed',
                               selected:
                                   _statusFilter == 'pending_configuration',
                               onTap: () => setState(() =>
@@ -226,16 +226,16 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
                                 const SizedBox(height: 12),
                                 Text(
                                   modules.isEmpty
-                                      ? 'No modules available'
-                                      : 'No matching modules',
+                                      ? 'No solar panels available'
+                                      : 'No matching solar panels',
                                   style: AppTypography.h3,
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
                                   modules.isEmpty
                                       ? (isTechnician
-                                          ? 'Start a new module installation to register a photovoltaic array and its embedded device.'
-                                          : 'No photovoltaic modules are currently accessible for your account.')
+                                          ? 'Start a new setup to register a solar panel system and connect its cleaning robot.'
+                                          : 'No solar panels are currently accessible for your account.')
                                       : 'Try adjusting your search query or status filter.',
                                   textAlign: TextAlign.center,
                                   style: AppTypography.bodySmall,
@@ -477,7 +477,7 @@ class ModuleMonitoringStatusBadge extends StatelessWidget {
         bg = AppColors.warningBackground;
         border = AppColors.warningBorder;
         text = AppColors.warning;
-        label = 'Pending Config';
+        label = 'Setup Needed';
         break;
       case 'maintenance':
         bg = AppColors.warningBackground;

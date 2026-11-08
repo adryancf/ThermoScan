@@ -394,7 +394,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                                     child: Text(
                                       _isTriggeringInspection
                                           ? 'Sending Scan Request...'
-                                          : 'Trigger Inspection Scan',
+                                          : 'Run Scan Now',
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: _isTriggeringInspection
@@ -420,7 +420,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                                 SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    'ESP32 Verification',
+                                    'Robot Connection Check',
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: AppColors.textPrimary,
@@ -761,10 +761,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       if (delta != null && baseline != null) {
         final sign = delta >= 0 ? '+' : '';
         subtitle =
-            '$sign${delta.toStringAsFixed(1)}°C above baseline (${baseline.toStringAsFixed(1)}°C). Robot cleaning recommended.';
+            '$sign${delta.toStringAsFixed(1)}°C above normal (${baseline.toStringAsFixed(1)}°C). Robot cleaning recommended.';
       } else if (baseline != null) {
         subtitle =
-            'Anomaly exceeds baseline (${baseline.toStringAsFixed(1)}°C). Robot cleaning recommended.';
+            'Anomaly exceeds normal temp (${baseline.toStringAsFixed(1)}°C). Robot cleaning recommended.';
       } else {
         subtitle =
             'Thermal anomaly confirmed by inspection. Robot cleaning recommended.';
@@ -779,10 +779,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       title = 'Solar Array Healthy';
       if (baseline != null) {
         subtitle =
-            'All panels operating within normal baseline temperature (${baseline.toStringAsFixed(1)}°C). No hotspots detected.';
+            'All panels operating within normal temperature (${baseline.toStringAsFixed(1)}°C). No hotspots detected.';
       } else {
         subtitle =
-            'All panels operating within normal baseline temperature. No hotspots detected.';
+            'All panels operating within normal temperature. No hotspots detected.';
       }
 
       badgeText = 'HEALTHY';
@@ -793,7 +793,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     } else {
       title = 'Awaiting Initial Scan';
       subtitle =
-          'Inspection scan will record baseline and thermal map on next robotic cycle.';
+          'Inspection scan will record normal temperature and heat map on next robotic cycle.';
       badgeText = 'AWAITING SCAN';
       statusColor = AppColors.warning;
       badgeBg = AppColors.warningBackground;
@@ -861,34 +861,34 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       cleaningBadgeBorder = AppColors.warningBorder;
       cleaningCardTitle = 'Insufficient Water for Cleaning';
       cleaningCardDescription =
-          'Robot reservoir requires refilling before localized washing of the detected hotspot can commence.';
+          'Water tank is empty. Refill the tank before the robot can wash the hotspot.';
       cleaningCardIcon = Icons.water_drop_outlined;
     } else if (isCleaningInProgress) {
       cleaningStatusBadge = 'CLEANING IN PROGRESS';
       cleaningBadgeColor = AppColors.primary;
       cleaningBadgeBg = AppColors.primarySoft;
       cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
-      cleaningCardTitle = 'Robotic Wash Cycle Active';
+      cleaningCardTitle = 'Cleaning in Progress';
       cleaningCardDescription =
-          'The autonomous robot is actively spraying the targeted panel area to clear surface soiling.';
+          'The robot is actively washing the panel area to wash away dirt.';
       cleaningCardIcon = Icons.precision_manufacturing_rounded;
     } else if (isCoolDownPending) {
       cleaningStatusBadge = 'COOL-DOWN (30M)';
       cleaningBadgeColor = const Color(0xFF19B5D6);
       cleaningBadgeBg = const Color(0xFFE0F7FA);
       cleaningBadgeBorder = const Color(0xFFB2EBF2);
-      cleaningCardTitle = 'Wash Completed — Thermal Cool-Down';
+      cleaningCardTitle = 'Wash Completed — Cooling Down';
       cleaningCardDescription =
-          'Localized cleaning completed. Awaiting 30-minute thermal cool-down before automated re-inspection scan.';
+          'Spot wash completed. Waiting 30 minutes for the panel to cool before re-scanning.';
       cleaningCardIcon = Icons.hourglass_top_rounded;
     } else if (isPersistentHotspot) {
       cleaningStatusBadge = 'PERSISTENT HOTSPOT';
       cleaningBadgeColor = AppColors.error;
       cleaningBadgeBg = AppColors.errorBackground;
       cleaningBadgeBorder = AppColors.errorBorder;
-      cleaningCardTitle = 'Persistent Thermal Anomaly';
+      cleaningCardTitle = 'Still Overheating After 3 Washes';
       cleaningCardDescription =
-          '3 robotic cleaning attempts have been executed. Hotspot persists; on-site technician inspection recommended.';
+          'The robot washed this spot 3 times, but it is still hot. On-site technician inspection recommended.';
       cleaningCardIcon = Icons.handyman_outlined;
     } else {
       cleaningStatusBadge = 'CLEANING SCHEDULED';
@@ -897,7 +897,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
       cleaningCardTitle = 'Automated Cleaning Scheduled';
       cleaningCardDescription =
-          'Robot is primed with water available. Localized wash will trigger automatically during the next safe thermal window.';
+          'Water tank is ready. The robot will wash the hot spot automatically during the next safe window.';
       cleaningCardIcon = Icons.calendar_today_rounded;
     }
 
@@ -1054,7 +1054,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 children: [
                   if (baseline != null)
                     _HeroMetricItem(
-                      label: 'Baseline',
+                      label: 'Normal Temp',
                       value: '${baseline.toStringAsFixed(1)}°C',
                     ),
                   if (peakTemp != null)
@@ -1064,7 +1064,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     ),
                   if (delta != null)
                     _HeroMetricItem(
-                      label: 'Relative Delta',
+                      label: 'Above Normal',
                       value:
                           '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C',
                       valueColor:
@@ -1232,13 +1232,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     : 'N/A',
                 subtext: hasConfirmedHotspots
                     ? (delta != null
-                        ? 'Delta: +${delta.toStringAsFixed(1)}°C (Hotspot)'
+                        ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
                         : 'Hotspot confirmed')
                     : (delta != null
                         ? (delta >= 10.0
-                            ? 'Delta: +${delta.toStringAsFixed(1)}°C (Elevated)'
-                            : 'Nominal (+${delta.toStringAsFixed(1)}°C ΔT)')
-                        : 'Nominal baseline curve'),
+                            ? '+${delta.toStringAsFixed(1)}°C above normal (Elevated)'
+                            : 'Normal (+${delta.toStringAsFixed(1)}°C)')
+                        : 'Within normal range'),
                 isWarning: hasConfirmedHotspots,
                 valueColor: hasConfirmedHotspots
                     ? AppColors.error
@@ -1251,11 +1251,11 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: _buildTelemetryMetricTile(
-                label: 'Baseline Temperature',
+                label: 'Normal Temperature',
                 value: baselineTemp != null && baselineTemp > 0
                     ? '${baselineTemp.toStringAsFixed(1)}°C'
                     : 'N/A',
-                subtext: 'Inspection reference baseline',
+                subtext: 'Average panel temperature',
                 isWarning: false,
                 valueColor: AppColors.secondary,
               ),
@@ -1476,7 +1476,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Hardware & Sensor Diagnostics',
+                      'Robot & Sensor Status',
                       style: AppTypography.h3,
                     ),
                     IconButton(
@@ -1488,7 +1488,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Detailed microswitch limit state, thermal sensor health, and ESP32 connectivity.',
+                  'Check the robot’s track sensors, thermal camera, water tank, and Wi-Fi.',
                   style: AppTypography.bodySmall,
                 ),
                 const SizedBox(height: 16),
@@ -1496,10 +1496,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   children: [
                     Expanded(
                       child: _SensorHealthCard(
-                        title: 'Limits Check Passed',
+                        title: 'Track Sensors Ready',
                         subtitle: limitsOk
-                            ? 'Microswitches homed'
-                            : 'Awaiting homing',
+                            ? 'Position verified'
+                            : 'Waiting for check',
                         icon: Icons.check_circle_outline_rounded,
                         isPositive: limitsOk,
                       ),
@@ -1507,9 +1507,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: _SensorHealthCard(
-                        title: 'Thermal Sensor Active',
+                        title: 'Thermal Camera',
                         subtitle:
-                            thermalOk ? 'MLX90640 active' : 'Sensor inactive',
+                            thermalOk ? 'Camera ready' : 'Waiting for robot',
                         icon: Icons.camera_alt_outlined,
                         isPositive: thermalOk,
                       ),
@@ -1521,12 +1521,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   children: [
                     Expanded(
                       child: _SensorHealthCard(
-                        title: 'Water Reservoir',
+                        title: 'Water Tank',
                         subtitle: waterAvailable == true
-                            ? 'Sufficient level'
+                            ? 'Water ready'
                             : (waterAvailable == false
-                                ? 'Low reservoir level'
-                                : 'Awaiting ping'),
+                                ? 'Tank empty / refill'
+                                : 'Waiting for check'),
                         icon: Icons.water_drop_outlined,
                         isPositive: waterAvailable == true,
                         isWarning: waterAvailable == false,
@@ -1535,12 +1535,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: _SensorHealthCard(
-                        title: 'ESP32 Connectivity',
+                        title: 'Wi-Fi Connection',
                         subtitle: isOnline
                             ? (lastSyncDate != null
                                 ? 'Connected (${_formatDateTime(DateTime.tryParse(lastSyncDate))})'
                                 : 'Connected (Online)')
-                            : 'Awaiting ping',
+                            : 'Waiting for robot',
                         icon: isOnline
                             ? Icons.wifi_rounded
                             : Icons.wifi_off_rounded,
@@ -1569,7 +1569,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Carriage motion calibration & hardware interlocks wizard.',
+                          'Run the full robot connection and safety checklist.',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.textSecondary,
                           ),
@@ -1583,7 +1583,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                           );
                         },
                         child: Text(
-                          'Open Wizard →',
+                          'Run Check →',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.primary,
                             fontWeight: FontWeight.w700,
@@ -1664,7 +1664,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Automated periodic thermal inspection schedule calculated by the ESP32 robot.',
+                  'Automated periodic thermal inspection schedule calculated by the cleaning robot.',
                   style: AppTypography.bodySmall,
                 ),
                 const SizedBox(height: 16),
@@ -1801,7 +1801,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                                   ),
                                 ),
                                 subtitle: Text(
-                                  '${_formatReadableTimestamp(scanDate)}${hasBaseline ? " · Baseline: ${insp.baselineTemperatureC!.toStringAsFixed(1)}°C" : ""}',
+                                  '${_formatReadableTimestamp(scanDate)}${hasBaseline ? " · Normal: ${insp.baselineTemperatureC!.toStringAsFixed(1)}°C" : ""}',
                                   style: AppTypography.caption.copyWith(
                                     color: AppColors.textSecondary,
                                     fontSize: 11,
@@ -2163,9 +2163,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     const SizedBox(height: 8),
                     _MetadataRow(
                       icon: Icons.water_drop_outlined,
-                      label: 'Reservoir',
+                      label: 'Water Tank',
                       value:
-                          '${mod.reservoirNominalCapacityMl!.toStringAsFixed(0)} mL (nominal)',
+                          '${mod.reservoirNominalCapacityMl!.toStringAsFixed(0)} mL',
                       isMono: true,
                     ),
                   ],

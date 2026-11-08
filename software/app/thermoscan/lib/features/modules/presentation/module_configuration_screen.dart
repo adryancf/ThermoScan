@@ -332,7 +332,7 @@ class _ModuleConfigurationScreenState
                     _SectionCard(
                       title: 'Panel Dimensions & Array',
                       subtitle:
-                          'Physical panel dimensions in centimeters and string layout.',
+                          'Physical panel dimensions in centimeters and number of panels in row.',
                       editable: perms.canEditGeometryAndLocation,
                       children: [
                         AppTextField(
@@ -428,7 +428,7 @@ class _ModuleConfigurationScreenState
                             const SizedBox(width: 12),
                             Expanded(
                               child: AppTextField(
-                                label: 'Spacing (cm)',
+                                label: 'Gap Between Panels (cm)',
                                 controller: _spacingCtrl,
                                 readOnly: !perms.canEditGeometryAndLocation,
                                 keyboardType:
@@ -454,7 +454,7 @@ class _ModuleConfigurationScreenState
                         ),
                         const SizedBox(height: 12),
                         AppTextField(
-                          label: 'Nominal Reservoir Capacity (mL, optional)',
+                          label: 'Water Tank Capacity (mL, optional)',
                           hintText: 'e.g. 1000',
                           controller: _reservoirCtrl,
                           readOnly: !perms.canEditGeometryAndLocation,
@@ -488,8 +488,8 @@ class _ModuleConfigurationScreenState
                         if (perms.canEditGeometryAndLocation) ...[
                           SecondaryButton(
                             label: _acquiringGps
-                                ? 'Acquiring GPS Signal...'
-                                : 'Acquire Location from Device GPS',
+                                ? 'Getting Phone Location...'
+                                : 'Use Current Phone Location (GPS)',
                             icon: Icons.my_location,
                             onPressed:
                                 _acquiringGps ? null : _acquireGpsCoordinates,
@@ -576,7 +576,7 @@ class _ModuleConfigurationScreenState
                         const SizedBox(height: 14),
                         if (perms.canEditGeometryAndLocation) ...[
                           SecondaryButton(
-                            label: 'Calibrate Orientation via Sensors',
+                            label: 'Measure Angle with Phone',
                             icon: Icons.explore_outlined,
                             onPressed: _openOrientationCalibration,
                           ),
@@ -586,7 +586,7 @@ class _ModuleConfigurationScreenState
                           children: [
                             Expanded(
                               child: AppTextField(
-                                label: 'Azimuth (0° to <360°)',
+                                label: 'Compass Direction / Azimuth (0°–360°)',
                                 controller: _azimuthCtrl,
                                 readOnly: !perms.canEditGeometryAndLocation,
                                 onChanged: (_) {
@@ -616,7 +616,7 @@ class _ModuleConfigurationScreenState
                             const SizedBox(width: 12),
                             Expanded(
                               child: AppTextField(
-                                label: 'Tilt (0° to 90°)',
+                                label: 'Tilt Angle (0°–90°)',
                                 controller: _tiltCtrl,
                                 readOnly: !perms.canEditGeometryAndLocation,
                                 onChanged: (_) {
@@ -656,13 +656,13 @@ class _ModuleConfigurationScreenState
 
                     // Section 3: Minimum Solar Angle
                     _SectionCard(
-                      title: 'Solar Incidence Threshold',
+                      title: 'Minimum Sun Height',
                       subtitle:
-                          'Minimum solar angle required for valid thermal inspections.',
+                          'Minimum sun height required for valid thermal scans.',
                       editable: perms.canEditSolarAngle,
                       children: [
                         AppTextField(
-                          label: 'Minimum Solar Angle (0° to 90°)',
+                          label: 'Minimum Sun Height (0°–90°)',
                           controller: _solarAngleCtrl,
                           readOnly: !perms.canEditSolarAngle,
                           keyboardType: const TextInputType.numberWithOptions(
@@ -671,7 +671,7 @@ class _ModuleConfigurationScreenState
                           validator: (v) {
                             if (!perms.canEditSolarAngle) return null;
                             if (v == null || v.trim().isEmpty) {
-                              return 'Minimum solar angle is required';
+                              return 'Minimum sun height is required';
                             }
                             final n = double.tryParse(v.trim());
                             if (n == null || n < 0 || n > 90) {
@@ -691,7 +691,7 @@ class _ModuleConfigurationScreenState
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                'Fixed thermal hotspot candidate threshold: Baseline + 10 °C (system constant).',
+                                'Overheating alert rule: 10 °C above normal panel temperature.',
                                 style: AppTypography.caption,
                               ),
                             ),

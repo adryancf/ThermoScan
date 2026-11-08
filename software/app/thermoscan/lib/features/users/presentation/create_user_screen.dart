@@ -235,7 +235,7 @@ class _CreateUserScreenState extends ConsumerState<CreateUserScreen> {
                       ),
                       const SizedBox(height: 16),
                       AppTextField(
-                        label: 'Corporate Email',
+                        label: 'Email Address',
                         controller: _emailController,
                         hintText: 'user@company.com',
                         keyboardType: TextInputType.emailAddress,

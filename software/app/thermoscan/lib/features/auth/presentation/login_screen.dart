@@ -116,7 +116,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Authenticate with your enterprise credentials',
+                          'Sign in with your email and password',
                           style: AppTypography.bodySmall,
                         ),
                         const SizedBox(height: 24),
@@ -197,7 +197,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 AppTextField(
-                                  label: 'Corporate Email',
+                                  label: 'Email Address',
                                   controller: _emailController,
                                   hintText: 'user@company.com',
                                   keyboardType: TextInputType.emailAddress,
@@ -249,7 +249,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       padding: const EdgeInsets.only(top: 24),
                       child: Center(
                         child: Text(
-                          'Encrypted Telemetry Hub • IEC 62446-3 Compliant',
+                          'Secure Solar Panel Monitoring',
                           textAlign: TextAlign.center,
                           style: AppTypography.caption,
                         ),
@@ -286,7 +286,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 children: [
                   const Icon(Icons.dns_outlined, color: AppColors.primary),
                   const SizedBox(width: 8),
-                  Text('Server Host', style: AppTypography.h3),
+                  Text('Server Connection', style: AppTypography.h3),
                 ],
               ),
               content: Column(
@@ -294,12 +294,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Configure backend API address (e.g. Wi-Fi IP changes).',
+                    'Configure server address (e.g. Wi-Fi IP changes).',
                     style: AppTypography.bodySmall,
                   ),
                   const SizedBox(height: 14),
                   AppTextField(
-                    label: 'API Base URL',
+                    label: 'Server Address (URL)',
                     controller: ctrl,
                     hintText: 'http://10.0.2.2:8080/api/v1',
                   ),

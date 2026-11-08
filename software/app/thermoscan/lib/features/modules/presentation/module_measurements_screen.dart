@@ -80,7 +80,7 @@ class _ModuleMeasurementsScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Telemetry History',
+                        'Scan History',
                         style: AppTypography.caption.copyWith(
                           color: AppColors.primary,
                           fontWeight: FontWeight.w700,
@@ -89,12 +89,12 @@ class _ModuleMeasurementsScreenState
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Inspection History & Telemetry',
+                        'Inspection History & Readings',
                         style: AppTypography.h2,
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Recorded robotic scan cycles, electrical output, and thermal logs',
+                        'Recorded robotic scans, power output, and panel temperatures',
                         style: AppTypography.bodySmall,
                       ),
                     ],
@@ -156,8 +156,8 @@ class _ModuleMeasurementsScreenState
       backgroundColor: AppColors.background,
       appBar: ThermoScanAppBar(
         title: mod != null
-            ? '${mod.name} Telemetry'
-            : 'Inspection History & Telemetry',
+            ? '${mod.name} Scan History'
+            : 'Scan & Measurement History',
         role: user?.role,
         showBack: true,
       ),
@@ -285,7 +285,7 @@ class _ModuleMeasurementsScreenState
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Inspection History (Grouped by Inspection)',
+                  'Recorded Inspection Scans',
                   style: AppTypography.h3,
                 ),
               ),
@@ -293,7 +293,7 @@ class _ModuleMeasurementsScreenState
           ),
           const SizedBox(height: 4),
           Text(
-            'All recorded inspections and their measurements grouped by inspection_id',
+            'All recorded scans and temperature readings grouped by scan session',
             style: AppTypography.caption.copyWith(
               color: AppColors.textSecondary,
             ),
@@ -490,7 +490,7 @@ class _ModuleMeasurementsScreenState
                               Flexible(
                                 child: Text(
                                   isLatest
-                                      ? 'Active Inspection (Paginated)'
+                                      ? 'Active Inspection'
                                       : 'Inspection $shortId',
                                   style: AppTypography.caption.copyWith(
                                     fontWeight: FontWeight.w700,
@@ -618,9 +618,9 @@ class _ModuleMeasurementsScreenState
         peakTemp != null ? '${peakTemp.toStringAsFixed(1)}°C' : 'N/A';
     final deltaText = deltaT != null
         ? (deltaT > 0
-            ? '+${deltaT.toStringAsFixed(1)}°C ΔT'
-            : '${deltaT.toStringAsFixed(1)}°C ΔT')
-        : 'Nominal';
+            ? '+${deltaT.toStringAsFixed(1)}°C above normal'
+            : '${deltaT.toStringAsFixed(1)}°C above normal')
+        : 'Normal';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -636,7 +636,7 @@ class _ModuleMeasurementsScreenState
             child: _buildMetricStripItem(
               icon: Icons.bolt_rounded,
               iconColor: AppColors.primary,
-              label: 'Yield',
+              label: 'Power',
               value: powerText,
               sublabel: voltAmpText,
             ),
@@ -660,9 +660,9 @@ class _ModuleMeasurementsScreenState
             child: _buildMetricStripItem(
               icon: Icons.photo_camera_back_outlined,
               iconColor: AppColors.textSecondary,
-              label: 'Frames',
+              label: 'Readings',
               value: '$totalFrames',
-              sublabel: 'Acquisitions',
+              sublabel: 'Readings recorded',
             ),
           ),
           Container(width: 1, height: 28, color: AppColors.border),
@@ -677,7 +677,7 @@ class _ModuleMeasurementsScreenState
               label: 'Health',
               value: hotspotCount > 0
                   ? '$hotspotCount Hotspot${hotspotCount > 1 ? "s" : ""}'
-                  : 'Nominal',
+                  : 'Normal',
               sublabel: hotspotCount > 0 ? 'Action req.' : '0 Anomalies',
             ),
           ),
@@ -846,7 +846,7 @@ class _ModuleMeasurementsScreenState
                 children: [
                   Expanded(
                     child: Text(
-                      'Panel $p (X: ${pMinX.toStringAsFixed(0)}..${pMaxX.toStringAsFixed(0)} cm) • Range: ${pb.startCm.toStringAsFixed(0)}–${pb.endCm.toStringAsFixed(0)} cm',
+                      'Panel $p (${pb.startCm.toStringAsFixed(0)} to ${pb.endCm.toStringAsFixed(0)} cm along track)',
                       style: AppTypography.caption.copyWith(
                         fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary,

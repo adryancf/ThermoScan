@@ -418,7 +418,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Login'), findsOneWidget);
-    expect(find.text('Corporate Email'), findsOneWidget);
+    expect(find.text('Email Address'), findsOneWidget);
     expect(find.text('Password'), findsOneWidget);
     expect(find.text('Log In'), findsOneWidget);
   });
@@ -455,7 +455,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Set Permanent Password'), findsOneWidget);
+    expect(find.text('Create Your New Password'), findsOneWidget);
     expect(find.text('Update Password'), findsOneWidget);
   });
 
@@ -495,7 +495,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Administration'), findsOneWidget);
-    expect(find.text('PV Modules'), findsOneWidget);
+    expect(find.text('Solar Panels'), findsOneWidget);
     expect(find.text('Company Users'), findsOneWidget);
     expect(find.text('Clients'), findsOneWidget);
   });
@@ -535,7 +535,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('PV Modules'), findsOneWidget);
+    expect(find.text('Solar Panels'), findsOneWidget);
     expect(find.text('Install'), findsOneWidget);
     expect(find.text('PV-001 Roof Array'), findsOneWidget);
   });
@@ -790,9 +790,9 @@ void main() {
 
     // Verify SCR-10 Clean Thermal Preview & Telemetry metrics on Overview
     expect(find.text('Thermal Inspection Map'), findsOneWidget);
-    expect(find.text('Open Full Thermal Inspection Studio →'), findsOneWidget);
-    expect(find.text('Peak Temperature'), findsOneWidget);
-    expect(find.text('Baseline Temperature'), findsOneWidget);
+    expect(find.text('View Detailed Thermal Map'), findsOneWidget);
+    expect(find.text('Peak Reading'), findsOneWidget);
+    expect(find.text('Normal Temp'), findsOneWidget);
     expect(find.text('Active Power'), findsOneWidget);
 
     // Verify TabBar tabs
@@ -805,16 +805,16 @@ void main() {
     await tester.tap(find.text('Measurements'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Telemetry History'), findsOneWidget);
-    expect(find.text('Active Inspection (Paginated)'), findsOneWidget);
+    expect(find.text('Scan History'), findsOneWidget);
+    expect(find.text('Active Inspection'), findsOneWidget);
     expect(find.text('COMPLETED'), findsOneWidget);
 
     // Tap Cleanings in TabBar (SCR-12)
     await tester.tap(find.text('Cleanings'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Actuator Wash Log'), findsOneWidget);
-    expect(find.text('Wash Attempt #1 • Localized Traverse'), findsOneWidget);
+    expect(find.text('Cleaning History'), findsOneWidget);
+    expect(find.text('Wash Attempt #1 • Spot Wash'), findsOneWidget);
     expect(find.text('VERIFIED POST-CLEAN'), findsOneWidget);
   });
 
@@ -864,16 +864,16 @@ void main() {
     await tester.tap(popupMenuFinder);
     await tester.pumpAndSettle();
 
-    final verifyOptionFinder = find.text('ESP32 Verification');
+    final verifyOptionFinder = find.text('Robot Connection Check');
     expect(verifyOptionFinder, findsOneWidget);
     await tester.tap(verifyOptionFinder);
     await tester.pumpAndSettle();
 
     // Verify Device Verification Screen is open
-    expect(find.text('Device Verification'), findsOneWidget);
-    expect(find.text('ESP32 Device Verification'), findsOneWidget);
+    expect(find.text('Robot Connection Check'), findsWidgets);
+    expect(find.text('Robot Connection & Safety Check'), findsOneWidget);
     expect(
-      find.text('Verifying live Wi-Fi connectivity, safety interlocks and cloud sync'),
+      find.text('Checking Wi-Fi, safety sensors, and cloud connection'),
       findsOneWidget,
     );
 
@@ -881,7 +881,7 @@ void main() {
     expect(find.text('1. System Configuration & Setup'), findsOneWidget);
     expect(find.text('2. Wi-Fi & HTTPS Connection'), findsOneWidget);
     expect(find.text('3. Water Reservoir Sensor'), findsOneWidget);
-    expect(find.text('4. Hardware Safety & Radiometer'), findsOneWidget);
+    expect(find.text('4. Track Sensors & Thermal Camera'), findsOneWidget);
 
     // Tap Module Overview escape button
     final overviewBtnFinder = find.text('Module Overview');

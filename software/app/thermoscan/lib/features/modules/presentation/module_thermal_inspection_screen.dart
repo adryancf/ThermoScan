@@ -16,13 +16,22 @@ import 'package:thermoscan/features/modules/presentation/widgets/thermal_panoram
 ///
 /// Provides a dedicated workspace for high-resolution radiometric MLX90640 analysis,
 /// thermal gradient exploration, multi-frame traversal (F1..Fn), and dual-frame anomaly confirmation.
-class ModuleThermalInspectionScreen extends ConsumerWidget {
+class ModuleThermalInspectionScreen extends ConsumerStatefulWidget {
   const ModuleThermalInspectionScreen({
     super.key,
     required this.moduleId,
   });
 
   final String moduleId;
+
+  @override
+  ConsumerState<ModuleThermalInspectionScreen> createState() =>
+      _ModuleThermalInspectionScreenState();
+}
+
+class _ModuleThermalInspectionScreenState
+    extends ConsumerState<ModuleThermalInspectionScreen> {
+  ModuleInspection? _selectedHistoricalInspection;
 
   String _formatIsoDate(String? iso) {
     if (iso == null || iso.isEmpty) return 'No timestamp';
@@ -37,12 +46,50 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
     return '$year-$month-$day $hour:$minute';
   }
 
+  void _refreshAll() {
+    ref.invalidate(moduleDetailsProvider(widget.moduleId));
+    ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+    ref.invalidate(latestInspectionProvider(widget.moduleId));
+    ref.invalidate(moduleInspectionsProvider(widget.moduleId));
+    if (_selectedHistoricalInspection != null) {
+      ref.invalidate(
+        inspectionMeasurementsPagedProvider((
+          moduleId: widget.moduleId,
+          inspectionId: _selectedHistoricalInspection!.id,
+          page: 1,
+          limit: 200,
+          panelIndex: null,
+        )),
+      );
+    }
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
-    final detailsAsync = ref.watch(moduleDetailsProvider(moduleId));
-    final measurementsAsync = ref.watch(moduleMeasurementsProvider(moduleId));
-    final latestInspectionAsync = ref.watch(latestInspectionProvider(moduleId));
+    final detailsAsync = ref.watch(moduleDetailsProvider(widget.moduleId));
+    final measurementsAsync =
+        ref.watch(moduleMeasurementsProvider(widget.moduleId));
+    final latestInspectionAsync =
+        ref.watch(latestInspectionProvider(widget.moduleId));
+    final inspectionsAsync =
+        ref.watch(moduleInspectionsProvider(widget.moduleId));
+
+    final latestInspection = latestInspectionAsync.valueOrNull;
+    final isViewingLatest = _selectedHistoricalInspection == null ||
+        _selectedHistoricalInspection!.id == latestInspection?.inspection.id;
+
+    final historicalPagedAsync = !isViewingLatest
+        ? ref.watch(
+            inspectionMeasurementsPagedProvider((
+              moduleId: widget.moduleId,
+              inspectionId: _selectedHistoricalInspection!.id,
+              page: 1,
+              limit: 200,
+              panelIndex: null,
+            )),
+          )
+        : null;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -54,17 +101,27 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
           if (context.canPop()) {
             context.pop();
           } else {
-            context.go('/modules/$moduleId');
+            context.go('/modules/${widget.moduleId}');
           }
         },
-        trailingAction: IconButton(
-          tooltip: 'Refresh Studio Data',
-          icon: const Icon(Icons.refresh_rounded, color: AppColors.primary),
-          onPressed: () {
-            ref.invalidate(moduleDetailsProvider(moduleId));
-            ref.invalidate(moduleMeasurementsProvider(moduleId));
-            ref.invalidate(latestInspectionProvider(moduleId));
-          },
+        trailingAction: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              key: const Key('studio_help_button'),
+              tooltip: 'Radiometric Studio Inspection Guide',
+              icon: const Icon(
+                Icons.help_outline_rounded,
+                color: AppColors.primary,
+              ),
+              onPressed: () => _showTechnicalGuideModal(context),
+            ),
+            IconButton(
+              tooltip: 'Refresh Studio Data',
+              icon: const Icon(Icons.refresh_rounded, color: AppColors.primary),
+              onPressed: _refreshAll,
+            ),
+          ],
         ),
       ),
       body: detailsAsync.when(
@@ -105,11 +162,7 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
                   PrimaryButton(
                     label: 'Retry',
                     fullWidth: false,
-                    onPressed: () {
-                      ref.invalidate(moduleDetailsProvider(moduleId));
-                      ref.invalidate(moduleMeasurementsProvider(moduleId));
-                      ref.invalidate(latestInspectionProvider(moduleId));
-                    },
+                    onPressed: _refreshAll,
                   ),
                 ],
               ),
@@ -118,27 +171,51 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
         ),
         data: (details) {
           final mod = details.module;
-          final measurements =
-              measurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
-          final latestInspection = latestInspectionAsync.valueOrNull;
-          final rawLatestMeasurement =
-              measurements.isNotEmpty ? measurements.first : null;
-          final currentMeasurements = filterMeasurementsForCurrentInspection(
-            measurements: measurements,
-            latestInspection: latestInspection,
-            latestMeasurement: rawLatestMeasurement,
-          );
-          final latestMeasurement = currentMeasurements.isNotEmpty
-              ? currentMeasurements.first
-              : rawLatestMeasurement;
+          final rawInspections =
+              inspectionsAsync.valueOrNull ?? const <ModuleInspection>[];
+          final inspections = rawInspections.isNotEmpty
+              ? rawInspections
+              : (latestInspection != null
+                  ? <ModuleInspection>[latestInspection.inspection]
+                  : const <ModuleInspection>[]);
+
+          final List<ModuleMeasurement> activeMeasurements;
+          final LatestInspection? activeInspection;
+          final ModuleMeasurement? activeLatestMeasurement;
+
+          if (isViewingLatest) {
+            final measurements =
+                measurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
+            final rawLatestMeasurement =
+                measurements.isNotEmpty ? measurements.first : null;
+            final currentMeasurements = filterMeasurementsForCurrentInspection(
+              measurements: measurements,
+              latestInspection: latestInspection,
+              latestMeasurement: rawLatestMeasurement,
+            );
+            activeMeasurements = currentMeasurements;
+            activeInspection = latestInspection;
+            activeLatestMeasurement = currentMeasurements.isNotEmpty
+                ? currentMeasurements.first
+                : rawLatestMeasurement;
+          } else {
+            final histMeasurements = historicalPagedAsync?.valueOrNull?.measurements ??
+                const <ModuleMeasurement>[];
+            activeMeasurements = histMeasurements;
+            activeInspection = LatestInspection(
+              inspection: _selectedHistoricalInspection!,
+              totalMeasurements: histMeasurements.length,
+              confirmedAnomalies: const [],
+            );
+            activeLatestMeasurement =
+                histMeasurements.isNotEmpty ? histMeasurements.first : null;
+          }
 
           return RefreshIndicator(
             color: AppColors.primary,
             onRefresh: () async {
-              ref.invalidate(moduleDetailsProvider(moduleId));
-              ref.invalidate(moduleMeasurementsProvider(moduleId));
-              ref.invalidate(latestInspectionProvider(moduleId));
-              await ref.read(moduleDetailsProvider(moduleId).future);
+              _refreshAll();
+              await ref.read(moduleDetailsProvider(widget.moduleId).future);
             },
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -150,24 +227,26 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
                   _buildStudioHeader(
                     context,
                     mod: mod,
-                    latestMeasurement: latestMeasurement,
-                    latestInspection: latestInspection,
-                    totalMeasurements: currentMeasurements.length,
+                    latestMeasurement: activeLatestMeasurement,
+                    latestInspection: activeInspection,
+                    totalMeasurements: activeMeasurements.length,
+                    isViewingLatest: isViewingLatest,
+                    inspections: inspections,
+                    latestInspectionId: latestInspection?.inspection.id ??
+                        (inspections.isNotEmpty ? inspections.first.id : null),
                   ),
                   const SizedBox(height: 16),
 
                   // 2. High-Precision Radiometric Scan Card (SCR-10 Studio)
                   RadiometricScanCard(
                     module: mod,
-                    latestMeasurement: latestMeasurement,
-                    latestInspection: latestInspection,
-                    measurements: measurementsAsync.valueOrNull,
+                    latestMeasurement: activeLatestMeasurement,
+                    latestInspection: activeInspection,
+                    measurements: isViewingLatest
+                        ? measurementsAsync.valueOrNull
+                        : activeMeasurements,
                     initiallyExpanded: true,
                   ),
-                  const SizedBox(height: 20),
-
-                  // 3. Technical Studio Guide & Information Card
-                  _buildTechnicalGuideCard(),
                 ],
               ),
             ),
@@ -183,9 +262,13 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
     required ModuleMeasurement? latestMeasurement,
     required LatestInspection? latestInspection,
     required int totalMeasurements,
+    required bool isViewingLatest,
+    required List<ModuleInspection> inspections,
+    required String? latestInspectionId,
   }) {
     final confirmedCount = latestInspection?.confirmedAnomalies.length ?? 0;
     final lastSyncTimestamp = latestInspection?.inspection.finishedAt ??
+        latestInspection?.inspection.startedAt ??
         latestMeasurement?.measuredAt;
 
     return Container(
@@ -243,6 +326,204 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 14),
+          // Status Badge + Historical Scan Switcher Row
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (isViewingLatest)
+                Container(
+                  key: const Key('latest_scan_badge'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.successBackground,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: AppColors.successBorder),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.verified_rounded,
+                        size: 14,
+                        color: AppColors.success,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'LATEST SCAN',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.success,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              else
+                Container(
+                  key: const Key('historical_scan_badge'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.warningBackground,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: AppColors.warningBorder),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.history_toggle_off_rounded,
+                        size: 14,
+                        color: AppColors.warning,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        'HISTORICAL SCAN',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.warning,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 11,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              InkWell(
+                key: const Key('switch_scan_button'),
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _showScanSelectorModal(
+                  context,
+                  inspections: inspections,
+                  latestInspectionId: latestInspectionId,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.history_rounded,
+                        size: 14,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Switch Scan',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      const Icon(
+                        Icons.expand_more_rounded,
+                        size: 15,
+                        color: AppColors.primary,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (!isViewingLatest && _selectedHistoricalInspection != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              key: const Key('historical_scan_banner'),
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.warningBackground,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.warningBorder),
+              ),
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.info_outline_rounded,
+                        size: 16,
+                        color: AppColors.warning,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          'Viewing Historical Scan (${_formatIsoDate(_selectedHistoricalInspection!.finishedAt ?? _selectedHistoricalInspection!.startedAt ?? _selectedHistoricalInspection!.scheduledFor)})',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  InkWell(
+                    key: const Key('back_to_latest_scan_button'),
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () {
+                      setState(() {
+                        _selectedHistoricalInspection = null;
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: AppColors.warningBorder),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.restore_rounded,
+                            size: 14,
+                            color: AppColors.warning,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Back to Latest Scan',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.warning,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
           const Divider(height: 1, color: AppColors.border),
           const SizedBox(height: 14),
@@ -259,11 +540,12 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
                 icon: Icons.warning_amber_rounded,
                 label: 'Confirmed Hotspots',
                 value: '$confirmedCount anomaly(s)',
-                valueColor: confirmedCount > 0 ? AppColors.error : AppColors.success,
+                valueColor:
+                    confirmedCount > 0 ? AppColors.error : AppColors.success,
               ),
               _buildMetricBadge(
                 icon: Icons.schedule_rounded,
-                label: 'Last Inspection',
+                label: isViewingLatest ? 'Last Inspection' : 'Scan Timestamp',
                 value: _formatIsoDate(lastSyncTimestamp),
               ),
             ],
@@ -293,7 +575,8 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
           const SizedBox(width: 6),
           Text(
             '$label: ',
-            style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+            style:
+                AppTypography.caption.copyWith(color: AppColors.textSecondary),
           ),
           Text(
             value,
@@ -307,52 +590,355 @@ class ModuleThermalInspectionScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildTechnicalGuideCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+  void _showScanSelectorModal(
+    BuildContext context, {
+    required List<ModuleInspection> inspections,
+    required String? latestInspectionId,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) {
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(modalContext).size.height * 0.75,
+          ),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
-                Icons.science_outlined,
-                size: 20,
-                color: AppColors.primary,
+              const SizedBox(height: 10),
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
               ),
-              const SizedBox(width: 8),
-              Text(
-                'Radiometric Studio Inspection Guide',
-                style: AppTypography.h3.copyWith(fontSize: 16),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.history_rounded,
+                      color: AppColors.primary,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Select Inspection Scan',
+                            style: AppTypography.h3.copyWith(fontSize: 17),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Compare historical thermal sweeps or return to the latest scan',
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: AppColors.textSecondary,
+                      ),
+                      onPressed: () => Navigator.of(modalContext).pop(),
+                    ),
+                  ],
+                ),
               ),
+              const Divider(height: 1, color: AppColors.border),
+              if (inspections.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(32),
+                  child: Center(
+                    child: Text(
+                      'No inspection scans recorded for this module yet.',
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                    itemCount: inspections.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
+                    itemBuilder: (itemContext, index) {
+                      final insp = inspections[index];
+                      final isLatest = index == 0 ||
+                          (latestInspectionId != null &&
+                              insp.id == latestInspectionId);
+                      final isSelected = (_selectedHistoricalInspection ==
+                                  null &&
+                              isLatest) ||
+                          (_selectedHistoricalInspection?.id == insp.id);
+
+                      final isPostCleaning =
+                          insp.type == 'post_cleaning_verification' ||
+                              insp.type == 'post_cleaning' ||
+                              insp.cleaningOperationId != null;
+                      final scanTypeLabel = isPostCleaning
+                          ? 'Post-Cleaning Verification'
+                          : 'Routine Thermal Scan';
+                      final timestamp = _formatIsoDate(
+                        insp.finishedAt ?? insp.startedAt ?? insp.scheduledFor,
+                      );
+
+                      return InkWell(
+                        key: Key('scan_selector_item_${insp.id}'),
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {
+                          setState(() {
+                            _selectedHistoricalInspection =
+                                isLatest ? null : insp;
+                          });
+                          Navigator.of(modalContext).pop();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? AppColors.primarySoft.withValues(alpha: 0.35)
+                                : AppColors.background,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: isSelected
+                                  ? AppColors.primary
+                                  : AppColors.border,
+                              width: isSelected ? 1.5 : 1.0,
+                            ),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 36,
+                                height: 36,
+                                decoration: BoxDecoration(
+                                  color: isLatest
+                                      ? AppColors.successBackground
+                                      : AppColors.surface,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: isLatest
+                                        ? AppColors.successBorder
+                                        : AppColors.border,
+                                  ),
+                                ),
+                                child: Icon(
+                                  isPostCleaning
+                                      ? Icons.water_drop_outlined
+                                      : Icons.thermostat_rounded,
+                                  size: 18,
+                                  color: isLatest
+                                      ? AppColors.success
+                                      : AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        Text(
+                                          scanTypeLabel,
+                                          style:
+                                              AppTypography.bodySmall.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary,
+                                          ),
+                                        ),
+                                        if (isLatest)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  AppColors.successBackground,
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: AppColors.successBorder,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              'LATEST',
+                                              style: AppTypography.caption
+                                                  .copyWith(
+                                                color: AppColors.success,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      timestamp,
+                                      style: AppTypography.caption.copyWith(
+                                        color: AppColors.textSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 10,
+                                      runSpacing: 4,
+                                      children: [
+                                        Text(
+                                          'Status: ${insp.status.toUpperCase()}',
+                                          style: AppTypography.caption.copyWith(
+                                            color: AppColors.textSecondary,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                        if (insp.baselineTemperatureC != null)
+                                          Text(
+                                            'Baseline: ${insp.baselineTemperatureC!.toStringAsFixed(1)} °C',
+                                            style:
+                                                AppTypography.caption.copyWith(
+                                              color: AppColors.primary,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (isSelected)
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 8, top: 6),
+                                  child: Icon(
+                                    Icons.check_circle_rounded,
+                                    color: AppColors.primary,
+                                    size: 20,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
             ],
           ),
-          const SizedBox(height: 12),
-          _buildGuideItem(
-            title: 'MLX90640 Radiometric Array (32×24)',
-            description:
-                'Every pixel corresponds to an calibrated radiometric temperature reading (768 points per frame). Color ramps scale automatically between ambient cold and peak hot spots.',
+        );
+      },
+    );
+  }
+
+  void _showTechnicalGuideModal(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          const SizedBox(height: 10),
-          _buildGuideItem(
-            title: 'Dual-Frame Persistence Confirmation',
-            description:
-                'To eliminate false positives caused by momentary cloud edges, glints, or transient specular reflection, anomalies require thermal persistence across consecutive frames before confirmation.',
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+          child: SafeArea(
+            top: false,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.science_outlined,
+                        size: 22,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Radiometric Studio Inspection Guide',
+                          style: AppTypography.h3.copyWith(fontSize: 17),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          color: AppColors.textSecondary,
+                        ),
+                        onPressed: () => Navigator.of(modalContext).pop(),
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 20, color: AppColors.border),
+                  _buildGuideItem(
+                    title: 'MLX90640 Radiometric Array (32×24)',
+                    description:
+                        'Every pixel corresponds to a calibrated radiometric temperature reading (768 points per frame). Color ramps scale automatically between ambient cold and peak hot spots.',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildGuideItem(
+                    title: 'Robot Carriage Timeline & 1D Profile',
+                    description:
+                        'The carriage timeline tracks each frame position (X in cm) along the rail and plots peak frame temperatures against the panel baseline to pinpoint localized overheating.',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildGuideItem(
+                    title: 'Dual-Frame Persistence Confirmation',
+                    description:
+                        'To eliminate false positives caused by momentary cloud edges, glints, or transient specular reflection, anomalies require thermal persistence across consecutive frames before confirmation.',
+                  ),
+                  const SizedBox(height: 12),
+                  _buildGuideItem(
+                    title: 'Interactive Studio Exploration',
+                    description:
+                        'Toggle zoom mode to view full frame dimensions or crop to active PV surface. Click on frame indicators (F1..Fn) or individual cells in the matrix to inspect exact telemetry at that coordinate.',
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 10),
-          _buildGuideItem(
-            title: 'Interactive Studio Exploration',
-            description:
-                'Toggle zoom mode to view full frame dimensions or crop to active PV surface. Click on frame indicators (F1..Fn) or individual cells in the matrix to inspect exact telemetry at that coordinate.',
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 

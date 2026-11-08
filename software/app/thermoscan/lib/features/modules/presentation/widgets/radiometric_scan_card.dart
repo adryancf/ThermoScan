@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
@@ -31,6 +34,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
   int? _focusedPanelIndex;
   int? _selectedHotspotIndex;
   late bool _isAdvancedExpanded;
+  bool _isProfileCurveExpanded = false;
+  int _timelineFrameIndex = 0;
+  bool _timelineInitialized = false;
+  int? _lastFramesCount;
+  String? _lastFirstFrameId;
+  Timer? _playbackTimer;
+  int _playTicksRemaining = 0;
+
+  bool get _isPlaying => _playbackTimer != null && _playbackTimer!.isActive;
 
   @override
   void initState() {
@@ -40,6 +52,105 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     _isAdvancedExpanded = widget.initiallyExpanded ??
         (widget.module.userRelationship != 'assigned_client' &&
             widget.module.userRelationship != 'client');
+  }
+
+  @override
+  void dispose() {
+    _playbackTimer?.cancel();
+    super.dispose();
+  }
+
+  int? _resolveHotspotFrameIndex(
+    List<ModuleMeasurement> sortedFrames,
+    List<ConfirmedAnomaly> visibleAnomalies,
+    double? baselineTemp,
+  ) {
+    if (sortedFrames.isEmpty) return null;
+    if (visibleAnomalies.isNotEmpty) {
+      int? bestIdx;
+      double? bestTemp;
+      for (var i = 0; i < sortedFrames.length; i++) {
+        final f = sortedFrames[i];
+        if (visibleAnomalies.any((a) => isFrameAssociatedWithAnomaly(f, a))) {
+          if (bestIdx == null || f.maxTemperatureC > bestTemp!) {
+            bestIdx = i;
+            bestTemp = f.maxTemperatureC;
+          }
+        }
+      }
+      if (bestIdx != null) return bestIdx;
+      final targetX = visibleAnomalies.first.xPositionCm;
+      var closestIdx = 0;
+      var minDiff = (sortedFrames.first.xPositionCm - targetX).abs();
+      for (var i = 1; i < sortedFrames.length; i++) {
+        final diff = (sortedFrames[i].xPositionCm - targetX).abs();
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestIdx = i;
+        }
+      }
+      return closestIdx;
+    }
+
+    var maxIdx = 0;
+    var minTemp = sortedFrames.first.maxTemperatureC;
+    var maxTemp = sortedFrames.first.maxTemperatureC;
+    for (var i = 1; i < sortedFrames.length; i++) {
+      final t = sortedFrames[i].maxTemperatureC;
+      if (t > maxTemp) {
+        maxTemp = t;
+        maxIdx = i;
+      }
+      if (t < minTemp) {
+        minTemp = t;
+      }
+    }
+    if (baselineTemp != null &&
+        baselineTemp > 0 &&
+        (maxTemp - baselineTemp) >= 10.0) {
+      return maxIdx;
+    }
+    if (sortedFrames.length > 1 && (maxTemp - minTemp) >= 5.0) {
+      return maxIdx;
+    }
+    if (maxTemp >= 45.0) {
+      return maxIdx;
+    }
+    return null;
+  }
+
+  void _toggleTimelinePlayback(List<ModuleMeasurement> sortedFrames) {
+    if (sortedFrames.isEmpty) return;
+    if (_isPlaying) {
+      setState(() {
+        _playbackTimer?.cancel();
+        _playbackTimer = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _playTicksRemaining = sortedFrames.length;
+      _selectedFrameIndex = _timelineFrameIndex;
+    });
+
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 450), (timer) {
+      if (!mounted || sortedFrames.isEmpty) {
+        timer.cancel();
+        _playbackTimer = null;
+        return;
+      }
+      setState(() {
+        _timelineFrameIndex = (_timelineFrameIndex + 1) % sortedFrames.length;
+        _selectedFrameIndex = _timelineFrameIndex;
+        _playTicksRemaining--;
+        if (_playTicksRemaining <= 0 ||
+            _timelineFrameIndex >= sortedFrames.length - 1) {
+          timer.cancel();
+          _playbackTimer = null;
+        }
+      });
+    });
   }
 
   @override
@@ -163,6 +274,33 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     final baselineTemp = focusedPanelResult?.baselineTemperatureC ??
         insp?.inspection.baselineTemperatureC;
 
+    final hotspotIndex = _resolveHotspotFrameIndex(
+      displayedMeasurements,
+      visibleAnomalies,
+      baselineTemp,
+    );
+    if (displayedMeasurements.isNotEmpty) {
+      final firstId = displayedMeasurements.first.id;
+      if (!_timelineInitialized ||
+          _lastFramesCount != displayedMeasurements.length ||
+          _lastFirstFrameId != firstId) {
+        _timelineInitialized = true;
+        _lastFramesCount = displayedMeasurements.length;
+        _lastFirstFrameId = firstId;
+        _timelineFrameIndex =
+            hotspotIndex ?? (displayedMeasurements.length - 1);
+      }
+      final clampedIdx = _timelineFrameIndex.clamp(
+        0,
+        displayedMeasurements.length - 1,
+      );
+      if (_timelineFrameIndex != clampedIdx) {
+        _timelineFrameIndex = clampedIdx;
+      }
+    } else {
+      _timelineFrameIndex = 0;
+    }
+
     final ModuleMeasurement? selectedMeas = (_selectedFrameIndex != null &&
             _selectedFrameIndex! >= 0 &&
             _selectedFrameIndex! < displayedMeasurements.length)
@@ -207,7 +345,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.border),
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -364,11 +502,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               panelBounds: panorama.panelBounds,
             ),
 
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
 
           // 2D Thermal Viewport with Real Thermal Panorama
           Container(
-            height: 175,
+            height: 145,
             width: double.infinity,
             decoration: BoxDecoration(
               color: ThermalPanoramaPainter.uncoveredBackgroundColor,
@@ -690,12 +828,23 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                               behavior: HitTestBehavior.opaque,
                                               onTap: () {
                                                 setState(() {
-                                                  if (_selectedFrameIndex == idx) {
-                                                    _selectedFrameIndex = null;
-                                                  } else {
-                                                    _selectedFrameIndex = idx;
-                                                  }
+                                                  _playbackTimer?.cancel();
+                                                  _playbackTimer = null;
+                                                  _selectedFrameIndex = idx;
+                                                  _timelineFrameIndex = idx;
                                                 });
+                                                _showFrameInspectorModal(
+                                                  context,
+                                                  displayedMeasurements,
+                                                  idx,
+                                                  panorama.minValidTempC ?? 20.0,
+                                                  panorama.maxValidTempC ??
+                                                      peakTemp,
+                                                  baselineTemp,
+                                                  panorama: panorama,
+                                                  confirmedAnomalies:
+                                                      visibleAnomalies,
+                                                );
                                               },
                                               child: AnimatedContainer(
                                                 duration: const Duration(
@@ -1071,13 +1220,13 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               ),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
 
           // Calibrated Semantic Thermal Scale Bar
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: Container(
-              height: 10,
+              height: 8,
               decoration: BoxDecoration(
                 color: panorama.hasValidTemperatures
                     ? null
@@ -1090,7 +1239,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               ),
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           if (panorama.hasValidTemperatures)
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1140,9 +1289,24 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               ],
             ),
 
+          // Robot Carriage Timeline Scrubber (Item 1)
+          if (displayedMeasurements.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            _buildRobotTimelineScrubber(
+              context: context,
+              sortedFrames: displayedMeasurements,
+              hotspotIndex: hotspotIndex,
+              minTemp: panorama.minValidTempC ?? 20.0,
+              maxTemp: panorama.maxValidTempC ?? peakTemp,
+              baselineTemp: baselineTemp,
+              panorama: panorama,
+              confirmedAnomalies: visibleAnomalies,
+            ),
+          ],
+
           // Confirmed Hotspot Dual-Frame Confirmation Explainer
           if (hasConfirmedHotspots) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 4),
             _buildHotspotConfirmationSummary(
               confirmedAnomalies: visibleAnomalies,
               sortedMeasurements: displayedMeasurements,
@@ -1155,17 +1319,29 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             coverage: coverage,
           ),
 
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
 
           // Progressive Disclosure Accordion: Advanced Telemetry & Frame Inspector
           _buildAdvancedTelemetryAccordion(
+            context: context,
             displayedMeasurements: displayedMeasurements,
             visibleAnomalies: visibleAnomalies,
             coverage: coverage,
             panorama: panorama,
+            peakTemp: peakTemp,
+            baselineTemp: baselineTemp,
           ),
 
-          const SizedBox(height: 10),
+          // 1D Thermal Profile Curve Collapsible Accordion (Item 3, closed by default)
+          if (displayedMeasurements.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _buildThermalProfileCurveAccordion(
+              sortedFrames: displayedMeasurements,
+              baselineTemp: baselineTemp,
+            ),
+          ],
+
+          const SizedBox(height: 8),
 
           // 4 Key Telemetry Metrics Grid (Flat, border-only, zero drop shadows)
           Row(
@@ -1237,10 +1413,13 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
 
   /// Progressive Disclosure Accordion containing MLX90640 frame carousel and 32x24 inspector.
   Widget _buildAdvancedTelemetryAccordion({
+    required BuildContext context,
     required List<ModuleMeasurement> displayedMeasurements,
     required List<ConfirmedAnomaly> visibleAnomalies,
     required ThermalCoverageInfo coverage,
     required ThermalPanoramaData panorama,
+    required double peakTemp,
+    required double? baselineTemp,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1260,7 +1439,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               });
             },
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               child: Row(
                 children: [
                   const Icon(
@@ -1323,7 +1502,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           if (_isAdvancedExpanded) ...[
             const Divider(height: 1, thickness: 1, color: AppColors.border),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1347,7 +1526,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                         ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     'Tap a frame to inspect its 32×24 matrix and exact sensor readings',
                     style: AppTypography.caption.copyWith(
@@ -1355,7 +1534,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       color: AppColors.textSecondary,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
 
                   // Horizontal frames carousel (Preserves thermal_frame_card_1, 2... keys for tests)
                   SingleChildScrollView(
@@ -1411,12 +1590,21 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                 borderRadius: BorderRadius.circular(10),
                                 onTap: () {
                                   setState(() {
-                                    if (_selectedFrameIndex == idx) {
-                                      _selectedFrameIndex = null;
-                                    } else {
-                                      _selectedFrameIndex = idx;
-                                    }
+                                    _playbackTimer?.cancel();
+                                    _playbackTimer = null;
+                                    _selectedFrameIndex = idx;
+                                    _timelineFrameIndex = idx;
                                   });
+                                  _showFrameInspectorModal(
+                                    context,
+                                    displayedMeasurements,
+                                    idx,
+                                    panorama.minValidTempC ?? 20.0,
+                                    panorama.maxValidTempC ?? peakTemp,
+                                    baselineTemp,
+                                    panorama: panorama,
+                                    confirmedAnomalies: visibleAnomalies,
+                                  );
                                 },
                                 child: Container(
                                   margin: const EdgeInsets.only(right: 8),
@@ -1584,18 +1772,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             }).toList(),
                     ),
                   ),
-
-                  // Selected Single-Frame 32x24 Matrix Inspector
-                  if (_selectedFrameIndex != null &&
-                      _selectedFrameIndex! < displayedMeasurements.length) ...[
-                    const SizedBox(height: 12),
-                    _buildSelectedFrameInspector(
-                      frameIndex: _selectedFrameIndex!,
-                      measurement: displayedMeasurements[_selectedFrameIndex!],
-                      panorama: panorama,
-                      confirmedAnomalies: visibleAnomalies,
-                    ),
-                  ],
                 ],
               ),
             ),
@@ -1854,10 +2030,10 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
   }) {
     return Container(
       key: const Key('hotspot_confirmation_summary'),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: AppColors.errorBackground,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.errorBorder),
       ),
       child: Column(
@@ -1868,7 +2044,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               const Icon(
                 Icons.check_circle_rounded,
                 color: AppColors.error,
-                size: 16,
+                size: 14,
               ),
               const SizedBox(width: 6),
               Text(
@@ -1876,12 +2052,12 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 style: AppTypography.caption.copyWith(
                   color: AppColors.error,
                   fontWeight: FontWeight.w800,
-                  fontSize: 11,
+                  fontSize: 10.5,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           ...confirmedAnomalies.asMap().entries.map((entry) {
             final idx = entry.key;
             final anomaly = entry.value;
@@ -1919,97 +2095,165 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     );
   }
 
-  /// Inspector panel for viewing the isolated 32x24 matrix of the selected frame.
-  Widget _buildSelectedFrameInspector({
-    required int frameIndex,
-    required ModuleMeasurement measurement,
+  /// Item 1: Interactive Robot Carriage Timeline Scrubber.
+  Widget _buildRobotTimelineScrubber({
+    required BuildContext context,
+    required List<ModuleMeasurement> sortedFrames,
+    required int? hotspotIndex,
+    required double minTemp,
+    required double maxTemp,
+    required double? baselineTemp,
     required ThermalPanoramaData panorama,
     required List<ConfirmedAnomaly> confirmedAnomalies,
   }) {
-    final tf = measurement.thermalFrame;
-    final hasMatrix = tf != null && tf.length == ThermalCoverageInfo.sensorPixelCount;
-    final anomalyLabels = getFrameAnomalyLabels(measurement, confirmedAnomalies);
-    final isConfirmed = anomalyLabels.isNotEmpty;
+    final total = sortedFrames.length;
+    final activeIndex = _timelineFrameIndex.clamp(0, total - 1);
+    final activeFrame = sortedFrames[activeIndex];
+    final isHotspotFrame = hotspotIndex == activeIndex ||
+        confirmedAnomalies.any(
+          (a) => isFrameAssociatedWithAnomaly(activeFrame, a),
+        );
+    final alignX = total > 1 ? -1.0 + (2.0 * (activeIndex / (total - 1))) : 0.0;
 
     return Container(
-      key: const Key('selected_frame_inspector'),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isConfirmed ? AppColors.error : AppColors.primary,
-          width: 1.5,
-        ),
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: isConfirmed ? AppColors.error : AppColors.primary,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      'F${frameIndex + 1}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: isHotspotFrame ? AppColors.error : AppColors.primary,
+                  borderRadius: BorderRadius.circular(5),
+                ),
+                child: Text(
+                  'F${activeIndex + 1}/$total',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w800,
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Selected Frame (X = ${measurement.xPositionCm.toStringAsFixed(1)} cm)',
-                    style: AppTypography.caption.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  if (measurement.panelIndex != null ||
-                      measurement.localXPositionCm != null) ...[
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 5,
-                        vertical: 1.5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.primarySoft,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Text(
-                        '${measurement.panelIndex != null ? "Panel ${measurement.panelIndex}" : ""}${measurement.panelIndex != null && measurement.localXPositionCm != null ? " • " : ""}${measurement.localXPositionCm != null ? "Local: ${measurement.localXPositionCm!.toStringAsFixed(1)} cm" : ""}',
-                        style: const TextStyle(
-                          color: AppColors.primary,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                ),
               ),
+              const SizedBox(width: 6),
+              Text(
+                'X = ${activeFrame.xPositionCm.toStringAsFixed(1)} cm',
+                style: AppTypography.caption.copyWith(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'T_max = ${activeFrame.maxTemperatureC.toStringAsFixed(1)}°C',
+                style: AppTypography.caption.copyWith(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: isHotspotFrame ? AppColors.error : AppColors.primary,
+                ),
+              ),
+              const Spacer(),
+              if (hotspotIndex != null) ...[
+                InkWell(
+                  key: const Key('jump_to_hotspot_button'),
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () {
+                    setState(() {
+                      _playbackTimer?.cancel();
+                      _playbackTimer = null;
+                      _timelineFrameIndex = hotspotIndex.clamp(0, total - 1);
+                      _selectedFrameIndex = _timelineFrameIndex;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.errorBackground,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.errorBorder),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.local_fire_department_rounded,
+                          size: 11,
+                          color: AppColors.error,
+                        ),
+                        SizedBox(width: 3),
+                        Text(
+                          'Jump to Hotspot',
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.error,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 6),
+              ],
               InkWell(
-                onTap: () => setState(() => _selectedFrameIndex = null),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Row(
+                key: const Key('inspect_frame_modal_button'),
+                borderRadius: BorderRadius.circular(6),
+                onTap: () {
+                  setState(() {
+                    _playbackTimer?.cancel();
+                    _playbackTimer = null;
+                    _selectedFrameIndex = activeIndex;
+                    _timelineFrameIndex = activeIndex;
+                  });
+                  _showFrameInspectorModal(
+                    context,
+                    sortedFrames,
+                    activeIndex,
+                    minTemp,
+                    maxTemp,
+                    baselineTemp,
+                    panorama: panorama,
+                    confirmedAnomalies: confirmedAnomalies,
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 2.5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(Icons.close_rounded, size: 14, color: AppColors.textSecondary),
-                      const SizedBox(width: 2),
+                      Icon(
+                        Icons.grid_on_rounded,
+                        size: 11,
+                        color: AppColors.primary,
+                      ),
+                      SizedBox(width: 3),
                       Text(
-                        'Close',
-                        style: AppTypography.caption.copyWith(
-                          fontSize: 10,
-                          color: AppColors.textSecondary,
+                        'Inspect 32×24',
+                        style: TextStyle(
+                          fontSize: 9,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primary,
                         ),
                       ),
                     ],
@@ -2018,70 +2262,754 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               ),
             ],
           ),
-          const SizedBox(height: 8),
-
-          // 32x24 Pure Thermal Matrix View
-          if (hasMatrix) ...[
-            Container(
-              height: 120,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: CustomPaint(
-                  key: const Key('single_frame_matrix_canvas'),
-                  painter: SingleFrameMatrixPainter(
-                    thermalFrame: tf,
-                    colorForTemperature: panorama.colorForTemperature,
+          const SizedBox(height: 5),
+          Row(
+            children: [
+              InkWell(
+                key: const Key('robot_timeline_prev_button'),
+                borderRadius: BorderRadius.circular(6),
+                onTap: () {
+                  setState(() {
+                    _playbackTimer?.cancel();
+                    _playbackTimer = null;
+                    _timelineFrameIndex = (activeIndex - 1).clamp(0, total - 1);
+                    _selectedFrameIndex = _timelineFrameIndex;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Icon(
+                    Icons.chevron_left_rounded,
+                    size: 16,
+                    color: AppColors.textPrimary,
                   ),
                 ),
               ),
-            ),
-          ] else ...[
-            Container(
-              height: 60,
-              width: double.infinity,
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: const Center(
-                child: Text(
-                  'No 32×24 matrix data in this acquisition',
-                  style: TextStyle(fontSize: 10, color: AppColors.textSecondary),
+              const SizedBox(width: 4),
+              InkWell(
+                key: const Key('robot_timeline_play_button'),
+                borderRadius: BorderRadius.circular(6),
+                onTap: () => _toggleTimelinePlayback(sortedFrames),
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: _isPlaying ? AppColors.primary : AppColors.surface,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: _isPlaying ? AppColors.primary : AppColors.border,
+                    ),
+                  ),
+                  child: Icon(
+                    _isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 16,
+                    color: _isPlaying ? Colors.white : AppColors.primary,
+                  ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 4),
+              InkWell(
+                key: const Key('robot_timeline_next_button'),
+                borderRadius: BorderRadius.circular(6),
+                onTap: () {
+                  setState(() {
+                    _playbackTimer?.cancel();
+                    _playbackTimer = null;
+                    _timelineFrameIndex = (activeIndex + 1).clamp(0, total - 1);
+                    _selectedFrameIndex = _timelineFrameIndex;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Icon(
+                    Icons.chevron_right_rounded,
+                    size: 16,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final trackWidth = constraints.maxWidth.clamp(
+                      1.0,
+                      double.infinity,
+                    );
+                    void scrubAt(double dx) {
+                      final ratio = (dx / trackWidth).clamp(0.0, 1.0);
+                      final newIdx = total > 1
+                          ? (ratio * (total - 1)).round().clamp(0, total - 1)
+                          : 0;
+                      setState(() {
+                        _playbackTimer?.cancel();
+                        _playbackTimer = null;
+                        _timelineFrameIndex = newIdx;
+                        _selectedFrameIndex = newIdx;
+                      });
+                    }
 
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Span: ${(measurement.xPositionCm - 2.5).toStringAsFixed(1)} - ${(measurement.xPositionCm + 2.5).toStringAsFixed(1)} cm',
-                style: AppTypography.caption.copyWith(fontSize: 10, color: AppColors.textSecondary),
-              ),
-              Text(
-                'Peak: ${measurement.maxTemperatureC.toStringAsFixed(1)}°C',
-                style: AppTypography.caption.copyWith(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: isConfirmed ? AppColors.error : AppColors.textPrimary,
+                    return GestureDetector(
+                      key: const Key('robot_timeline_scrubber'),
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: (details) =>
+                          scrubAt(details.localPosition.dx),
+                      onHorizontalDragUpdate: (details) =>
+                          scrubAt(details.localPosition.dx),
+                      child: SizedBox(
+                        height: 24,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            Container(
+                              height: 6,
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: AppColors.border,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: FractionallySizedBox(
+                                widthFactor: total > 1
+                                    ? (activeIndex / (total - 1)).clamp(
+                                        0.0,
+                                        1.0,
+                                      )
+                                    : 1.0,
+                                child: Container(
+                                  height: 6,
+                                  decoration: BoxDecoration(
+                                    color: isHotspotFrame
+                                        ? AppColors.error
+                                        : AppColors.primary,
+                                    borderRadius: BorderRadius.circular(3),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            AnimatedAlign(
+                              duration: const Duration(milliseconds: 220),
+                              curve: Curves.easeOutCubic,
+                              alignment: Alignment(alignX, 0.0),
+                              child: Container(
+                                width: 22,
+                                height: 22,
+                                decoration: BoxDecoration(
+                                  color: isHotspotFrame
+                                      ? AppColors.error
+                                      : AppColors.primary,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.precision_manufacturing_rounded,
+                                    key: Key('robot_timeline_icon'),
+                                    size: 13,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              ),
-              Text(
-                '${measurement.voltageV?.toStringAsFixed(1) ?? "N/A"}V • ${measurement.currentA?.toStringAsFixed(2) ?? "N/A"}A • ${measurement.powerW?.toStringAsFixed(1) ?? "N/A"}W',
-                style: AppTypography.caption.copyWith(fontSize: 10, color: AppColors.primary),
               ),
             ],
           ),
         ],
       ),
+    );
+  }
+
+  /// Item 3: 1D Thermal Profile Curve in a Collapsible Accordion (Closed by Default).
+  Widget _buildThermalProfileCurveAccordion({
+    required List<ModuleMeasurement> sortedFrames,
+    required double? baselineTemp,
+  }) {
+    final activeIndex = _timelineFrameIndex.clamp(0, sortedFrames.length - 1);
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            key: const Key('thermal_profile_curve_toggle'),
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              setState(() {
+                _isProfileCurveExpanded = !_isProfileCurveExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.show_chart_rounded,
+                    color: AppColors.primary,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Thermal Profile Curve (1D Rail Gradient)',
+                      style: AppTypography.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                  Icon(
+                    _isProfileCurveExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: AppColors.textSecondary,
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_isProfileCurveExpanded) ...[
+            const Divider(height: 1, thickness: 1, color: AppColors.border),
+            Container(
+              key: const Key('thermal_profile_curve_card'),
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Peak Temperature vs. Rail Position (F1..F${sortedFrames.length})',
+                        style: AppTypography.caption.copyWith(
+                          fontSize: 10,
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (baselineTemp != null && baselineTemp > 0)
+                        Text(
+                          'Baseline: ${baselineTemp.toStringAsFixed(1)}°C • Threshold: ${(baselineTemp + 10.0).toStringAsFixed(1)}°C',
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 9.5,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 150,
+                    width: double.infinity,
+                    child: CustomPaint(
+                      painter: _ThermalProfileCurvePainter(
+                        sortedFrames: sortedFrames,
+                        activeFrameIndex: activeIndex,
+                        baselineTempC: baselineTemp,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  ({int col, int row, double temp}) _findPeakPixel(ModuleMeasurement frame) {
+    final tf = frame.thermalFrame;
+    if (tf != null && tf.length == ThermalCoverageInfo.sensorPixelCount) {
+      var bestIdx = 0;
+      double? bestVal;
+      for (var i = 0; i < tf.length; i++) {
+        final v = tf[i];
+        if (ThermalPanoramaData.isValidPixelValue(v)) {
+          if (bestVal == null || v! > bestVal) {
+            bestVal = v;
+            bestIdx = i;
+          }
+        }
+      }
+      final row = bestIdx ~/ ThermalCoverageInfo.sensorCols;
+      final col = bestIdx % ThermalCoverageInfo.sensorCols;
+      return (
+        col: col.clamp(0, ThermalCoverageInfo.sensorCols - 1),
+        row: row.clamp(0, ThermalCoverageInfo.sensorRows - 1),
+        temp: bestVal ?? frame.maxTemperatureC,
+      );
+    }
+    return (col: 16, row: 12, temp: frame.maxTemperatureC);
+  }
+
+  double _getPixelTemp(ModuleMeasurement frame, int col, int row) {
+    final tf = frame.thermalFrame;
+    if (tf != null && tf.length == ThermalCoverageInfo.sensorPixelCount) {
+      final idx = (row.clamp(0, ThermalCoverageInfo.sensorRows - 1) *
+              ThermalCoverageInfo.sensorCols) +
+          col.clamp(0, ThermalCoverageInfo.sensorCols - 1);
+      final val = tf[idx];
+      if (ThermalPanoramaData.isValidPixelValue(val)) {
+        return val!;
+      }
+    }
+    return frame.maxTemperatureC;
+  }
+
+  /// Item 2: 32×24 Matrix Inspector in a Modal Bottom Sheet with Pixel Crosshair.
+  void _showFrameInspectorModal(
+    BuildContext context,
+    List<ModuleMeasurement> sortedFrames,
+    int initialFrameIndex,
+    double minTemp,
+    double maxTemp,
+    double? baselineTemp, {
+    required ThermalPanoramaData panorama,
+    required List<ConfirmedAnomaly> confirmedAnomalies,
+  }) {
+    if (sortedFrames.isEmpty) return;
+    var currentFrameIndex = initialFrameIndex.clamp(0, sortedFrames.length - 1);
+    var initialPeak = _findPeakPixel(sortedFrames[currentFrameIndex]);
+    var selectedCol = initialPeak.col;
+    var selectedRow = initialPeak.row;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (modalContext, setModalState) {
+            final measurement = sortedFrames[currentFrameIndex];
+            final tf = measurement.thermalFrame;
+            final hasMatrix = tf != null &&
+                tf.length == ThermalCoverageInfo.sensorPixelCount;
+            final anomalyLabels = getFrameAnomalyLabels(
+              measurement,
+              confirmedAnomalies,
+            );
+            final isConfirmed = anomalyLabels.isNotEmpty;
+            final pixelTemp = _getPixelTemp(
+              measurement,
+              selectedCol,
+              selectedRow,
+            );
+            final pixelDelta = (baselineTemp != null && baselineTemp > 0)
+                ? (pixelTemp - baselineTemp)
+                : null;
+
+            return SafeArea(
+              child: SingleChildScrollView(
+                child: Container(
+                  key: const Key('selected_frame_inspector'),
+                  margin: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: isConfirmed ? AppColors.error : AppColors.primary,
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isConfirmed
+                                        ? AppColors.error
+                                        : AppColors.primary,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'F${currentFrameIndex + 1}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                                Text(
+                                  'Selected Frame (X = ${measurement.xPositionCm.toStringAsFixed(1)} cm)',
+                                  style: AppTypography.caption.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                                if (measurement.panelIndex != null ||
+                                    measurement.localXPositionCm != null)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 5,
+                                      vertical: 1.5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: AppColors.primarySoft,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      '${measurement.panelIndex != null ? "Panel ${measurement.panelIndex}" : ""}${measurement.panelIndex != null && measurement.localXPositionCm != null ? " • " : ""}${measurement.localXPositionCm != null ? "Local: ${measurement.localXPositionCm!.toStringAsFixed(1)} cm" : ""}',
+                                      style: const TextStyle(
+                                        color: AppColors.primary,
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () {
+                              Navigator.of(modalContext).pop();
+                              if (mounted) {
+                                setState(() {
+                                  _selectedFrameIndex = null;
+                                });
+                              }
+                            },
+                            icon: const Icon(
+                              Icons.close_rounded,
+                              size: 14,
+                              color: AppColors.textSecondary,
+                            ),
+                            label: Text(
+                              'Close',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+
+                      // Modal Frame Navigation (< Prev / Next >)
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          InkWell(
+                            key: const Key('modal_prev_frame_button'),
+                            borderRadius: BorderRadius.circular(6),
+                            onTap: currentFrameIndex > 0
+                                ? () {
+                                    final nextIdx = currentFrameIndex - 1;
+                                    final peak =
+                                        _findPeakPixel(sortedFrames[nextIdx]);
+                                    setModalState(() {
+                                      currentFrameIndex = nextIdx;
+                                      selectedCol = peak.col;
+                                      selectedRow = peak.row;
+                                    });
+                                    if (mounted) {
+                                      setState(() {
+                                        _selectedFrameIndex = nextIdx;
+                                        _timelineFrameIndex = nextIdx;
+                                      });
+                                    }
+                                  }
+                                : null,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.background,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Text(
+                                '< Prev',
+                                style: AppTypography.caption.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: currentFrameIndex > 0
+                                      ? AppColors.primary
+                                      : AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          Text(
+                            'Frame ${currentFrameIndex + 1} of ${sortedFrames.length} • Range ${minTemp.toStringAsFixed(1)}–${maxTemp.toStringAsFixed(1)}°C',
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 10,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          InkWell(
+                            key: const Key('modal_next_frame_button'),
+                            borderRadius: BorderRadius.circular(6),
+                            onTap: currentFrameIndex < sortedFrames.length - 1
+                                ? () {
+                                    final nextIdx = currentFrameIndex + 1;
+                                    final peak =
+                                        _findPeakPixel(sortedFrames[nextIdx]);
+                                    setModalState(() {
+                                      currentFrameIndex = nextIdx;
+                                      selectedCol = peak.col;
+                                      selectedRow = peak.row;
+                                    });
+                                    if (mounted) {
+                                      setState(() {
+                                        _selectedFrameIndex = nextIdx;
+                                        _timelineFrameIndex = nextIdx;
+                                      });
+                                    }
+                                  }
+                                : null,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.background,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: AppColors.border),
+                              ),
+                              child: Text(
+                                'Next >',
+                                style: AppTypography.caption.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: currentFrameIndex <
+                                          sortedFrames.length - 1
+                                      ? AppColors.primary
+                                      : AppColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Interactive 32x24 Thermal Matrix View with Pixel Crosshair
+                      Container(
+                        height: 150,
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final canvasSize = Size(
+                                constraints.maxWidth,
+                                constraints.maxHeight,
+                              );
+                              void selectAt(Offset localPos) {
+                                final w = canvasSize.width <= 0
+                                    ? 1.0
+                                    : canvasSize.width;
+                                final h = canvasSize.height <= 0
+                                    ? 1.0
+                                    : canvasSize.height;
+                                final c = ((localPos.dx / w) *
+                                        ThermalCoverageInfo.sensorCols)
+                                    .floor()
+                                    .clamp(
+                                      0,
+                                      ThermalCoverageInfo.sensorCols - 1,
+                                    );
+                                final r = ((localPos.dy / h) *
+                                        ThermalCoverageInfo.sensorRows)
+                                    .floor()
+                                    .clamp(
+                                      0,
+                                      ThermalCoverageInfo.sensorRows - 1,
+                                    );
+                                setModalState(() {
+                                  selectedCol = c;
+                                  selectedRow = r;
+                                });
+                              }
+
+                              return GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTapDown: (d) => selectAt(d.localPosition),
+                                onPanUpdate: (d) => selectAt(d.localPosition),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    CustomPaint(
+                                      key: const Key(
+                                        'single_frame_matrix_canvas',
+                                      ),
+                                      painter:
+                                          _SingleFrameMatrixWithCrosshairPainter(
+                                        thermalFrame: tf ?? const <double?>[],
+                                        colorForTemperature:
+                                            panorama.colorForTemperature,
+                                        selectedCol: selectedCol,
+                                        selectedRow: selectedRow,
+                                      ),
+                                    ),
+                                    if (!hasMatrix)
+                                      Center(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.65,
+                                            ),
+                                            borderRadius:
+                                                BorderRadius.circular(6),
+                                          ),
+                                          child: const Text(
+                                            'No 32×24 matrix data in this acquisition',
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Selected Pixel Telemetry Bar
+                      Container(
+                        key: const Key('selected_pixel_telemetry'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.background,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.border),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Pixel (Col $selectedCol, Row $selectedRow)',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              '${pixelTemp.toStringAsFixed(1)} °C',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                            if (pixelDelta != null)
+                              Text(
+                                '${pixelDelta >= 0 ? '+' : ''}${pixelDelta.toStringAsFixed(1)} °C vs Baseline',
+                                style: AppTypography.caption.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: pixelDelta >= 10.0
+                                      ? AppColors.error
+                                      : AppColors.textSecondary,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Span: ${(measurement.xPositionCm - 2.5).toStringAsFixed(1)} - ${(measurement.xPositionCm + 2.5).toStringAsFixed(1)} cm',
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 10,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                          Text(
+                            'Peak: ${measurement.maxTemperatureC.toStringAsFixed(1)}°C',
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: isConfirmed
+                                  ? AppColors.error
+                                  : AppColors.textPrimary,
+                            ),
+                          ),
+                          Text(
+                            '${measurement.voltageV?.toStringAsFixed(1) ?? "N/A"}V • ${measurement.currentA?.toStringAsFixed(2) ?? "N/A"}A • ${measurement.powerW?.toStringAsFixed(1) ?? "N/A"}W',
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 10,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -2166,7 +3094,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
 
     if (notices.isEmpty) return const [];
     return [
-      const SizedBox(height: 8),
+      const SizedBox(height: 4),
       ...notices,
     ];
   }
@@ -2180,8 +3108,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     return Container(
       key: key,
       width: double.infinity,
-      margin: const EdgeInsets.only(top: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      margin: const EdgeInsets.only(top: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: isWarning ? AppColors.warningBackground : AppColors.background,
         borderRadius: BorderRadius.circular(8),
@@ -2354,5 +3282,297 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         ],
       ),
     );
+  }
+}
+
+/// CustomPainter that renders the 32×24 single frame matrix plus an interactive crosshair
+/// highlighting the currently selected `(selectedCol, selectedRow)` pixel.
+class _SingleFrameMatrixWithCrosshairPainter extends SingleFrameMatrixPainter {
+  const _SingleFrameMatrixWithCrosshairPainter({
+    required super.thermalFrame,
+    required super.colorForTemperature,
+    required this.selectedCol,
+    required this.selectedRow,
+  });
+
+  final int selectedCol;
+  final int selectedRow;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    super.paint(canvas, size);
+
+    final cols = ThermalCoverageInfo.sensorCols;
+    final rows = ThermalCoverageInfo.sensorRows;
+    final cellW = size.width / cols;
+    final cellH = size.height / rows;
+
+    final col = selectedCol.clamp(0, cols - 1);
+    final row = selectedRow.clamp(0, rows - 1);
+    final cx = (col + 0.5) * cellW;
+    final cy = (row + 0.5) * cellH;
+
+    final crosshairGuidePaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.65)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawLine(Offset(cx, 0), Offset(cx, size.height), crosshairGuidePaint);
+    canvas.drawLine(Offset(0, cy), Offset(size.width, cy), crosshairGuidePaint);
+
+    final cellRect = Rect.fromLTWH(col * cellW, row * cellH, cellW, cellH);
+    final outerBorderPaint = Paint()
+      ..color = Colors.black.withValues(alpha: 0.85)
+      ..strokeWidth = 2.4
+      ..style = PaintingStyle.stroke;
+    final innerBorderPaint = Paint()
+      ..color = Colors.white
+      ..strokeWidth = 1.4
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawRect(cellRect.inflate(1.0), outerBorderPaint);
+    canvas.drawRect(cellRect.inflate(1.0), innerBorderPaint);
+  }
+
+  @override
+  bool shouldRepaint(
+    covariant _SingleFrameMatrixWithCrosshairPainter oldDelegate,
+  ) {
+    return super.shouldRepaint(oldDelegate) ||
+        oldDelegate.selectedCol != selectedCol ||
+        oldDelegate.selectedRow != selectedRow;
+  }
+}
+
+/// Item 3: CustomPainter for the 1D Thermal Profile Curve along the rail.
+class _ThermalProfileCurvePainter extends CustomPainter {
+  const _ThermalProfileCurvePainter({
+    required this.sortedFrames,
+    required this.activeFrameIndex,
+    this.baselineTempC,
+  });
+
+  final List<ModuleMeasurement> sortedFrames;
+  final int activeFrameIndex;
+  final double? baselineTempC;
+
+  void _drawDashedHorizontalLine(
+    Canvas canvas,
+    double y,
+    double left,
+    double right,
+    Paint paint,
+  ) {
+    const dashWidth = 5.0;
+    const dashSpace = 4.0;
+    var x = left;
+    while (x < right) {
+      final endX = math.min(x + dashWidth, right);
+      canvas.drawLine(Offset(x, y), Offset(endX, y), paint);
+      x += dashWidth + dashSpace;
+    }
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final bgPaint = Paint()
+      ..color = AppColors.surface
+      ..style = PaintingStyle.fill;
+    final bgRRect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(8),
+    );
+    canvas.drawRRect(bgRRect, bgPaint);
+
+    if (sortedFrames.isEmpty) return;
+
+    const padLeft = 34.0;
+    const padRight = 14.0;
+    const padTop = 14.0;
+    const padBottom = 22.0;
+    final plotW = math.max(10.0, size.width - padLeft - padRight);
+    final plotH = math.max(10.0, size.height - padTop - padBottom);
+
+    var minTemp = sortedFrames.first.maxTemperatureC;
+    var maxTemp = sortedFrames.first.maxTemperatureC;
+    for (final f in sortedFrames) {
+      if (f.maxTemperatureC < minTemp) minTemp = f.maxTemperatureC;
+      if (f.maxTemperatureC > maxTemp) maxTemp = f.maxTemperatureC;
+    }
+
+    final hasBaseline = baselineTempC != null && baselineTempC! > 0;
+    if (hasBaseline) {
+      minTemp = math.min(minTemp, baselineTempC!);
+      maxTemp = math.max(maxTemp, baselineTempC! + 10.0);
+    }
+
+    final minY = minTemp - 2.0;
+    final maxY = math.max(minY + 6.0, maxTemp + 2.0);
+    final spanY = maxY - minY;
+
+    double tempToY(double t) {
+      final ratio = ((t - minY) / spanY).clamp(0.0, 1.0);
+      return padTop + plotH * (1.0 - ratio);
+    }
+
+    final minXCm = sortedFrames.first.xPositionCm;
+    final maxXCm = sortedFrames.last.xPositionCm;
+    final spanXCm = maxXCm - minXCm;
+
+    double indexToX(int idx) {
+      if (sortedFrames.length <= 1) return padLeft + plotW / 2.0;
+      if (spanXCm > 1e-6) {
+        final ratio =
+            ((sortedFrames[idx].xPositionCm - minXCm) / spanXCm).clamp(
+          0.0,
+          1.0,
+        );
+        return padLeft + ratio * plotW;
+      }
+      return padLeft + (idx / (sortedFrames.length - 1)) * plotW;
+    }
+
+    // Subtle horizontal grid lines & Y labels
+    final gridPaint = Paint()
+      ..color = AppColors.border
+      ..strokeWidth = 0.8;
+    for (final ratio in [0.0, 0.5, 1.0]) {
+      final tVal = minY + ratio * spanY;
+      final y = tempToY(tVal);
+      canvas.drawLine(Offset(padLeft, y), Offset(padLeft + plotW, y), gridPaint);
+      final tp = TextPainter(
+        text: TextSpan(
+          text: '${tVal.toStringAsFixed(0)}°',
+          style: const TextStyle(
+            fontSize: 8.5,
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(canvas, Offset(4, y - tp.height / 2));
+    }
+
+    // Dashed Baseline & +10°C Threshold lines
+    if (hasBaseline) {
+      final baseY = tempToY(baselineTempC!);
+      final basePaint = Paint()
+        ..color = AppColors.secondary
+        ..strokeWidth = 1.2;
+      _drawDashedHorizontalLine(
+        canvas,
+        baseY,
+        padLeft,
+        padLeft + plotW,
+        basePaint,
+      );
+
+      final threshTemp = baselineTempC! + 10.0;
+      final threshY = tempToY(threshTemp);
+      final threshPaint = Paint()
+        ..color = AppColors.error
+        ..strokeWidth = 1.2;
+      _drawDashedHorizontalLine(
+        canvas,
+        threshY,
+        padLeft,
+        padLeft + plotW,
+        threshPaint,
+      );
+    }
+
+    // Plot curve and points
+    final points = <Offset>[
+      for (var i = 0; i < sortedFrames.length; i++)
+        Offset(indexToX(i), tempToY(sortedFrames[i].maxTemperatureC)),
+    ];
+
+    if (points.length > 1) {
+      final fillPath = Path()..moveTo(points.first.dx, padTop + plotH);
+      for (final p in points) {
+        fillPath.lineTo(p.dx, p.dy);
+      }
+      fillPath.lineTo(points.last.dx, padTop + plotH);
+      fillPath.close();
+
+      final fillPaint = Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            AppColors.primary.withValues(alpha: 0.22),
+            AppColors.primary.withValues(alpha: 0.02),
+          ],
+        ).createShader(Rect.fromLTWH(padLeft, padTop, plotW, plotH))
+        ..style = PaintingStyle.fill;
+      canvas.drawPath(fillPath, fillPaint);
+
+      final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+      for (var i = 1; i < points.length; i++) {
+        linePath.lineTo(points[i].dx, points[i].dy);
+      }
+      final linePaint = Paint()
+        ..color = AppColors.primary
+        ..strokeWidth = 2.0
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round;
+      canvas.drawPath(linePath, linePaint);
+    }
+
+    for (var i = 0; i < points.length; i++) {
+      final pt = points[i];
+      final temp = sortedFrames[i].maxTemperatureC;
+      final isElevated = hasBaseline && (temp - baselineTempC!) >= 10.0;
+      final isActive = i == activeFrameIndex;
+
+      if (isActive) {
+        final ringPaint = Paint()
+          ..color = (isElevated ? AppColors.error : AppColors.primary)
+              .withValues(alpha: 0.25)
+          ..style = PaintingStyle.fill;
+        canvas.drawCircle(pt, 8.0, ringPaint);
+        final ringStrokePaint = Paint()
+          ..color = isElevated ? AppColors.error : AppColors.primary
+          ..strokeWidth = 1.8
+          ..style = PaintingStyle.stroke;
+        canvas.drawCircle(pt, 6.5, ringStrokePaint);
+      }
+
+      final dotPaint = Paint()
+        ..color = isElevated ? AppColors.error : AppColors.primary
+        ..style = PaintingStyle.fill;
+      canvas.drawCircle(pt, isActive ? 4.0 : 3.0, dotPaint);
+
+      // X-axis labels for first, active, and last frames
+      if (i == 0 || i == points.length - 1 || isActive) {
+        final xLabel =
+            'F${i + 1} (${sortedFrames[i].xPositionCm.toStringAsFixed(0)}cm)';
+        final tp = TextPainter(
+          text: TextSpan(
+            text: xLabel,
+            style: TextStyle(
+              fontSize: 8.0,
+              fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
+              color: isActive ? AppColors.primary : AppColors.textSecondary,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        final labelX = (pt.dx - tp.width / 2).clamp(
+          padLeft,
+          size.width - padRight - tp.width,
+        );
+        tp.paint(canvas, Offset(labelX, padTop + plotH + 4));
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ThermalProfileCurvePainter oldDelegate) {
+    return oldDelegate.sortedFrames != sortedFrames ||
+        oldDelegate.activeFrameIndex != activeFrameIndex ||
+        oldDelegate.baselineTempC != baselineTempC;
   }
 }

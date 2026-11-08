@@ -154,7 +154,144 @@ void main() {
     // Verify RadiometricScanCard is present
     expect(find.byType(RadiometricScanCard), findsOneWidget);
 
-    // Verify Guide Card
+    // Item 4: Verify LATEST SCAN badge and Switch Scan button
+    expect(find.byKey(const Key('latest_scan_badge')), findsOneWidget);
+    expect(find.text('LATEST SCAN'), findsOneWidget);
+    expect(find.byKey(const Key('switch_scan_button')), findsOneWidget);
+
+    // Item 1: Verify Robot Carriage Timeline Scrubber is rendered
+    expect(find.byKey(const Key('robot_timeline_scrubber')), findsOneWidget);
+    expect(find.byKey(const Key('robot_timeline_icon')), findsOneWidget);
+    expect(find.byKey(const Key('robot_timeline_play_button')), findsOneWidget);
+    expect(find.byKey(const Key('inspect_frame_modal_button')), findsOneWidget);
+
+    // Item 3: Verify 1D Thermal Profile Curve is collapsed by default and expands on tap
+    expect(find.byKey(const Key('thermal_profile_curve_toggle')), findsOneWidget);
+    expect(find.byKey(const Key('thermal_profile_curve_card')), findsNothing);
+    await tester.tap(find.byKey(const Key('thermal_profile_curve_toggle')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('thermal_profile_curve_card')), findsOneWidget);
+
+    // Item 2: Verify 32x24 Matrix Inspector opens in Modal Bottom Sheet with pixel telemetry
+    await tester.tap(find.byKey(const Key('inspect_frame_modal_button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('selected_frame_inspector')), findsOneWidget);
+    expect(find.byKey(const Key('single_frame_matrix_canvas')), findsOneWidget);
+    expect(find.byKey(const Key('selected_pixel_telemetry')), findsOneWidget);
+    await tester.tap(find.text('Close'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('selected_frame_inspector')), findsNothing);
+
+    // Item 5: Verify '?' Help button in AppBar opens Radiometric Studio Inspection Guide modal
+    expect(find.text('Radiometric Studio Inspection Guide'), findsNothing);
+    expect(find.byKey(const Key('studio_help_button')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('studio_help_button')));
+    await tester.pumpAndSettle();
     expect(find.text('Radiometric Studio Inspection Guide'), findsOneWidget);
+  });
+
+  testWidgets('Switches between Latest Scan and Historical Scan with clear indicators', (tester) async {
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    const olderInspection = ModuleInspection(
+      id: 'insp-older-0',
+      moduleId: testModuleId,
+      sourceEventId: 'evt-0',
+      type: 'post_cleaning',
+      scheduledFor: '2026-02-20T09:00:00Z',
+      status: 'completed',
+      createdAt: '2026-02-20T09:00:00Z',
+      updatedAt: '2026-02-20T09:10:00Z',
+      finishedAt: '2026-02-20T09:10:00Z',
+      baselineTemperatureC: 26.0,
+    );
+
+    const olderMeasurements = PagedMeasurements(
+      page: 1,
+      limit: 200,
+      totalCount: 1,
+      totalPages: 1,
+      hasNextPage: false,
+      measurements: [
+        ModuleMeasurement(
+          id: 'meas-older-1',
+          moduleId: testModuleId,
+          inspectionId: 'insp-older-0',
+          sourceEventId: 'evt-0',
+          panelIndex: 1,
+          localXPositionCm: 20.0,
+          xPositionCm: 20.0,
+          measuredAt: '2026-02-20T09:05:00Z',
+          maxTemperatureC: 31.0,
+          receivedAt: '2026-02-20T09:05:01Z',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(techUser),
+          ),
+          moduleDetailsProvider(testModuleId).overrideWith(
+            (ref) => Future.value(dummyDetails),
+          ),
+          moduleMeasurementsProvider(testModuleId).overrideWith(
+            (ref) => Future.value(dummyMeasurements),
+          ),
+          latestInspectionProvider(testModuleId).overrideWith(
+            (ref) => Future.value(dummyInspection),
+          ),
+          moduleInspectionsProvider(testModuleId).overrideWith(
+            (ref) => Future.value([dummyInspection.inspection, olderInspection]),
+          ),
+          inspectionMeasurementsPagedProvider((
+            moduleId: testModuleId,
+            inspectionId: 'insp-older-0',
+            page: 1,
+            limit: 200,
+            panelIndex: null,
+          )).overrideWith(
+            (ref) => Future.value(olderMeasurements),
+          ),
+        ],
+        child: const MaterialApp(
+          home: ModuleThermalInspectionScreen(moduleId: testModuleId),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('latest_scan_badge')), findsOneWidget);
+    expect(find.byKey(const Key('historical_scan_banner')), findsNothing);
+
+    // Open Switch Scan modal
+    await tester.tap(find.byKey(const Key('switch_scan_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('LATEST'), findsOneWidget);
+    expect(find.text('Post-Cleaning Verification'), findsOneWidget);
+
+    // Select the older scan
+    await tester.tap(find.text('Post-Cleaning Verification'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('historical_scan_badge')), findsOneWidget);
+    expect(find.byKey(const Key('historical_scan_banner')), findsOneWidget);
+    expect(find.byKey(const Key('back_to_latest_scan_button')), findsOneWidget);
+
+    // Return to Latest Scan
+    await tester.tap(find.byKey(const Key('back_to_latest_scan_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('latest_scan_badge')), findsOneWidget);
+    expect(find.byKey(const Key('historical_scan_banner')), findsNothing);
   });
 }

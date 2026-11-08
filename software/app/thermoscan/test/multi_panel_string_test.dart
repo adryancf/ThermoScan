@@ -327,6 +327,7 @@ void main() {
                 module: testModule,
                 measurements: dummyMeasurements,
                 latestInspection: dummyInspection,
+                showDetailedSections: true,
               ),
             ),
           ),

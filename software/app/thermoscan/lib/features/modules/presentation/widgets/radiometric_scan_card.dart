@@ -16,6 +16,7 @@ class RadiometricScanCard extends StatefulWidget {
     this.latestInspection,
     this.measurements,
     this.initiallyExpanded,
+    this.showDetailedSections = false,
   });
 
   final PvModule module;
@@ -23,6 +24,7 @@ class RadiometricScanCard extends StatefulWidget {
   final LatestInspection? latestInspection;
   final List<ModuleMeasurement>? measurements;
   final bool? initiallyExpanded;
+  final bool showDetailedSections;
 
   @override
   State<RadiometricScanCard> createState() => _RadiometricScanCardState();
@@ -35,6 +37,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
   int? _selectedHotspotIndex;
   late bool _isAdvancedExpanded;
   bool _isProfileCurveExpanded = false;
+  bool _isHotspotSummaryExpanded = false;
   int _timelineFrameIndex = 0;
   bool _timelineInitialized = false;
   int? _lastFramesCount;
@@ -500,6 +503,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               panelSpacingCm: widget.module.panelSpacingCm,
               focusedPanelIndex: _focusedPanelIndex,
               panelBounds: panorama.panelBounds,
+              coverage: coverage,
+              loadedCount: displayedMeasurements.length,
             ),
 
           const SizedBox(height: 4),
@@ -1319,18 +1324,19 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             coverage: coverage,
           ),
 
-          const SizedBox(height: 4),
-
-          // Progressive Disclosure Accordion: Advanced Telemetry & Frame Inspector
-          _buildAdvancedTelemetryAccordion(
-            context: context,
-            displayedMeasurements: displayedMeasurements,
-            visibleAnomalies: visibleAnomalies,
-            coverage: coverage,
-            panorama: panorama,
-            peakTemp: peakTemp,
-            baselineTemp: baselineTemp,
-          ),
+          // Progressive Disclosure Accordion: Advanced Telemetry & Frame Inspector (Only when requested)
+          if (widget.showDetailedSections) ...[
+            const SizedBox(height: 4),
+            _buildAdvancedTelemetryAccordion(
+              context: context,
+              displayedMeasurements: displayedMeasurements,
+              visibleAnomalies: visibleAnomalies,
+              coverage: coverage,
+              panorama: panorama,
+              peakTemp: peakTemp,
+              baselineTemp: baselineTemp,
+            ),
+          ],
 
           // 1D Thermal Profile Curve Collapsible Accordion (Item 3, closed by default)
           if (displayedMeasurements.isNotEmpty) ...[
@@ -1461,7 +1467,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                           ),
                         ),
                         Text(
-                          'Inspect individual scan points, thermal camera grids, and electrical output',
+                          'Thermal sensor grids and electrical yield',
                           style: AppTypography.caption.copyWith(
                             fontSize: 9.5,
                             color: AppColors.textSecondary,
@@ -1790,6 +1796,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     double? panelSpacingCm,
     int? focusedPanelIndex,
     List<PanelBound> panelBounds = const [],
+    ThermalCoverageInfo? coverage,
+    int loadedCount = 0,
   }) {
     final effectiveCount =
         (panelCount != null && panelCount > 0) ? panelCount : 1;
@@ -1893,6 +1901,31 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               );
             },
           ),
+          if (coverage != null && coverage.isIncompleteCoverage) ...[
+            const SizedBox(height: 5),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Partial scan: $loadedCount of ${coverage.expectedAcquisitions} sections recorded',
+                  key: const Key('notice_incomplete_coverage'),
+                  style: AppTypography.caption.copyWith(
+                    fontSize: 9.5,
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (coverage.hasConfiguredPanelLength)
+                  Text(
+                    'Expected: ${coverage.expectedAcquisitions} frames (${coverage.expectedThermalCoverageCm!.toStringAsFixed(1)} cm)',
+                    style: AppTypography.caption.copyWith(
+                      fontSize: 9.5,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -2023,73 +2056,111 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     );
   }
 
-  /// Explainer banner showing which frames confirmed each hotspot.
+  /// Explainer banner showing which frames confirmed each hotspot (Option A: Compact & Collapsible).
   Widget _buildHotspotConfirmationSummary({
     required List<ConfirmedAnomaly> confirmedAnomalies,
     required List<ModuleMeasurement> sortedMeasurements,
   }) {
+    final count = confirmedAnomalies.length;
+    final isMultiple = count > 1;
+
     return Container(
       key: const Key('hotspot_confirmation_summary'),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: AppColors.errorBackground,
+        color: AppColors.error.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.errorBorder),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.25)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              const Icon(
-                Icons.check_circle_rounded,
-                color: AppColors.error,
-                size: 14,
-              ),
-              const SizedBox(width: 6),
-              Text(
-                'Confirmed Hotspots (Double-Checked)',
-                style: AppTypography.caption.copyWith(
+          InkWell(
+            borderRadius: BorderRadius.circular(6),
+            onTap: () {
+              setState(() {
+                _isHotspotSummaryExpanded = !_isHotspotSummaryExpanded;
+              });
+            },
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.warning_amber_rounded,
                   color: AppColors.error,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 10.5,
+                  size: 14,
                 ),
-              ),
-            ],
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    isMultiple
+                        ? '$count Hotspots Confirmed (Double-Checked)'
+                        : 'Confirmed Hotspot (Double-Checked)',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _isHotspotSummaryExpanded ? 'Hide' : 'Details',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 9.5,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Icon(
+                      _isHotspotSummaryExpanded
+                          ? Icons.keyboard_arrow_up_rounded
+                          : Icons.keyboard_arrow_down_rounded,
+                      size: 15,
+                      color: AppColors.error,
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 2),
-          ...confirmedAnomalies.asMap().entries.map((entry) {
-            final idx = entry.key;
-            final anomaly = entry.value;
-            final confirmingFrames = sortedMeasurements
-                .asMap()
-                .entries
-                .where((mEntry) => isFrameAssociatedWithAnomaly(mEntry.value, anomaly))
-                .map((mEntry) => 'F${mEntry.key + 1} (${mEntry.value.xPositionCm.toStringAsFixed(1)} cm)')
-                .toList();
+          if (_isHotspotSummaryExpanded || !isMultiple) ...[
+            const SizedBox(height: 3),
+            ...confirmedAnomalies.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final anomaly = entry.value;
+              final confirmingFrames = sortedMeasurements
+                  .asMap()
+                  .entries
+                  .where((mEntry) => isFrameAssociatedWithAnomaly(mEntry.value, anomaly))
+                  .map((mEntry) => 'F${mEntry.key + 1} (${mEntry.value.xPositionCm.toStringAsFixed(1)} cm)')
+                  .toList();
 
-            final framesText = confirmingFrames.isNotEmpty
-                ? confirmingFrames.join(' and ')
-                : 'Overlapping frames';
+              final framesText = confirmingFrames.isNotEmpty
+                  ? confirmingFrames.join(' and ')
+                  : 'Overlapping frames';
 
-            final panelStr = anomaly.panelIndex != null
-                ? 'Panel ${anomaly.panelIndex} • '
-                : '';
-            final localStr = anomaly.localXPositionCm != null
-                ? ' (local: ${anomaly.localXPositionCm!.toStringAsFixed(1)} cm)'
-                : '';
+              final panelStr = anomaly.panelIndex != null
+                  ? 'Panel ${anomaly.panelIndex} • '
+                  : '';
+              final localStr = anomaly.localXPositionCm != null
+                  ? ' (local: ${anomaly.localXPositionCm!.toStringAsFixed(1)} cm)'
+                  : '';
 
-            return Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                '• ${panelStr}H${idx + 1} at X=${anomaly.xPositionCm.toStringAsFixed(1)} cm$localStr confirmed by: $framesText',
-                style: AppTypography.caption.copyWith(
-                  color: AppColors.textPrimary,
-                  fontSize: 10.5,
+              return Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '• ${panelStr}H${idx + 1} at X=${anomaly.xPositionCm.toStringAsFixed(1)} cm$localStr confirmed by: $framesText',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textPrimary,
+                    fontSize: 10,
+                  ),
                 ),
-              ),
-            );
-          }),
+              );
+            }),
+          ],
         ],
       ),
     );
@@ -2127,18 +2198,45 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: isHotspotFrame ? AppColors.error : AppColors.primary,
-                  borderRadius: BorderRadius.circular(5),
-                ),
-                child: Text(
-                  'F${activeIndex + 1}/$total',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w800,
+              InkWell(
+                key: const Key('scrubber_frame_selector_chip'),
+                borderRadius: BorderRadius.circular(5),
+                onTap: () {
+                  _showQuickFrameSelector(
+                    context: context,
+                    sortedFrames: sortedFrames,
+                    activeIndex: activeIndex,
+                    confirmedAnomalies: confirmedAnomalies,
+                    minTemp: minTemp,
+                    maxTemp: maxTemp,
+                    baselineTemp: baselineTemp,
+                    panorama: panorama,
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isHotspotFrame ? AppColors.error : AppColors.primary,
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'F${activeIndex + 1}/$total',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(width: 1),
+                      const Icon(
+                        Icons.arrow_drop_down_rounded,
+                        color: Colors.white,
+                        size: 13,
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -2193,7 +2291,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                         ),
                         SizedBox(width: 3),
                         Text(
-                          'Jump to Hotspot',
+                          'Hotspot',
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w700,
@@ -2249,7 +2347,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       ),
                       SizedBox(width: 3),
                       Text(
-                        'Inspect 32×24',
+                        '32×24',
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w800,
@@ -2582,6 +2680,211 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       }
     }
     return frame.maxTemperatureC;
+  }
+
+  /// Quick Frame Selector Modal Bottom Sheet (tap on Fx/y scrubber chip).
+  void _showQuickFrameSelector({
+    required BuildContext context,
+    required List<ModuleMeasurement> sortedFrames,
+    required int activeIndex,
+    required List<ConfirmedAnomaly> confirmedAnomalies,
+    required double minTemp,
+    required double maxTemp,
+    required double? baselineTemp,
+    required ThermalPanoramaData panorama,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.65,
+          ),
+          decoration: const BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: AppColors.border,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              // Header
+              Row(
+                children: [
+                  const Icon(
+                    Icons.view_timeline_outlined,
+                    size: 18,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Jump to Section (${sortedFrames.length} frames)',
+                    style: AppTypography.caption.copyWith(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Select any section along the rail to inspect instantly:',
+                style: AppTypography.caption.copyWith(
+                  fontSize: 11,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Scrollable Wrap of frame chips
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: sortedFrames.asMap().entries.map((entry) {
+                      final idx = entry.key;
+                      final frame = entry.value;
+                      final isSelected = idx == activeIndex;
+                      final isHotspot = confirmedAnomalies.any(
+                        (a) => isFrameAssociatedWithAnomaly(frame, a),
+                      );
+
+                      return InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () {
+                          setState(() {
+                            _playbackTimer?.cancel();
+                            _playbackTimer = null;
+                            _timelineFrameIndex = idx;
+                            _selectedFrameIndex = idx;
+                          });
+                          Navigator.of(ctx).pop();
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? (isHotspot
+                                    ? AppColors.error
+                                    : AppColors.primary)
+                                : (isHotspot
+                                    ? AppColors.errorBackground
+                                    : AppColors.background),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isSelected
+                                  ? (isHotspot
+                                      ? AppColors.error
+                                      : AppColors.primary)
+                                  : (isHotspot
+                                      ? AppColors.errorBorder
+                                      : AppColors.border),
+                              width: isSelected ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (isHotspot) ...[
+                                Icon(
+                                  Icons.local_fire_department_rounded,
+                                  size: 11,
+                                  color: isSelected ? Colors.white : AppColors.error,
+                                ),
+                                const SizedBox(width: 3),
+                              ],
+                              Text(
+                                'F${idx + 1}',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isSelected
+                                      ? Colors.white
+                                      : (isHotspot
+                                          ? AppColors.error
+                                          : AppColors.textPrimary),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                '${frame.xPositionCm.toStringAsFixed(0)}cm',
+                                style: TextStyle(
+                                  fontSize: 9.5,
+                                  color: isSelected
+                                      ? Colors.white.withValues(alpha: 0.8)
+                                      : AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Footer Action: Inspect current frame matrix 32x24
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.of(ctx).pop();
+                    _showFrameInspectorModal(
+                      context,
+                      sortedFrames,
+                      activeIndex,
+                      minTemp,
+                      maxTemp,
+                      baselineTemp,
+                      panorama: panorama,
+                      confirmedAnomalies: confirmedAnomalies,
+                    );
+                  },
+                  icon: const Icon(Icons.grid_on_rounded, size: 14),
+                  label: Text('Inspect 32×24 Matrix for F${activeIndex + 1}'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                    side: const BorderSide(color: AppColors.border),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    textStyle: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   /// Item 2: 32×24 Matrix Inspector in a Modal Bottom Sheet with Pixel Crosshair.
@@ -3068,18 +3371,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       );
     }
 
-    if (coverage.isIncompleteCoverage) {
-      notices.add(
-        _buildNoticeBanner(
-          key: const Key('notice_incomplete_coverage'),
-          icon: Icons.short_text_rounded,
-          text:
-              'Partial scan: $loadedCount of ${coverage.expectedAcquisitions} sections recorded',
-          isWarning: true,
-        ),
-      );
-    }
-
     if (coverage.isExceededCoverage) {
       notices.add(
         _buildNoticeBanner(
@@ -3111,17 +3402,21 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       margin: const EdgeInsets.only(top: 2),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: isWarning ? AppColors.warningBackground : AppColors.background,
+        color: isWarning
+            ? AppColors.warning.withValues(alpha: 0.07)
+            : AppColors.background,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: isWarning ? AppColors.warningBorder : AppColors.border,
+          color: isWarning
+              ? AppColors.warning.withValues(alpha: 0.25)
+              : AppColors.border,
         ),
       ),
       child: Row(
         children: [
           Icon(
             icon,
-            size: 14,
+            size: 13,
             color: isWarning ? AppColors.warning : AppColors.textSecondary,
           ),
           const SizedBox(width: 6),
@@ -3131,7 +3426,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               style: AppTypography.caption.copyWith(
                 fontSize: 10,
                 color: isWarning ? AppColors.warning : AppColors.textSecondary,
-                fontWeight: FontWeight.w600,
+                fontWeight: isWarning ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
           ),

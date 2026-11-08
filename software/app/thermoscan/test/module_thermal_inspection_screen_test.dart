@@ -294,4 +294,95 @@ void main() {
     expect(find.byKey(const Key('latest_scan_badge')), findsOneWidget);
     expect(find.byKey(const Key('historical_scan_banner')), findsNothing);
   });
+
+  testWidgets('Quick Frame Selector in Scrubber jumps to section and displays shortened buttons', (tester) async {
+    const multiFrames = [
+      ModuleMeasurement(
+        id: 'meas-1',
+        moduleId: testModuleId,
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-1',
+        panelIndex: 1,
+        localXPositionCm: 10.0,
+        xPositionCm: 10.0,
+        measuredAt: '2026-03-01T10:05:00Z',
+        maxTemperatureC: 25.0,
+        receivedAt: '2026-03-01T10:05:01Z',
+      ),
+      ModuleMeasurement(
+        id: 'meas-2',
+        moduleId: testModuleId,
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-1',
+        panelIndex: 1,
+        localXPositionCm: 20.0,
+        xPositionCm: 20.0,
+        measuredAt: '2026-03-01T10:06:00Z',
+        maxTemperatureC: 54.0,
+        receivedAt: '2026-03-01T10:06:01Z',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(
+              const AuthUser(
+                id: 'tech-1',
+                email: 'carlos@thermoscan.com',
+                name: 'Carlos Tech',
+                role: 'technician',
+                isActive: true,
+                mustChangePassword: false,
+              ),
+            ),
+          ),
+          moduleDetailsProvider(testModuleId).overrideWith(
+            (ref) => Future.value(dummyDetails),
+          ),
+          latestInspectionProvider(testModuleId).overrideWith(
+            (ref) => Future.value(dummyInspection),
+          ),
+          moduleMeasurementsProvider(testModuleId).overrideWith(
+            (ref) => Future.value(multiFrames),
+          ),
+          moduleInspectionsProvider(testModuleId).overrideWith(
+            (ref) => Future.value([dummyInspection.inspection]),
+          ),
+        ],
+        child: const MaterialApp(
+          home: ModuleThermalInspectionScreen(moduleId: testModuleId),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Verify shortened buttons
+    expect(find.byKey(const Key('inspect_frame_modal_button')), findsOneWidget);
+    expect(find.text('32×24'), findsOneWidget);
+
+    // Verify quick frame selector chip in scrubber
+    expect(find.byKey(const Key('scrubber_frame_selector_chip')), findsOneWidget);
+    expect(find.text('F1/2'), findsOneWidget);
+
+    // Scroll into view and tap on scrubber frame selector chip to open bottom sheet
+    await tester.ensureVisible(find.byKey(const Key('scrubber_frame_selector_chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('scrubber_frame_selector_chip')));
+    await tester.pumpAndSettle();
+
+    // Bottom sheet is displayed with quick jump frame options
+    expect(find.text('Jump to Section (2 frames)'), findsOneWidget);
+    expect(find.text('F1'), findsOneWidget);
+    expect(find.text('F2'), findsOneWidget);
+
+    // Tap F2 chip to jump
+    await tester.tap(find.text('F2'));
+    await tester.pumpAndSettle();
+
+    // Robot scrubber updated to F2/2
+    expect(find.text('F2/2'), findsOneWidget);
+  });
 }

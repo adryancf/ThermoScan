@@ -17,6 +17,7 @@ import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_blueprint_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/mac_qr_scanner_modal.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_compass_widget.dart';
 
 /// SCR-16 to SCR-20: Technician 5-Step Module Installation Wizard
@@ -1752,41 +1753,10 @@ class _ModuleInstallationWizardScreenState
                   ),
                 ),
                 const SizedBox(height: 14),
-                Text(
-                  'Inspection Interval Presets',
-                  style: AppTypography.caption.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  children: [1, 7, 15].map((days) {
-                    final selected = _intervalCtrl.text.trim() == '$days';
-                    return ChoiceChip(
-                      label: Text('$days ${days == 1 ? 'Day' : 'Days'}'),
-                      selected: selected,
-                      selectedColor: AppColors.primarySoft,
-                      onSelected: (_) {
-                        setState(() => _intervalCtrl.text = '$days');
-                      },
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 10),
-                AppTextField(
-                  label: 'Inspection Interval (Days >= 1)',
-                  controller: _intervalCtrl,
-                  keyboardType: TextInputType.number,
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'Inspection interval is required';
-                    }
-                    final n = int.tryParse(v.trim());
-                    if (n == null || n < 1) {
-                      return 'Must be an integer >= 1';
-                    }
-                    return null;
+                ScanFrequencySelectorWidget(
+                  selectedDays: int.tryParse(_intervalCtrl.text.trim()) ?? 7,
+                  onChanged: (days) {
+                    setState(() => _intervalCtrl.text = '$days');
                   },
                 ),
                 const SizedBox(height: 14),

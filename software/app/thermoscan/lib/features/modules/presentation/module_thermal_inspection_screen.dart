@@ -245,7 +245,6 @@ class _ModuleThermalInspectionScreenState
                     measurements: isViewingLatest
                         ? measurementsAsync.valueOrNull
                         : activeMeasurements,
-                    initiallyExpanded: true,
                   ),
                 ],
               ),

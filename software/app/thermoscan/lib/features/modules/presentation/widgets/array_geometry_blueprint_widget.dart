@@ -429,7 +429,7 @@ class _ArrayBlueprintPainter extends CustomPainter {
     // Drawing area margins with generous breathing room
     const leftMargin = 50.0;
     const rightMargin = 48.0;
-    const topMargin = 42.0;
+    const topMargin = 52.0; // Anchors panels safely below the fixed top rail
     const bottomMargin = 32.0;
 
     final availableWidth = size.width - leftMargin - rightMargin;
@@ -453,19 +453,19 @@ class _ArrayBlueprintPainter extends CustomPainter {
     final startX = leftMargin + (availableWidth - totalPanelsWidthPx - (isPlural ? 36.0 : 0.0)) / 2;
     final startY = topMargin + (availableHeight - targetPanelHeightPx) / 2;
 
-    // 1. Draw Top Rail & Robot Carriage
-    final railY = startY - 20.0;
+    // 1. Draw Top Rail & Robot Carriage - LOCKED AT THE TOP OF THE CARD
+    const railY = 20.0;
     final railPaint = Paint()
       ..color = AppColors.primary.withValues(alpha: 0.45)
       ..strokeWidth = 2.5
       ..strokeCap = StrokeCap.round;
 
-    final railStartX = startX - 8.0;
-    final railEndX = startX + totalPanelsWidthPx + (isPlural ? 36.0 : 8.0);
+    final railStartX = leftMargin - 16.0;
+    final railEndX = size.width - rightMargin + 16.0;
     canvas.drawLine(Offset(railStartX, railY), Offset(railEndX, railY), railPaint);
 
     // Robot Icon representation
-    final robotX = startX + (targetPanelWidthPx * 0.35);
+    final robotX = railStartX + 18.0;
     final robotPaint = Paint()
       ..color = AppColors.primary
       ..style = PaintingStyle.fill;
@@ -475,10 +475,10 @@ class _ArrayBlueprintPainter extends CustomPainter {
     );
     canvas.drawRRect(robotRect, robotPaint);
 
-    // Direction arrow & label: "Travel Direction ──▶"
+    // Direction arrow & label: "Robot Travel Direction ──▶"
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
     textPainter.text = TextSpan(
-      text: '──▶ Travel Direction',
+      text: '──▶ Robot Travel Direction',
       style: TextStyle(
         color: AppColors.primary,
         fontSize: 9.5,

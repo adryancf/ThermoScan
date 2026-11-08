@@ -13,6 +13,7 @@ import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_blueprint_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_calibration_modal.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
 
 /// SCR-13: Module Configuration & Interval Change Log
 class ModuleConfigurationScreen extends ConsumerStatefulWidget {
@@ -800,45 +801,15 @@ class _ModuleConfigurationScreenState
                     _SectionCard(
                       title: 'Inspection Interval',
                       subtitle:
-                          'Days between scheduled thermal inspections (1, 7, 15, or custom >= 1).',
+                          'Days between scheduled thermal inspections (Daily, Weekly, Bi-Weekly, or Custom).',
                       editable: perms.canEditInterval,
                       children: [
-                        if (perms.canEditInterval) ...[
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [1, 7, 15].map((days) {
-                              final selected =
-                                  _intervalCtrl.text.trim() == '$days';
-                              return ChoiceChip(
-                                label: Text(
-                                  '$days ${days == 1 ? 'Day' : 'Days'}',
-                                ),
-                                selected: selected,
-                                selectedColor: AppColors.primarySoft,
-                                onSelected: (_) {
-                                  setState(() => _intervalCtrl.text = '$days');
-                                },
-                              );
-                            }).toList(),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-                        AppTextField(
-                          label: 'Interval (Days)',
-                          controller: _intervalCtrl,
+                        ScanFrequencySelectorWidget(
+                          selectedDays:
+                              int.tryParse(_intervalCtrl.text.trim()) ?? 7,
                           readOnly: !perms.canEditInterval,
-                          keyboardType: TextInputType.number,
-                          validator: (v) {
-                            if (!perms.canEditInterval) return null;
-                            if (v == null || v.trim().isEmpty) {
-                              return 'Inspection interval is required';
-                            }
-                            final n = int.tryParse(v.trim());
-                            if (n == null || n < 1) {
-                              return 'Must be an integer >= 1';
-                            }
-                            return null;
+                          onChanged: (days) {
+                            setState(() => _intervalCtrl.text = '$days');
                           },
                         ),
                       ],

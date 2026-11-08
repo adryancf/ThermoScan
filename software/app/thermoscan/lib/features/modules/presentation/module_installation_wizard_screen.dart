@@ -18,6 +18,7 @@ import 'package:thermoscan/features/modules/presentation/modules_controller.dart
 import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_blueprint_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/mac_qr_scanner_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/solar_angle_selector_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_compass_widget.dart';
 
 /// SCR-16 to SCR-20: Technician 5-Step Module Installation Wizard
@@ -1725,32 +1726,16 @@ class _ModuleInstallationWizardScreenState
                   ],
                 ),
                 const SizedBox(height: 14),
-                AppTextField(
-                  label: 'Minimum Sun Height (0°–90°)',
-                  hintText: '15.0',
-                  controller: _solarAngleCtrl,
-                  onChanged: (_) => setState(() => _solarAngleSource = 'manual'),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  validator: (v) {
-                    if (v == null || v.trim().isEmpty) {
-                      return 'Minimum sun height is required';
-                    }
-                    final n = double.tryParse(v.trim());
-                    if (n == null || n < 0 || n > 90) {
-                      return 'Enter an angle between 0° and 90°';
-                    }
-                    return null;
+                SolarAngleSelectorWidget(
+                  selectedAngle:
+                      double.tryParse(_solarAngleCtrl.text.trim()) ?? 15.0,
+                  sourceDescription: _solarAngleSource,
+                  onChanged: (angle) {
+                    setState(() {
+                      _solarAngleCtrl.text = angle.toStringAsFixed(1);
+                      _solarAngleSource = 'manual';
+                    });
                   },
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Source: $_solarAngleSource • Scans run when sun is above this angle.',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                  ),
                 ),
                 const SizedBox(height: 14),
                 ScanFrequencySelectorWidget(

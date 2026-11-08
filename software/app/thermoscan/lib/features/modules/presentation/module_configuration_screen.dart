@@ -14,6 +14,7 @@ import 'package:thermoscan/features/modules/presentation/modules_controller.dart
 import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_blueprint_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_calibration_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/solar_angle_selector_widget.dart';
 
 /// SCR-13: Module Configuration & Interval Change Log
 class ModuleConfigurationScreen extends ConsumerStatefulWidget {
@@ -757,23 +758,15 @@ class _ModuleConfigurationScreenState
                           'Minimum sun height required for valid thermal scans.',
                       editable: perms.canEditSolarAngle,
                       children: [
-                        AppTextField(
-                          label: 'Minimum Sun Height (0°–90°)',
-                          controller: _solarAngleCtrl,
+                        SolarAngleSelectorWidget(
+                          selectedAngle:
+                              double.tryParse(_solarAngleCtrl.text.trim()) ??
+                                  15.0,
                           readOnly: !perms.canEditSolarAngle,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          validator: (v) {
-                            if (!perms.canEditSolarAngle) return null;
-                            if (v == null || v.trim().isEmpty) {
-                              return 'Minimum sun height is required';
-                            }
-                            final n = double.tryParse(v.trim());
-                            if (n == null || n < 0 || n > 90) {
-                              return 'Must be between 0° and 90°';
-                            }
-                            return null;
+                          onChanged: (angle) {
+                            setState(() {
+                              _solarAngleCtrl.text = angle.toStringAsFixed(1);
+                            });
                           },
                         ),
                         const SizedBox(height: 10),

@@ -2004,15 +2004,14 @@ void main() {
       expect(find.text('Cleanings'), findsOneWidget);
       expect(find.text('Configuration'), findsOneWidget);
 
-      // Modernized Executive Health Banner & Compact Hardware Status
+      // Modernized Executive Health Banner & Compact Hardware Quick Pills
       expect(find.text('Awaiting Initial Scan'), findsOneWidget);
       expect(find.text('Robot Online'), findsOneWidget);
-      expect(find.text('Water Available'), findsOneWidget);
-      expect(find.text('Sensors Ready'), findsOneWidget);
+      expect(find.text('Water OK'), findsOneWidget);
 
-      // Open detailed diagnostics modal via 'View Diagnostics' button
-      expect(find.text('View Diagnostics'), findsOneWidget);
-      await tester.tap(find.text('View Diagnostics'));
+      // Open detailed diagnostics modal via 'Diagnostics' quick pill button
+      expect(find.text('Diagnostics'), findsOneWidget);
+      await tester.tap(find.text('Diagnostics'));
       await tester.pumpAndSettle();
 
       // Detailed Diagnostics modal items

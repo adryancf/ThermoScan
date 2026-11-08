@@ -355,8 +355,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 role: user?.role ?? 'technician',
                 showBack: true,
                 onBack: () => context.go('/modules'),
-                trailingAction: (perms.canDelete || !mod.isPendingConfiguration)
-                    ? PopupMenuButton<String>(
+                trailingAction: PopupMenuButton<String>(
                         icon: const Icon(
                           Icons.more_vert,
                           color: AppColors.primary,
@@ -369,6 +368,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                         onSelected: (val) {
                           if (val == 'trigger_scan') {
                             _triggerManualScan(mod.id);
+                          } else if (val == 'verify_hardware') {
+                            context.push('/modules/${mod.id}/device-verification');
                           } else if (val == 'delete') {
                             _confirmAndDeleteModule(mod.name);
                           }
@@ -379,6 +380,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                               value: 'trigger_scan',
                               enabled: !_isTriggeringInspection,
                               child: Row(
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
                                     Icons.radar_rounded,
@@ -388,20 +390,47 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                                         : AppColors.primary,
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    _isTriggeringInspection
-                                        ? 'Sending Scan Request...'
-                                        : 'Trigger Inspection Scan',
-                                    style: TextStyle(
-                                      color: _isTriggeringInspection
-                                          ? AppColors.textSecondary
-                                          : AppColors.textPrimary,
-                                      fontWeight: FontWeight.w600,
+                                  Expanded(
+                                    child: Text(
+                                      _isTriggeringInspection
+                                          ? 'Sending Scan Request...'
+                                          : 'Trigger Inspection Scan',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: _isTriggeringInspection
+                                            ? AppColors.textSecondary
+                                            : AppColors.textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
                             ),
+                          const PopupMenuItem<String>(
+                            value: 'verify_hardware',
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.verified_outlined,
+                                  size: 18,
+                                  color: AppColors.primary,
+                                ),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'ESP32 Verification',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: AppColors.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                           if (perms.canDelete)
                             const PopupMenuItem<String>(
                               value: 'delete',
@@ -424,8 +453,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                               ),
                             ),
                         ],
-                      )
-                    : null,
+                      ),
               ),
               body: SafeArea(
                 child: Column(
@@ -584,88 +612,17 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               const SizedBox(height: 16),
             ],
 
-            // 2. Executive Health Hero Banner
+            // 2. Module Info Collapsible Card / Accordion (TOPO)
+            _buildModuleInfoCard(mod, details, deviceStatus),
+            const SizedBox(height: 16),
+
+            // 3. Executive Health Hero Banner (com status de limpeza integrado)
             _buildExecutiveHealthBanner(
               mod: mod,
               deviceStatus: deviceStatus,
               latestInspection: latestInspection,
               latestMeasurement: latestMeasurement,
               measurements: currentMeasurements,
-            ),
-            const SizedBox(height: 16),
-
-            // 2.1 Hotspot Cleaning Status Card (when hotspot or cleaning pending/recent)
-            _buildCleaningStatusCard(
-              mod: mod,
-              deviceStatus: deviceStatus,
-              latestInspection: latestInspection,
-            ),
-
-            // 3. Compact Hardware & Robot Status Summary
-            _buildHardwareStatusSummary(mod, deviceStatus),
-            const SizedBox(height: 16),
-
-            // 4. Module Info Collapsible Card / Accordion
-            _buildModuleInfoCard(mod, details, deviceStatus),
-            const SizedBox(height: 16),
-
-            // 5. Device Verification Shortcut
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.primarySoft,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.verified_outlined,
-                      color: AppColors.primary,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'ESP32 Device Verification',
-                          style: AppTypography.bodySmall.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Safety interlocks & connection diagnostics',
-                          style: AppTypography.caption.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        context.push('/modules/${mod.id}/device-verification'),
-                    child: Text(
-                      'Verify Hardware →',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
             const SizedBox(height: 16),
 
@@ -844,6 +801,106 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       heroIcon = Icons.radar_rounded;
     }
 
+    // Integrated Hotspot Cleaning Lifecycle Status
+    final cleaningsAsync = ref.watch(moduleCleaningsProvider(mod.id));
+    final cleanings = cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
+    final mostRecent = cleanings.isNotEmpty ? cleanings.first : null;
+    final activeAnomalyIds =
+        confirmedAnomalies.map((a) => a.sourceEventId).toSet();
+
+    final isWaterLow = deviceStatus?.waterAvailable == false ||
+        deviceStatus?.waterStatus == 'low' ||
+        deviceStatus?.waterStatus == 'insufficient' ||
+        (hasHotspot && mostRecent?.failureReason == 'insufficient_water');
+
+    final isCleaningInProgress =
+        cleanings.any((c) => c.status == 'in_progress');
+
+    final isMostRecentAlreadyResolved = mostRecent != null &&
+        (mostRecent.status == 'verified' ||
+            mostRecent.status == 'refused' ||
+            mostRecent.status == 'failed' ||
+            mostRecent.postCleaningResult == 'resolved' ||
+            mostRecent.postCleaningResult == 'verified_resolved' ||
+            mostRecent.postCleaningResult == 'skipped');
+
+    final isCoolDownPending = mostRecent != null &&
+        !isMostRecentAlreadyResolved &&
+        (mostRecent.postCleaningResult == 'pending' ||
+            (mostRecent.status == 'completed' &&
+                mostRecent.postCleaningResult.isEmpty));
+
+    final relevantCleaning = mostRecent != null &&
+            (activeAnomalyIds.isEmpty ||
+                activeAnomalyIds.contains(mostRecent.anomalyEventId))
+        ? mostRecent
+        : null;
+
+    final isPersistentHotspot = hasHotspot &&
+        relevantCleaning != null &&
+        ((relevantCleaning.attemptNumber != null &&
+                relevantCleaning.attemptNumber! >= 3) ||
+            relevantCleaning.postCleaningResult == 'verified_unresolved' ||
+            relevantCleaning.postCleaningResult == 'unresolved');
+
+    final showCleaningSection =
+        hasHotspot || isCleaningInProgress || isCoolDownPending;
+
+    final String cleaningStatusBadge;
+    final Color cleaningBadgeColor;
+    final Color cleaningBadgeBg;
+    final Color cleaningBadgeBorder;
+    final String cleaningCardTitle;
+    final String cleaningCardDescription;
+    final IconData cleaningCardIcon;
+
+    if (isWaterLow) {
+      cleaningStatusBadge = 'LOW WATER';
+      cleaningBadgeColor = AppColors.warning;
+      cleaningBadgeBg = AppColors.warningBackground;
+      cleaningBadgeBorder = AppColors.warningBorder;
+      cleaningCardTitle = 'Insufficient Water for Cleaning';
+      cleaningCardDescription =
+          'Robot reservoir requires refilling before localized washing of the detected hotspot can commence.';
+      cleaningCardIcon = Icons.water_drop_outlined;
+    } else if (isCleaningInProgress) {
+      cleaningStatusBadge = 'CLEANING IN PROGRESS';
+      cleaningBadgeColor = AppColors.primary;
+      cleaningBadgeBg = AppColors.primarySoft;
+      cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
+      cleaningCardTitle = 'Robotic Wash Cycle Active';
+      cleaningCardDescription =
+          'The autonomous robot is actively spraying the targeted panel area to clear surface soiling.';
+      cleaningCardIcon = Icons.precision_manufacturing_rounded;
+    } else if (isCoolDownPending) {
+      cleaningStatusBadge = 'COOL-DOWN (30M)';
+      cleaningBadgeColor = const Color(0xFF19B5D6);
+      cleaningBadgeBg = const Color(0xFFE0F7FA);
+      cleaningBadgeBorder = const Color(0xFFB2EBF2);
+      cleaningCardTitle = 'Wash Completed — Thermal Cool-Down';
+      cleaningCardDescription =
+          'Localized cleaning completed. Awaiting 30-minute thermal cool-down before automated re-inspection scan.';
+      cleaningCardIcon = Icons.hourglass_top_rounded;
+    } else if (isPersistentHotspot) {
+      cleaningStatusBadge = 'PERSISTENT HOTSPOT';
+      cleaningBadgeColor = AppColors.error;
+      cleaningBadgeBg = AppColors.errorBackground;
+      cleaningBadgeBorder = AppColors.errorBorder;
+      cleaningCardTitle = 'Persistent Thermal Anomaly';
+      cleaningCardDescription =
+          '3 robotic cleaning attempts have been executed. Hotspot persists; on-site technician inspection recommended.';
+      cleaningCardIcon = Icons.handyman_outlined;
+    } else {
+      cleaningStatusBadge = 'CLEANING SCHEDULED';
+      cleaningBadgeColor = AppColors.primary;
+      cleaningBadgeBg = AppColors.primarySoft;
+      cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
+      cleaningCardTitle = 'Automated Cleaning Scheduled';
+      cleaningCardDescription =
+          'Robot is primed with water available. Localized wash will trigger automatically during the next safe thermal window.';
+      cleaningCardIcon = Icons.calendar_today_rounded;
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -1017,233 +1074,117 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  /// Hotspot Cleaning Lifecycle Status Card
-  /// Displayed when a hotspot is confirmed or a wash cycle is active/cooling down.
-  Widget _buildCleaningStatusCard({
-    required PvModule mod,
-    required DeviceStatus? deviceStatus,
-    required LatestInspection? latestInspection,
-  }) {
-    final cleaningsAsync = ref.watch(moduleCleaningsProvider(mod.id));
-    final confirmedAnomalies = latestInspection?.confirmedAnomalies ?? const [];
-    final hasHotspot = confirmedAnomalies.isNotEmpty;
-
-    final cleanings = cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
-    final mostRecent = cleanings.isNotEmpty ? cleanings.first : null;
-    final activeAnomalyIds =
-        confirmedAnomalies.map((a) => a.sourceEventId).toSet();
-
-    final isWaterLow = deviceStatus?.waterAvailable == false ||
-        deviceStatus?.waterStatus == 'low' ||
-        deviceStatus?.waterStatus == 'insufficient' ||
-        (hasHotspot && mostRecent?.failureReason == 'insufficient_water');
-
-    final isCleaningInProgress =
-        cleanings.any((c) => c.status == 'in_progress');
-
-    final isMostRecentAlreadyResolved = mostRecent != null &&
-        (mostRecent.status == 'verified' ||
-            mostRecent.status == 'refused' ||
-            mostRecent.status == 'failed' ||
-            mostRecent.postCleaningResult == 'resolved' ||
-            mostRecent.postCleaningResult == 'verified_resolved' ||
-            mostRecent.postCleaningResult == 'skipped');
-
-    final isCoolDownPending = mostRecent != null &&
-        !isMostRecentAlreadyResolved &&
-        (mostRecent.postCleaningResult == 'pending' ||
-            (mostRecent.status == 'completed' &&
-                mostRecent.postCleaningResult.isEmpty));
-
-    final relevantCleaning = mostRecent != null &&
-            (activeAnomalyIds.isEmpty ||
-                activeAnomalyIds.contains(mostRecent.anomalyEventId))
-        ? mostRecent
-        : null;
-
-    final isPersistentHotspot = hasHotspot &&
-        relevantCleaning != null &&
-        ((relevantCleaning.attemptNumber != null &&
-                relevantCleaning.attemptNumber! >= 3) ||
-            relevantCleaning.postCleaningResult == 'verified_unresolved' ||
-            relevantCleaning.postCleaningResult == 'unresolved');
-
-    // Suppress card when array is healthy and no wash cycles are active or pending verification
-    if (!hasHotspot && !isCleaningInProgress && !isCoolDownPending) {
-      return const SizedBox.shrink();
-    }
-
-    final String statusBadge;
-    final Color badgeColor;
-    final Color badgeBg;
-    final Color badgeBorder;
-    final String cardTitle;
-    final String cardDescription;
-    final IconData cardIcon;
-
-    if (isWaterLow) {
-      statusBadge = 'LOW WATER';
-      badgeColor = AppColors.warning;
-      badgeBg = AppColors.warningBackground;
-      badgeBorder = AppColors.warningBorder;
-      cardTitle = 'Insufficient Water for Cleaning';
-      cardDescription =
-          'Robot reservoir requires refilling before localized washing of the detected hotspot can commence.';
-      cardIcon = Icons.water_drop_outlined;
-    } else if (isCleaningInProgress) {
-      statusBadge = 'CLEANING IN PROGRESS';
-      badgeColor = AppColors.primary;
-      badgeBg = AppColors.primarySoft;
-      badgeBorder = AppColors.primary.withValues(alpha: 0.3);
-      cardTitle = 'Robotic Wash Cycle Active';
-      cardDescription =
-          'The autonomous robot is actively spraying the targeted panel area to clear surface soiling.';
-      cardIcon = Icons.precision_manufacturing_rounded;
-    } else if (isCoolDownPending) {
-      statusBadge = 'COOL-DOWN (30M)';
-      badgeColor = const Color(0xFF19B5D6);
-      badgeBg = const Color(0xFFE0F7FA);
-      badgeBorder = const Color(0xFFB2EBF2);
-      cardTitle = 'Wash Completed — Thermal Cool-Down';
-      cardDescription =
-          'Localized cleaning completed. Awaiting 30-minute thermal cool-down before automated re-inspection scan.';
-      cardIcon = Icons.hourglass_top_rounded;
-    } else if (isPersistentHotspot) {
-      statusBadge = 'PERSISTENT HOTSPOT';
-      badgeColor = AppColors.error;
-      badgeBg = AppColors.errorBackground;
-      badgeBorder = AppColors.errorBorder;
-      cardTitle = 'Persistent Thermal Anomaly';
-      cardDescription =
-          '3 robotic cleaning attempts have been executed. Hotspot persists; on-site technician inspection recommended.';
-      cardIcon = Icons.handyman_outlined;
-    } else {
-      statusBadge = 'CLEANING SCHEDULED';
-      badgeColor = AppColors.primary;
-      badgeBg = AppColors.primarySoft;
-      badgeBorder = AppColors.primary.withValues(alpha: 0.3);
-      cardTitle = 'Automated Cleaning Scheduled';
-      cardDescription =
-          'Robot is primed with water available. Localized wash will trigger automatically during the next safe thermal window.';
-      cardIcon = Icons.calendar_today_rounded;
-    }
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: badgeBorder,
-            width: isPersistentHotspot || isWaterLow ? 1.5 : 1.0,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: badgeBg,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: badgeBorder),
-                      ),
-                      child: Icon(cardIcon, color: badgeColor, size: 16),
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Hotspot Cleaning Status',
-                      style: AppTypography.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ],
+          if (showCleaningSection) ...[
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: cleaningBadgeBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: cleaningBadgeBorder,
+                  width: isPersistentHotspot || isWaterLow ? 1.5 : 1.0,
                 ),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: badgeBg,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: badgeBorder),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            cleaningCardIcon,
+                            size: 16,
+                            color: cleaningBadgeColor,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Hotspot Cleaning Status',
+                            style: AppTypography.caption.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: cleaningBadgeBorder),
+                        ),
+                        child: Text(
+                          cleaningStatusBadge,
+                          style: AppTypography.caption.copyWith(
+                            color: cleaningBadgeColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  child: Text(
-                    statusBadge,
+                  const SizedBox(height: 8),
+                  Text(
+                    cleaningCardTitle,
+                    style: AppTypography.bodySmall.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    cleaningCardDescription,
                     style: AppTypography.caption.copyWith(
-                      color: badgeColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
+                      color: AppColors.textSecondary,
+                      height: 1.35,
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              cardTitle,
-              style: AppTypography.bodySmall.copyWith(
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              cardDescription,
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textSecondary,
-                height: 1.4,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () {
-                final tabController = DefaultTabController.maybeOf(context);
-                if (tabController != null) {
-                  tabController.animateTo(2);
-                } else {
-                  context.push('/modules/${mod.id}/cleanings');
-                }
-              },
-                icon: const Icon(
-                  Icons.history_rounded,
-                  size: 14,
-                  color: AppColors.primary,
-                ),
-                label: Text(
-                  'View Wash Logs →',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () {
+                        final tabController =
+                            DefaultTabController.maybeOf(context);
+                        if (tabController != null) {
+                          tabController.animateTo(2);
+                        } else {
+                          context.push('/modules/${mod.id}/cleanings');
+                        }
+                      },
+                      icon: const Icon(
+                        Icons.history_rounded,
+                        size: 14,
+                        color: AppColors.primary,
+                      ),
+                      label: Text(
+                        'View Wash Logs →',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
                   ),
-                ),
-                style: TextButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
+                ],
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -1427,172 +1368,6 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Compact Hardware & Robot Status Summary
-  /// Clean, friendly, non-intimidating overview with in-line status badges
-  /// and a subtle 'View Diagnostics' button for low-level technical telemetry.
-  Widget _buildHardwareStatusSummary(PvModule mod, DeviceStatus? status) {
-    final limitsOk = status?.limitsCheckPassed == true;
-    final thermalOk = status?.thermalSensorActive == true;
-    final waterAvailable = status?.waterAvailable;
-    final isOnline = status?.isOnline == true;
-    final sensorsReady = limitsOk && thermalOk;
-    final lastSyncDate = status?.lastPingAt ??
-        status?.lastSeenAt ??
-        status?.latestMeasurementAt;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.precision_manufacturing_outlined,
-                    size: 18,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Hardware & Robot Status',
-                    style: AppTypography.bodySmall.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              InkWell(
-                onTap: () {
-                  ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Querying ESP32 device status...'),
-                      duration: Duration(seconds: 1),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.sync_rounded,
-                        size: 14,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Refresh',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildStatusPill(
-                label: isOnline ? 'Robot Online' : 'Robot Offline',
-                isPositive: isOnline,
-                isWarning: !isOnline,
-                icon: isOnline ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-              ),
-              _buildStatusPill(
-                label: waterAvailable == true
-                    ? 'Water Available'
-                    : (waterAvailable == false
-                        ? 'Low Reservoir'
-                        : 'Water Unknown'),
-                isPositive: waterAvailable == true,
-                isWarning: waterAvailable == false,
-                icon: Icons.water_drop_outlined,
-              ),
-              _buildStatusPill(
-                label: sensorsReady ? 'Sensors Ready' : 'Sensors Pending',
-                isPositive: sensorsReady,
-                isWarning: !sensorsReady,
-                icon: Icons.sensors_outlined,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  isOnline && lastSyncDate != null
-                      ? 'Sync: ${_formatDateTime(DateTime.tryParse(lastSyncDate))}'
-                      : (isOnline
-                          ? 'Connected'
-                          : 'Offline / awaiting heartbeat'),
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              TextButton(
-                onPressed: () => _showDiagnosticsModal(context, mod, status),
-                style: TextButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'View Diagnostics',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      Icons.arrow_forward_ios_rounded,
-                      size: 11,
-                      color: AppColors.primary,
-                    ),
-                  ],
-                ),
-              ),
-            ],
           ),
         ],
       ),
@@ -2118,6 +1893,74 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                             color: AppColors.textSecondary,
                             fontFamily: 'monospace',
                           ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            _buildStatusPill(
+                              label: (deviceStatus?.isOnline == true)
+                                  ? 'Robot Online'
+                                  : 'Robot Offline',
+                              isPositive: deviceStatus?.isOnline == true,
+                              isWarning: deviceStatus?.isOnline != true,
+                              icon: (deviceStatus?.isOnline == true)
+                                  ? Icons.wifi_rounded
+                                  : Icons.wifi_off_rounded,
+                            ),
+                            _buildStatusPill(
+                              label: deviceStatus?.waterAvailable == true
+                                  ? 'Water OK'
+                                  : (deviceStatus?.waterAvailable == false
+                                      ? 'Low Water'
+                                      : 'Water Unknown'),
+                              isPositive: deviceStatus?.waterAvailable == true,
+                              isWarning: deviceStatus?.waterAvailable == false,
+                              icon: Icons.water_drop_outlined,
+                            ),
+                            InkWell(
+                              onTap: () => _showDiagnosticsModal(
+                                context,
+                                mod,
+                                deviceStatus,
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primarySoft,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: AppColors.primary.withValues(alpha: 0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(
+                                      Icons.tune_rounded,
+                                      size: 14,
+                                      color: AppColors.primary,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Text(
+                                      'Diagnostics',
+                                      style: AppTypography.chip.copyWith(
+                                        fontSize: 11.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.primary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),

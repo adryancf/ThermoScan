@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoscan/core/storage/token_storage.dart';
@@ -857,12 +858,15 @@ void main() {
     await tester.tap(find.text('PV-001 Roof Array'));
     await tester.pumpAndSettle();
 
-    // Scroll into view and tap "Verify Hardware →"
-    final handshakeFinder = find.text('Verify Hardware →');
-    expect(handshakeFinder, findsOneWidget);
-    await tester.ensureVisible(handshakeFinder);
+    // Tap more actions (⋮) in AppBar and select "ESP32 Device Verification"
+    final popupMenuFinder = find.byType(PopupMenuButton<String>);
+    expect(popupMenuFinder, findsOneWidget);
+    await tester.tap(popupMenuFinder);
     await tester.pumpAndSettle();
-    await tester.tap(handshakeFinder);
+
+    final verifyOptionFinder = find.text('ESP32 Verification');
+    expect(verifyOptionFinder, findsOneWidget);
+    await tester.tap(verifyOptionFinder);
     await tester.pumpAndSettle();
 
     // Verify Device Verification Screen is open

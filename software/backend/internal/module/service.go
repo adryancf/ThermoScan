@@ -892,13 +892,13 @@ func (s *Service) DeleteModule(ctx context.Context, principal auth.Principal, mo
 		return err
 	}
 
-	// Pending operations check (applies to BOTH Manager and Technician)
-	if history.PendingInspectionsCount > 0 || history.PendingCleaningsCount > 0 {
-		return ErrModuleHasPendingOperations
-	}
-
-	// History check (applies ONLY to Technician)
+	// Operational and history checks apply ONLY to Technician.
+	// A Manager has full company administrative authority to delete a module and all associated data
+	// in a single atomic transaction.
 	if principal.Role == auth.RoleTechnician {
+		if history.PendingInspectionsCount > 0 || history.PendingCleaningsCount > 0 {
+			return ErrModuleHasPendingOperations
+		}
 		if history.InspectionsCount > 0 || history.MeasurementsCount > 0 || history.AnomaliesCount > 0 || history.CleaningsCount > 0 {
 			return ErrModuleHasOperationalHistory
 		}

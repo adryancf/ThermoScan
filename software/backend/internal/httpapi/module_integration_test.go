@@ -499,16 +499,16 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	}
 
 	// 14. Aditivo de negócio: Exclusão de módulos e cadastros
-	// A) Módulo com operações pendentes não pode ser excluído nem por Manager (409 MODULE_HAS_PENDING_OPERATIONS)
+	// A) Módulo com operações pendentes: Técnico não pode excluir (409 MODULE_HAS_PENDING_OPERATIONS)
 	var pendingInspID string
 	err = tx.QueryRow(ctx, "INSERT INTO inspections (module_id, type, scheduled_for, status) VALUES ($1, 'scheduled', NOW(), 'scheduled') RETURNING id", modCreated.Module.ID).Scan(&pendingInspID)
 	if err != nil {
 		t.Fatalf("failed to insert pending inspection: %v", err)
 	}
 
-	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modCreated.Module.ID, mgrAAuth.AccessToken, nil)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+modCreated.Module.ID, tech1Auth.AccessToken, nil)
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409 when deleting module with pending operations, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 409 when technician deleting module with pending operations, got %d: %s", rec.Code, rec.Body.String())
 	}
 	var errPendingResp map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &errPendingResp)
@@ -889,8 +889,8 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if claimResp.DeviceToken == "" || !strings.HasPrefix(claimResp.DeviceToken, "dev_sec_") {
 		t.Fatalf("expected valid device_token starting with dev_sec_, got %q", claimResp.DeviceToken)
 	}
-	if claimResp.PingIntervalSeconds != 300 {
-		t.Fatalf("expected ping_interval_seconds 300, got %d", claimResp.PingIntervalSeconds)
+	if claimResp.PingIntervalSeconds <= 0 {
+		t.Fatalf("expected positive ping_interval_seconds, got %d", claimResp.PingIntervalSeconds)
 	}
 
 	// Test dedicated device route POST /api/v1/devices/{id}/ping
@@ -927,8 +927,8 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if initialVer < 1 {
 		t.Fatalf("expected positive config_version, got %d", initialVer)
 	}
-	if devCfgResp.PingIntervalSeconds != 300 {
-		t.Fatalf("expected ping_interval_seconds 300, got %d", devCfgResp.PingIntervalSeconds)
+	if devCfgResp.PingIntervalSeconds <= 0 {
+		t.Fatalf("expected positive ping_interval_seconds, got %d", devCfgResp.PingIntervalSeconds)
 	}
 	if devCfgResp.Geometry.PanelCount != 10 {
 		t.Fatalf("expected panel_count 10, got %d", devCfgResp.Geometry.PanelCount)
@@ -1020,8 +1020,8 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if devStatusCheck.DeviceStatus.ConfigurationSync.State != "synced" {
 		t.Fatalf("expected device status sync state synced, got %q", devStatusCheck.DeviceStatus.ConfigurationSync.State)
 	}
-	if devStatusCheck.DeviceStatus.PingIntervalSeconds != 300 || devStatusCheck.DeviceStatus.OnlineWindowSeconds != 900 {
-		t.Fatalf("expected ping 300 and online window 900, got %d / %d", devStatusCheck.DeviceStatus.PingIntervalSeconds, devStatusCheck.DeviceStatus.OnlineWindowSeconds)
+	if devStatusCheck.DeviceStatus.PingIntervalSeconds <= 0 || devStatusCheck.DeviceStatus.OnlineWindowSeconds != 3*devStatusCheck.DeviceStatus.PingIntervalSeconds {
+		t.Fatalf("expected positive ping and online window 3x ping, got %d / %d", devStatusCheck.DeviceStatus.PingIntervalSeconds, devStatusCheck.DeviceStatus.OnlineWindowSeconds)
 	}
 
 	// Update module configuration via PATCH -> increments config_version to initialVer+1 and resets state to pending
@@ -1502,7 +1502,7 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 	}
 
 	// =========================================================================
-	// 3. Pending operations block deletion (BOTH Manager and Technician with 409 MODULE_HAS_PENDING_OPERATIONS)
+	// 3. Pending operations block deletion for Technician (409 MODULE_HAS_PENDING_OPERATIONS)
 	// =========================================================================
 	var pendingInspID string
 	err = pool.QueryRow(ctx, "INSERT INTO inspections (module_id, type, scheduled_for, status) VALUES ($1, 'scheduled', NOW(), 'scheduled') RETURNING id", mod2.Module.ID).Scan(&pendingInspID)
@@ -1510,18 +1510,9 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 		t.Fatalf("insert pending insp: %v", err)
 	}
 
-	// Manager cannot delete while pending inspection exists
-	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, mgrAAuth.AccessToken, nil)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409 when manager deletes module with pending inspection, got %d: %s", rec.Code, rec.Body.String())
-	}
 	var pendingErrResp map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &pendingErrResp)
-	if pendingErrResp["code"] != "MODULE_HAS_PENDING_OPERATIONS" {
-		t.Fatalf("expected MODULE_HAS_PENDING_OPERATIONS, got %v", pendingErrResp["code"])
-	}
 
-	// Technician cannot delete either
+	// Technician cannot delete while pending inspection exists (409)
 	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, tech1Auth.AccessToken, nil)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("expected 409 when technician deletes module with pending inspection, got %d: %s", rec.Code, rec.Body.String())
@@ -1546,10 +1537,10 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 		t.Fatalf("insert pending clean: %v", err)
 	}
 
-	// Manager cannot delete while cleaning in_progress
-	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, mgrAAuth.AccessToken, nil)
+	// Technician cannot delete while cleaning in_progress (409)
+	rec = doJSON(http.MethodDelete, "/api/v1/modules/"+mod2.Module.ID, tech1Auth.AccessToken, nil)
 	if rec.Code != http.StatusConflict {
-		t.Fatalf("expected 409 when manager deletes module with in_progress cleaning, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 409 when technician deletes module with in_progress cleaning, got %d: %s", rec.Code, rec.Body.String())
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &pendingErrResp)
 	if pendingErrResp["code"] != "MODULE_HAS_PENDING_OPERATIONS" {

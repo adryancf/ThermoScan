@@ -267,7 +267,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year} at $timeStr';
   }
 
-  String _formatNextInspectionLabel(String? iso, int? intervalDays) {
+  String _formatNextInspectionLabel(String? iso) {
     if (iso != null && iso.isNotEmpty) {
       final dt = DateTime.tryParse(iso)?.toLocal();
       if (dt != null) {
@@ -305,10 +305,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         }
       }
     }
-    if (intervalDays != null && intervalDays > 0) {
-      return 'Next: Every ${intervalDays}d';
-    }
-    return 'Next: Not scheduled';
+    return 'Next: Awaiting sync';
   }
 
   @override
@@ -1479,6 +1476,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   /// Compact next inspection chip pill opening scan schedule modal on tap
   Widget _buildNextInspectionPill({
     required String label,
+    required bool isScheduled,
     required VoidCallback onTap,
   }) {
     return GestureDetector(
@@ -1487,25 +1485,35 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: AppColors.background,
+          color: isScheduled
+              ? AppColors.primarySoft.withValues(alpha: 0.35)
+              : AppColors.background,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.border),
+          border: Border.all(
+            color: isScheduled
+                ? AppColors.primary.withValues(alpha: 0.25)
+                : AppColors.border,
+          ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.calendar_month_outlined,
+            Icon(
+              isScheduled
+                  ? Icons.calendar_month_outlined
+                  : Icons.schedule_rounded,
               size: 14,
-              color: AppColors.primary,
+              color: isScheduled ? AppColors.primary : AppColors.textSecondary,
             ),
             const SizedBox(width: 6),
             Text(
               label,
               style: AppTypography.chip.copyWith(
                 fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-                color: AppColors.textPrimary,
+                fontWeight: isScheduled ? FontWeight.w600 : FontWeight.w500,
+                color: isScheduled
+                    ? AppColors.textPrimary
+                    : AppColors.textSecondary,
               ),
             ),
           ],
@@ -1942,87 +1950,24 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             onTap: () => setState(() => _infoExpanded = !_infoExpanded),
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'MODULE OVERVIEW',
-                              style: AppTypography.caption.copyWith(
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.7,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ModuleMonitoringStatusBadge(
-                              status: mod.monitoringStatus,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          mod.name,
-                          style: AppTypography.h3,
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'MAC: ${mod.macAddress} · Serial: ${mod.id.length > 8 ? mod.id.substring(0, 8) : mod.id}',
-                          style: AppTypography.caption.copyWith(
-                            color: AppColors.textSecondary,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 6,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            _buildStatusPill(
-                              label: (deviceStatus?.isOnline == true)
-                                  ? 'Robot Online'
-                                  : 'Robot Offline',
-                              isPositive: deviceStatus?.isOnline == true,
-                              isWarning: deviceStatus?.isOnline != true,
-                              icon: (deviceStatus?.isOnline == true)
-                                  ? Icons.wifi_rounded
-                                  : Icons.wifi_off_rounded,
-                            ),
-                            _buildStatusPill(
-                              label: deviceStatus?.waterAvailable == true
-                                  ? 'Water OK'
-                                  : (deviceStatus?.waterAvailable == false
-                                      ? 'Low Water'
-                                      : 'Water Unknown'),
-                              isPositive: deviceStatus?.waterAvailable == true,
-                              isWarning: deviceStatus?.waterAvailable == false,
-                              icon: Icons.water_drop_outlined,
-                            ),
-                            _buildNextInspectionPill(
-                              label: _formatNextInspectionLabel(
-                                deviceStatus?.nextInspectionAt ??
-                                    mod.nextInspectionAt,
-                                mod.inspectionIntervalDays,
-                              ),
-                              onTap: () => _showScanHistoryModal(
-                                context,
-                                mod,
-                                deviceStatus,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
+                  // Top Header Row: MODULE OVERVIEW + Status Badge + [Spacer] + Sensor Button + Chevron
                   Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
+                      Text(
+                        'MODULE OVERVIEW',
+                        style: AppTypography.caption.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.7,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ModuleMonitoringStatusBadge(
+                        status: mod.monitoringStatus,
+                      ),
+                      const Spacer(),
                       GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => _showDiagnosticsModal(
@@ -2033,7 +1978,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                         child: Tooltip(
                           message: 'Robot & Sensor Status',
                           child: Container(
-                            padding: const EdgeInsets.all(7),
+                            padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
                               color:
                                   AppColors.primarySoft.withValues(alpha: 0.5),
@@ -2044,18 +1989,73 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                             ),
                             child: const Icon(
                               Icons.sensors_rounded,
-                              size: 18,
+                              size: 16,
                               color: AppColors.primary,
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 8),
                       Icon(
                         _infoExpanded
                             ? Icons.keyboard_arrow_up_rounded
                             : Icons.keyboard_arrow_down_rounded,
                         color: AppColors.primary,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    mod.name,
+                    style: AppTypography.h3,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'MAC: ${mod.macAddress} · Serial: ${mod.id.length > 8 ? mod.id.substring(0, 8) : mod.id}',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textSecondary,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _buildStatusPill(
+                        label: (deviceStatus?.isOnline == true)
+                            ? 'Robot Online'
+                            : 'Robot Offline',
+                        isPositive: deviceStatus?.isOnline == true,
+                        isWarning: deviceStatus?.isOnline != true,
+                        icon: (deviceStatus?.isOnline == true)
+                            ? Icons.wifi_rounded
+                            : Icons.wifi_off_rounded,
+                      ),
+                      _buildStatusPill(
+                        label: deviceStatus?.waterAvailable == true
+                            ? 'Water OK'
+                            : (deviceStatus?.waterAvailable == false
+                                ? 'Low Water'
+                                : 'Water Unknown'),
+                        isPositive: deviceStatus?.waterAvailable == true,
+                        isWarning: deviceStatus?.waterAvailable == false,
+                        icon: Icons.water_drop_outlined,
+                      ),
+                      _buildNextInspectionPill(
+                        label: _formatNextInspectionLabel(
+                          deviceStatus?.nextInspectionAt ??
+                              mod.nextInspectionAt,
+                        ),
+                        isScheduled: (deviceStatus?.nextInspectionAt ??
+                                mod.nextInspectionAt) !=
+                            null,
+                        onTap: () => _showScanHistoryModal(
+                          context,
+                          mod,
+                          deviceStatus,
+                        ),
                       ),
                     ],
                   ),

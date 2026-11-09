@@ -454,7 +454,7 @@ class _ArrayBlueprintPainter extends CustomPainter {
     final startY = topMargin + (availableHeight - targetPanelHeightPx) / 2;
 
     // 1. Draw Top Rail & Robot Carriage - LOCKED AT THE TOP OF THE CARD
-    const railY = 20.0;
+    const railY = 24.0;
     final railPaint = Paint()
       ..color = AppColors.primary.withValues(alpha: 0.45)
       ..strokeWidth = 2.5
@@ -475,22 +475,30 @@ class _ArrayBlueprintPainter extends CustomPainter {
     );
     canvas.drawRRect(robotRect, robotPaint);
 
-    // Direction arrow & label: "Robot Travel Direction ──▶"
+    // Direction arrow & label: positioned cleanly ABOVE the rail line (no strikethrough/collision)
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
-    textPainter.text = TextSpan(
-      text: '──▶ Robot Travel Direction',
+    textPainter.text = const TextSpan(
+      text: 'Robot Travel Direction ──▶',
       style: TextStyle(
         color: AppColors.primary,
-        fontSize: 9.5,
+        fontSize: 9.0,
         fontWeight: FontWeight.w700,
-        letterSpacing: 0.2,
+        letterSpacing: 0.3,
       ),
     );
     textPainter.layout();
-    textPainter.paint(
-      canvas,
-      Offset(robotX + 13, railY - (textPainter.height / 2)),
+
+    final labelX = robotX + 16.0;
+    const labelY = 6.0;
+    final labelBgRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(labelX - 4, labelY - 1, textPainter.width + 8, textPainter.height + 2),
+      const Radius.circular(3),
     );
+    canvas.drawRRect(
+      labelBgRect,
+      Paint()..color = AppColors.surface.withValues(alpha: 0.92),
+    );
+    textPainter.paint(canvas, Offset(labelX, labelY));
 
     // 2. Draw Panels with solar cell texture
     final panelStroke = Paint()

@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
 
 void main() {
-  testWidgets('ScanFrequencySelectorWidget renders presets and triggers selection', (tester) async {
+  testWidgets('ScanFrequencySelectorWidget renders presets, custom stepper, and triggers wheel modal', (tester) async {
     int currentDays = 7;
 
     await tester.pumpWidget(
@@ -38,9 +38,18 @@ void main() {
     expect(currentDays, 15);
     expect(find.text('The robot will automatically scan panels every 15 days.'), findsOneWidget);
 
-    // Select Custom (defaults to 5)
+    // Select Custom (defaults to 5 and opens modal)
     await tester.tap(find.byKey(const Key('frequency_option_custom')));
     await tester.pumpAndSettle();
+
+    // Verify modal is displayed
+    expect(find.text('Custom Inspection Interval'), findsOneWidget);
+    expect(find.byKey(const Key('custom_frequency_apply_button')), findsOneWidget);
+
+    // Dismiss modal via Done header button
+    await tester.tap(find.byKey(const Key('custom_frequency_done_header_button')));
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const Key('custom_frequency_increment')), findsOneWidget);
 
     // Increment 5 -> 6

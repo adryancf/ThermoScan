@@ -42,10 +42,16 @@ void main() {
     expect(currentAngle, 20.0);
     expect(find.textContaining('Avoids morning shadows'), findsOneWidget);
 
-    // Select Custom (defaults to 12.0)
+    // Select Custom (defaults to 12.0 and opens modal)
     await tester.tap(find.byKey(const Key('sun_angle_option_custom')));
     await tester.pumpAndSettle();
     expect(currentAngle, 12.0);
+    expect(find.text('Custom Minimum Sun Height'), findsOneWidget);
+
+    // Close modal via Done button
+    await tester.tap(find.byKey(const Key('custom_sun_angle_done_header_button')));
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const Key('custom_sun_angle_increment')), findsOneWidget);
 
     // Increment Custom Angle: 12.0 -> 13.0 -> 14.0 -> 15.0

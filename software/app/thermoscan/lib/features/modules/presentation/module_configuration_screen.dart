@@ -15,6 +15,7 @@ import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_calibration_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/solar_angle_selector_widget.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/water_tank_capacity_selector_widget.dart';
 
 /// SCR-13: Module Configuration & Interval Change Log
 class ModuleConfigurationScreen extends ConsumerStatefulWidget {
@@ -536,40 +537,13 @@ class _ModuleConfigurationScreenState
                           ],
                         ),
                         const SizedBox(height: 12),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            AppTextField(
-                              label: 'Water Tank Capacity (mL, optional)',
-                              hintText: 'e.g. 1000',
-                              controller: _reservoirCtrl,
-                              readOnly: !perms.canEditGeometryAndLocation,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
-                              validator: (v) {
-                                if (!perms.canEditGeometryAndLocation ||
-                                    v == null ||
-                                    v.trim().isEmpty) {
-                                  return null;
-                                }
-                                final n = double.tryParse(v.trim());
-                                if (n == null || n <= 0) {
-                                  return 'Must be > 0';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              'Robot reservoir volume (e.g. 2000 mL = 2 Liters)',
-                              style: AppTypography.caption.copyWith(
-                                color: AppColors.textSecondary,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
+                        WaterTankCapacitySelectorWidget(
+                          selectedCapacityMl:
+                              int.tryParse(_reservoirCtrl.text.trim()) ?? 2000,
+                          readOnly: !perms.canEditGeometryAndLocation,
+                          onChanged: (ml) {
+                            setState(() => _reservoirCtrl.text = '$ml');
+                          },
                         ),
                       ],
                     ),

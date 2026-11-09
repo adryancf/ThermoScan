@@ -19,6 +19,7 @@ import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_
 import 'package:thermoscan/features/modules/presentation/widgets/mac_qr_scanner_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/solar_angle_selector_widget.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/water_tank_capacity_selector_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_compass_widget.dart';
 
 /// SCR-16 to SCR-20: Technician 5-Step Module Installation Wizard
@@ -1521,26 +1522,9 @@ class _ModuleInstallationWizardScreenState
           ),
           const SizedBox(height: 16),
 
-          // 1. Live Interactive Blueprint
-          ArrayGeometryBlueprintWidget(
-            panelLengthCm: lengthVal,
-            panelWidthCm: widthVal,
-            panelCount: countVal,
-            panelSpacingCm: spacingVal,
-            onSwapDimensions: () {
-              setState(() {
-                final temp = _lengthCtrl.text;
-                _lengthCtrl.text = _widthCtrl.text;
-                _widthCtrl.text = temp;
-              });
-            },
-            onOpenMeasureGuide: () => showHowToMeasureModal(context),
-          ),
-          const SizedBox(height: 16),
-
-          // 2. Input Form Card
+          // Card 1: Array Dimensions & Blueprint (Physical Geometry)
           Container(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(16),
@@ -1549,6 +1533,52 @@ class _ModuleInstallationWizardScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.architecture_rounded,
+                      size: 18,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Array Geometry & Dimensions',
+                      style: AppTypography.h3.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Physical measurements of the solar panel row and robot track',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Live Interactive Blueprint
+                ArrayGeometryBlueprintWidget(
+                  panelLengthCm: lengthVal,
+                  panelWidthCm: widthVal,
+                  panelCount: countVal,
+                  panelSpacingCm: spacingVal,
+                  onSwapDimensions: () {
+                    setState(() {
+                      final temp = _lengthCtrl.text;
+                      _lengthCtrl.text = _widthCtrl.text;
+                      _widthCtrl.text = temp;
+                    });
+                  },
+                  onOpenMeasureGuide: () => showHowToMeasureModal(context),
+                ),
+                const SizedBox(height: 16),
+
+                // Dimension Inputs
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1735,7 +1765,50 @@ class _ModuleInstallationWizardScreenState
                     ),
                   ],
                 ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Card 2: Inspection & Robot Automation Settings (Operational)
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.settings_suggest_rounded,
+                      size: 18,
+                      color: AppColors.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Inspection & Robot Settings',
+                      style: AppTypography.h3.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Autonomous scheduling rules, daylight thresholds, and cleaning tank size',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                  ),
+                ),
                 const SizedBox(height: 14),
+
                 SolarAngleSelectorWidget(
                   selectedAngle:
                       double.tryParse(_solarAngleCtrl.text.trim()) ?? 15.0,
@@ -1748,42 +1821,22 @@ class _ModuleInstallationWizardScreenState
                     });
                   },
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
+
                 ScanFrequencySelectorWidget(
                   selectedDays: int.tryParse(_intervalCtrl.text.trim()) ?? 7,
                   onChanged: (days) {
                     setState(() => _intervalCtrl.text = '$days');
                   },
                 ),
-                const SizedBox(height: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    AppTextField(
-                      label: 'Water Tank Capacity (mL)',
-                      hintText: '2000',
-                      controller: _reservoirCtrl,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      validator: (v) {
-                        if (v == null || v.trim().isEmpty) {
-                          return 'Water tank capacity is required';
-                        }
-                        final n = double.tryParse(v.trim());
-                        if (n == null || n <= 0) return 'Must be a positive number';
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Robot reservoir volume (e.g. 2000 mL = 2 Liters)',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.textSecondary,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: 16),
+
+                WaterTankCapacitySelectorWidget(
+                  selectedCapacityMl:
+                      int.tryParse(_reservoirCtrl.text.trim()) ?? 2000,
+                  onChanged: (ml) {
+                    setState(() => _reservoirCtrl.text = '$ml');
+                  },
                 ),
               ],
             ),

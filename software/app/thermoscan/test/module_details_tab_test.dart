@@ -543,6 +543,8 @@ void main() {
 
       // Exclusively highlights confirmed anomaly
       expect(find.text('+27.0°C above normal (Hotspot)'), findsWidgets);
+      await tester.tap(find.byKey(const Key('rail_hotspot_marker_1')));
+      await tester.pumpAndSettle();
       expect(find.text('HOTSPOT 10.0cm'), findsOneWidget);
       expect(find.text('HOTSPOT'), findsWidgets);
     });
@@ -1088,8 +1090,11 @@ void main() {
         await tester.pumpAndSettle();
 
         // Both hotspot markers are rendered on the rail
+        expect(find.byKey(const Key('rail_hotspot_marker_1')), findsOneWidget);
+        expect(find.byKey(const Key('rail_hotspot_marker_2')), findsOneWidget);
+        await tester.tap(find.byKey(const Key('rail_hotspot_marker_1')));
+        await tester.pumpAndSettle();
         expect(find.text('HOTSPOT 4.5cm'), findsOneWidget);
-        expect(find.text('HOTSPOT 7.5cm'), findsOneWidget);
 
         // F1 has H1 only
         expect(find.byKey(const Key('frame_1_badge_H1')), findsOneWidget);
@@ -1810,7 +1815,6 @@ void main() {
         await tester.pumpAndSettle();
 
         // 1. Initial mode is Fit-to-Scan
-        expect(find.text('Zoom: Scan Area'), findsOneWidget);
         expect(find.textContaining('Range: -2.5 to 6.5 cm (9.0 cm)'), findsOneWidget);
         expect(find.textContaining('Rail Scan Coverage: 0.0 to 4.0 cm of 200 cm'), findsOneWidget);
 
@@ -1818,18 +1822,7 @@ void main() {
         expect(find.byKey(const Key('hotspot_confirmation_summary')), findsOneWidget);
         expect(find.textContaining('H1 at X=4.0 cm confirmed by: F2 (4.0 cm)'), findsOneWidget);
 
-        // 3. Toggle to Full Panel zoom
-        await tester.tap(find.byKey(const Key('toggle_zoom_mode')));
-        await tester.pumpAndSettle();
-        expect(find.text('Zoom: Full Panel'), findsOneWidget);
-        expect(find.textContaining('Range: -2.5 to 202.5 cm (205.0 cm)'), findsOneWidget);
-
-        // 4. Toggle back to Scan Area
-        await tester.tap(find.byKey(const Key('toggle_zoom_mode')));
-        await tester.pumpAndSettle();
-        expect(find.text('Zoom: Scan Area'), findsOneWidget);
-
-        // 5. Tap on frame card F2 to open single frame 32x24 inspector
+        // 3. Tap on frame card F2 to open single frame 32x24 inspector
         expect(find.byKey(const Key('selected_frame_inspector')), findsNothing);
         await tester.tap(find.byKey(const Key('thermal_frame_card_2')));
         await tester.pumpAndSettle();

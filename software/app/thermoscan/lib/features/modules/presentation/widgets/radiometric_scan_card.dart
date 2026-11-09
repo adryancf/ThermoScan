@@ -31,7 +31,7 @@ class RadiometricScanCard extends StatefulWidget {
 }
 
 class _RadiometricScanCardState extends State<RadiometricScanCard> {
-  bool _fitToScan = true;
+  final bool _fitToScan = true;
   int? _selectedFrameIndex;
   int? _focusedPanelIndex;
   int? _selectedHotspotIndex;
@@ -430,65 +430,17 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             const SizedBox(height: 8),
           ],
 
-          // Scale / Zoom Controls & Position Overview on the Rail
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              if (displayedMeasurements.isNotEmpty)
-                Text(
-                  'Range: ${panorama.minDomainX.toStringAsFixed(1)} to ${panorama.maxDomainX.toStringAsFixed(1)} cm (${panorama.domainSpanCm.toStringAsFixed(1)} cm)',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 10,
-                  ),
-                )
-              else
-                const SizedBox.shrink(),
-              InkWell(
-                key: const Key('toggle_zoom_mode'),
-                borderRadius: BorderRadius.circular(8),
-                onTap: () {
-                  setState(() {
-                    _fitToScan = !_fitToScan;
-                  });
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _fitToScan ? Icons.zoom_in_rounded : Icons.zoom_out_map_rounded,
-                        size: 13,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _fitToScan
-                            ? 'Zoom: Scan Area'
-                            : (_focusedPanelIndex != null
-                                ? 'Zoom: Panel $_focusedPanelIndex'
-                                : ((widget.module.panelCount != null &&
-                                        widget.module.panelCount! > 1)
-                                    ? 'Zoom: All Panels'
-                                    : 'Zoom: Full Panel')),
-                        style: AppTypography.caption.copyWith(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.primary,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+          // Position / Range Overview on the Rail
+          if (displayedMeasurements.isNotEmpty) ...[
+            Text(
+              'Range: ${panorama.minDomainX.toStringAsFixed(1)} to ${panorama.maxDomainX.toStringAsFixed(1)} cm (${panorama.domainSpanCm.toStringAsFixed(1)} cm)',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 10,
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 2),
+          ],
           const SizedBox(height: 4),
 
           // Mini Rail Progress Bar
@@ -1001,6 +953,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                       _selectedHotspotIndex = null;
                                     } else {
                                       _selectedHotspotIndex = anomIdx;
+                                      final frameIdx = displayedMeasurements.indexWhere(
+                                        (m) => isFrameAssociatedWithAnomaly(m, anomaly),
+                                      );
+                                      if (frameIdx >= 0) {
+                                        _playbackTimer?.cancel();
+                                        _playbackTimer = null;
+                                        _timelineFrameIndex = frameIdx;
+                                        _selectedFrameIndex = frameIdx;
+                                      }
                                     }
                                   });
                                 },
@@ -1028,54 +989,50 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                         ),
                                       ),
                                     ),
-                                    const SizedBox(height: 3),
-                                    // Friendly, legible label
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 5,
-                                        vertical: 2,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: isPopoverSelected
-                                            ? AppColors.error
-                                            : Colors.black.withValues(
-                                                alpha: 0.85,
-                                              ),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: isPopoverSelected
-                                              ? Colors.white
-                                              : AppColors.error,
-                                          width: 1.0,
+                                    // Friendly, legible label (Shown exclusively on tap to prevent canvas clutter)
+                                    if (isPopoverSelected) ...[
+                                      const SizedBox(height: 3),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 3,
                                         ),
-                                      ),
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(
-                                            primaryHotspotLabel,
-                                            style: TextStyle(
-                                              fontFamily: 'monospace',
-                                              fontSize: 8,
-                                              color: Colors.white,
-                                              fontWeight: isPopoverSelected
-                                                  ? FontWeight.w900
-                                                  : FontWeight.w700,
-                                            ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.90,
                                           ),
-                                          if (anomaly.panelIndex != null)
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(
+                                            color: AppColors.error,
+                                            width: 1.0,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
                                             Text(
-                                              'HOTSPOT ${anomaly.xPositionCm.toStringAsFixed(1)}cm',
+                                              primaryHotspotLabel,
                                               style: const TextStyle(
                                                 fontFamily: 'monospace',
-                                                fontSize: 7,
-                                                color: Colors.white70,
-                                                fontWeight: FontWeight.w600,
+                                                fontSize: 8,
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w700,
                                               ),
                                             ),
-                                        ],
+                                            if (anomaly.panelIndex != null)
+                                              Text(
+                                                'HOTSPOT ${anomaly.xPositionCm.toStringAsFixed(1)}cm',
+                                                style: const TextStyle(
+                                                  fontFamily: 'monospace',
+                                                  fontSize: 7,
+                                                  color: Colors.white70,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
+                                    ],
                                   ],
                                 ),
                               ),

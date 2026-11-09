@@ -311,9 +311,14 @@ func TestMultiPanelStringWorkflow(t *testing.T) {
 	require.Equal(t, http.StatusOK, alertsRec.Code, alertsRec.Body.String())
 	var alertsResp struct {
 		Alerts []struct {
-			PanelIndex  *int32  `json:"panel_index"`
-			Description string  `json:"description"`
-			MetaText    string  `json:"meta_text"`
+			PanelIndex           *int32   `json:"panel_index"`
+			Description          string   `json:"description"`
+			MetaText             string   `json:"meta_text"`
+			InspectionID         *string  `json:"inspection_id"`
+			InspectionDate       *string  `json:"inspection_date"`
+			MaxTemperatureC      *float64 `json:"max_temperature_c"`
+			BaselineTemperatureC *float64 `json:"baseline_temperature_c"`
+			WashAttemptsCount    *int32   `json:"wash_attempts_count"`
 		} `json:"alerts"`
 	}
 	require.NoError(t, json.Unmarshal(alertsRec.Body.Bytes(), &alertsResp))
@@ -324,6 +329,14 @@ func TestMultiPanelStringWorkflow(t *testing.T) {
 			foundAlert = true
 			assert.Contains(t, al.Description, "panel 1")
 			assert.Contains(t, al.MetaText, "Delta: +17.0°C vs Baseline")
+			assert.NotNil(t, al.InspectionID)
+			assert.NotEmpty(t, *al.InspectionID)
+			assert.NotNil(t, al.MaxTemperatureC)
+			assert.InDelta(t, 42.0, *al.MaxTemperatureC, 0.1)
+			assert.NotNil(t, al.BaselineTemperatureC)
+			assert.InDelta(t, 25.0, *al.BaselineTemperatureC, 0.1)
+			assert.NotNil(t, al.WashAttemptsCount)
+			assert.Equal(t, int32(0), *al.WashAttemptsCount)
 		}
 	}
 	assert.True(t, foundAlert, "expected to find alert referencing panel 1")

@@ -221,6 +221,11 @@ type AlertDTO struct {
 	LocalXCm         *float64 `json:"local_x_cm,omitempty"`
 	DeltaC           *float64 `json:"delta_c,omitempty"`
 	CreatedAt        string   `json:"created_at"`
+	InspectionID          *string  `json:"inspection_id,omitempty"`
+	InspectionDate        *string  `json:"inspection_date,omitempty"`
+	MaxTemperatureC       *float64 `json:"max_temperature_c,omitempty"`
+	BaselineTemperatureC  *float64 `json:"baseline_temperature_c,omitempty"`
+	WashAttemptsCount     *int32   `json:"wash_attempts_count,omitempty"`
 }
 
 type AlertsSummaryDTO struct {

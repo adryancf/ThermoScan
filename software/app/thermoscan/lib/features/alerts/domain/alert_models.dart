@@ -24,6 +24,11 @@ class FieldAlert {
     this.localXPositionCm,
     this.xPositionCm,
     this.deltaC,
+    this.inspectionId,
+    this.inspectionDate,
+    this.maxTemperatureC,
+    this.baselineTemperatureC,
+    this.washAttemptsCount,
     required this.createdAt,
   });
 
@@ -39,9 +44,16 @@ class FieldAlert {
   final double? localXPositionCm;
   final double? xPositionCm;
   final double? deltaC;
+  final String? inspectionId;
+  final String? inspectionDate;
+  final double? maxTemperatureC;
+  final double? baselineTemperatureC;
+  final int? washAttemptsCount;
   final String createdAt;
 
   bool get isCritical => severity == 'critical';
+  bool get isHotspot => type == 'hotspot_unresolved' || type == 'hotspot';
+  bool get isReservoirLow => type == 'reservoir_low';
 
   String get formattedPanelLocation {
     final parts = <String>['Array $moduleName'];
@@ -69,13 +81,18 @@ class FieldAlert {
       type: json['type'] as String? ?? 'unknown',
       title: json['title'] as String? ?? 'Field Alert',
       description: json['description'] as String? ?? '',
-      metaText: json['meta_text'] as String? ?? '',
+      metaText: (json['meta_text'] ?? json['metaText']) as String? ?? '',
       panelIndex: _parseAlertInt(json['panel_index']),
       localXPositionCm: _parseAlertDouble(
         json['local_x_position_cm'] ?? json['local_x_cm'],
       ),
       xPositionCm: _parseAlertDouble(json['x_position_cm']),
       deltaC: _parseAlertDouble(json['delta_c']),
+      inspectionId: json['inspection_id'] as String?,
+      inspectionDate: json['inspection_date'] as String?,
+      maxTemperatureC: _parseAlertDouble(json['max_temperature_c']),
+      baselineTemperatureC: _parseAlertDouble(json['baseline_temperature_c']),
+      washAttemptsCount: _parseAlertInt(json['wash_attempts_count']),
       createdAt: json['created_at'] as String? ?? '',
     );
   }

@@ -378,7 +378,9 @@ SELECT a.id, a.module_id, m.name AS module_name, m.installer_technician_id, a.pa
        COALESCE(ipr.baseline_temperature_c::text, insp.baseline_temperature_c::text, '0.0')::text AS baseline_temperature_c,
        COALESCE(m.panel_length_cm::text, '')::text AS module_panel_length_cm,
        m.panel_count AS module_panel_count,
-       COALESCE(m.panel_spacing_cm::text, '')::text AS module_panel_spacing_cm
+       COALESCE(m.panel_spacing_cm::text, '')::text AS module_panel_spacing_cm,
+       insp.id AS inspection_id,
+       insp.started_at AS inspection_started_at
 FROM anomaly_events a
 JOIN modules m ON m.id = a.module_id
 JOIN measurements meas ON meas.id = a.origin_measurement_id

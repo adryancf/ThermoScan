@@ -78,26 +78,47 @@ func (s *Service) ListActiveAlerts(ctx context.Context, principal auth.Principal
 		}
 
 		xPosRounded := math.Round(xPos*10.0) / 10.0
-		title := fmt.Sprintf("Hotspot Unresolved: %s (Painel %d)", a.ModuleName, a.PanelIndex)
-		metaText := fmt.Sprintf("Delta: +%s°C vs Baseline • Painel %d (X=%scm)", strconv.FormatFloat(delta, 'f', 1, 64), a.PanelIndex, strconv.FormatFloat(xPosRounded, 'f', 1, 64))
-		desc := fmt.Sprintf("Thermal anomaly confirmed on panel %d (Painel %d) at coordinate X=%s cm. Wash attempts registered: %d of 3.", a.PanelIndex, a.PanelIndex, strconv.FormatFloat(xPosRounded, 'f', 1, 64), a.ActuatedAttemptsCount)
+		title := fmt.Sprintf("Hotspot Unresolved: %s (Panel %d)", a.ModuleName, a.PanelIndex)
+		metaText := fmt.Sprintf("Delta: +%s°C vs Baseline • Panel %d (X=%scm)", strconv.FormatFloat(delta, 'f', 1, 64), a.PanelIndex, strconv.FormatFloat(xPosRounded, 'f', 1, 64))
+		desc := fmt.Sprintf("Thermal anomaly confirmed on panel %d at coordinate X=%s cm. Wash attempts registered: %d of 3.", a.PanelIndex, strconv.FormatFloat(xPosRounded, 'f', 1, 64), a.ActuatedAttemptsCount)
 		panelIdx := a.PanelIndex
 
+		var inspIDPtr *string
+		if a.InspectionID.Valid {
+			idStr := auth.FormatUUID(a.InspectionID)
+			inspIDPtr = &idStr
+		}
+
+		var inspDatePtr *string
+		if a.InspectionStartedAt != nil && !a.InspectionStartedAt.IsZero() {
+			dStr := a.InspectionStartedAt.UTC().Format(time.RFC3339)
+			inspDatePtr = &dStr
+		}
+
+		maxTRounded := math.Round(maxT*10.0) / 10.0
+		baseTRounded := math.Round(baseT*10.0) / 10.0
+		washAttempts := a.ActuatedAttemptsCount
+
 		alerts = append(alerts, AlertDTO{
-			ID:               auth.FormatUUID(a.ID),
-			ModuleID:         auth.FormatUUID(a.ModuleID),
-			ModuleName:       a.ModuleName,
-			Severity:         severity,
-			Type:             "hotspot_unresolved",
-			Title:            title,
-			Description:      desc,
-			MetaText:         metaText,
-			PanelIndex:       &panelIdx,
-			XPositionCm:      &xPosRounded,
-			LocalXPositionCM: localXPtr,
-			LocalXCm:         localXPtr,
-			DeltaC:           &delta,
-			CreatedAt:        a.DetectedAt.UTC().Format(time.RFC3339),
+			ID:                   auth.FormatUUID(a.ID),
+			ModuleID:             auth.FormatUUID(a.ModuleID),
+			ModuleName:           a.ModuleName,
+			Severity:             severity,
+			Type:                 "hotspot_unresolved",
+			Title:                title,
+			Description:          desc,
+			MetaText:             metaText,
+			PanelIndex:           &panelIdx,
+			XPositionCm:          &xPosRounded,
+			LocalXPositionCM:     localXPtr,
+			LocalXCm:             localXPtr,
+			DeltaC:               &delta,
+			CreatedAt:            a.DetectedAt.UTC().Format(time.RFC3339),
+			InspectionID:         inspIDPtr,
+			InspectionDate:       inspDatePtr,
+			MaxTemperatureC:      &maxTRounded,
+			BaselineTemperatureC: &baseTRounded,
+			WashAttemptsCount:    &washAttempts,
 		})
 	}
 

@@ -267,6 +267,50 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year} at $timeStr';
   }
 
+  String _formatNextInspectionLabel(String? iso, int? intervalDays) {
+    if (iso != null && iso.isNotEmpty) {
+      final dt = DateTime.tryParse(iso)?.toLocal();
+      if (dt != null) {
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final targetDay = DateTime(dt.year, dt.month, dt.day);
+        final diffDays = targetDay.difference(today).inDays;
+
+        if (diffDays == 0) {
+          final hour12 =
+              dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
+          final minuteStr = dt.minute.toString().padLeft(2, '0');
+          final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+          return 'Next: Today ($hour12:$minuteStr $ampm)';
+        } else if (diffDays == 1) {
+          return 'Next: Tomorrow';
+        } else if (diffDays > 1 && diffDays < 7) {
+          return 'Next: in ${diffDays}d';
+        } else {
+          const months = [
+            'Jan',
+            'Feb',
+            'Mar',
+            'Apr',
+            'May',
+            'Jun',
+            'Jul',
+            'Aug',
+            'Sep',
+            'Oct',
+            'Nov',
+            'Dec'
+          ];
+          return 'Next: ${dt.day} ${months[dt.month - 1]}';
+        }
+      }
+    }
+    if (intervalDays != null && intervalDays > 0) {
+      return 'Next: Every ${intervalDays}d';
+    }
+    return 'Next: Not scheduled';
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(authControllerProvider).user;
@@ -1432,6 +1476,44 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     );
   }
 
+  /// Compact next inspection chip pill opening scan schedule modal on tap
+  Widget _buildNextInspectionPill({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.calendar_month_outlined,
+              size: 14,
+              color: AppColors.primary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              label,
+              style: AppTypography.chip.copyWith(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Detailed Technical Diagnostics Modal Bottom Sheet
   void _showDiagnosticsModal(
     BuildContext context,
@@ -1920,44 +2002,16 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                               isWarning: deviceStatus?.waterAvailable == false,
                               icon: Icons.water_drop_outlined,
                             ),
-                            InkWell(
-                              onTap: () => _showDiagnosticsModal(
+                            _buildNextInspectionPill(
+                              label: _formatNextInspectionLabel(
+                                deviceStatus?.nextInspectionAt ??
+                                    mod.nextInspectionAt,
+                                mod.inspectionIntervalDays,
+                              ),
+                              onTap: () => _showScanHistoryModal(
                                 context,
                                 mod,
                                 deviceStatus,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppColors.primarySoft,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: AppColors.primary.withValues(alpha: 0.3),
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.tune_rounded,
-                                      size: 14,
-                                      color: AppColors.primary,
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Text(
-                                      'Diagnostics',
-                                      style: AppTypography.chip.copyWith(
-                                        fontSize: 11.5,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppColors.primary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
                               ),
                             ),
                           ],
@@ -1965,11 +2019,45 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                       ],
                     ),
                   ),
-                  Icon(
-                    _infoExpanded
-                        ? Icons.keyboard_arrow_up_rounded
-                        : Icons.keyboard_arrow_down_rounded,
-                    color: AppColors.primary,
+                  const SizedBox(width: 8),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => _showDiagnosticsModal(
+                          context,
+                          mod,
+                          deviceStatus,
+                        ),
+                        child: Tooltip(
+                          message: 'Robot & Sensor Status',
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color:
+                                  AppColors.primarySoft.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: AppColors.primary.withValues(alpha: 0.25),
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.sensors_rounded,
+                              size: 18,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Icon(
+                        _infoExpanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        color: AppColors.primary,
+                      ),
+                    ],
                   ),
                 ],
               ),

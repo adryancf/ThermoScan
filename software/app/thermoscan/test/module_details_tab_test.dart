@@ -2008,10 +2008,11 @@ void main() {
       expect(find.text('Awaiting Initial Scan'), findsOneWidget);
       expect(find.text('Robot Online'), findsOneWidget);
       expect(find.text('Water OK'), findsOneWidget);
+      expect(find.textContaining('Next:'), findsOneWidget);
 
-      // Open detailed diagnostics modal via 'Diagnostics' quick pill button
-      expect(find.text('Diagnostics'), findsOneWidget);
-      await tester.tap(find.text('Diagnostics'));
+      // Open detailed diagnostics modal via sensors quick button
+      expect(find.byIcon(Icons.sensors_rounded), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.sensors_rounded));
       await tester.pumpAndSettle();
 
       // Detailed Diagnostics modal items

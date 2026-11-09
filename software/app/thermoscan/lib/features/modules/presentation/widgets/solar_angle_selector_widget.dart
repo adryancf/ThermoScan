@@ -3,25 +3,41 @@ import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 
-/// Interactive Sun Height Elevation Selector Widget.
-/// Replaces raw numeric text inputs with contextual presets (10° Wide Window, 15° Standard, 20° High Sun, Custom)
-/// plus a contextual explanation banner and a modal guide explaining why sun height matters.
-class SolarAngleSelectorWidget extends StatelessWidget {
+/// Compact and interactive Sun Height Elevation Selector Widget.
+/// Features a single-row compact layout, location-based recommendation (★),
+/// persistent Custom stepper mode (prevents getting stuck on preset values),
+/// and a contextual guide modal.
+class SolarAngleSelectorWidget extends StatefulWidget {
   const SolarAngleSelectorWidget({
     super.key,
     required this.selectedAngle,
     required this.onChanged,
+    this.recommendedAngle = 15.0,
     this.sourceDescription,
     this.readOnly = false,
   });
 
   final double selectedAngle;
   final ValueChanged<double> onChanged;
+  final double recommendedAngle;
   final String? sourceDescription;
   final bool readOnly;
 
-  bool get _isCustom =>
-      selectedAngle != 10.0 && selectedAngle != 15.0 && selectedAngle != 20.0;
+  @override
+  State<SolarAngleSelectorWidget> createState() =>
+      _SolarAngleSelectorWidgetState();
+}
+
+class _SolarAngleSelectorWidgetState extends State<SolarAngleSelectorWidget> {
+  late bool _isCustomMode;
+
+  @override
+  void initState() {
+    super.initState();
+    _isCustomMode = widget.selectedAngle != 10.0 &&
+        widget.selectedAngle != 15.0 &&
+        widget.selectedAngle != 20.0;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +67,7 @@ class SolarAngleSelectorWidget extends StatelessWidget {
               borderRadius: BorderRadius.circular(6),
               onTap: () => showSunHeightGuideModal(context),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: AppColors.primarySoft.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(6),
@@ -64,7 +80,7 @@ class SolarAngleSelectorWidget extends StatelessWidget {
                   children: [
                     const Icon(
                       Icons.help_outline_rounded,
-                      size: 13,
+                      size: 12,
                       color: AppColors.primary,
                     ),
                     const SizedBox(width: 4),
@@ -90,105 +106,133 @@ class SolarAngleSelectorWidget extends StatelessWidget {
             fontSize: 11,
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
 
-        // 4 Option Cards in a responsive layout
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final isNarrow = constraints.maxWidth < 360;
-            return GridView.count(
-              crossAxisCount: isNarrow ? 2 : 4,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              childAspectRatio: isNarrow ? 2.1 : 1.25,
-              children: [
-                _buildOptionCard(
-                  key: const Key('sun_angle_option_10'),
-                  title: '10°',
-                  subtitle: 'Wide Window',
-                  angle: 10.0,
-                  isSelected: selectedAngle == 10.0,
-                ),
-                _buildOptionCard(
-                  key: const Key('sun_angle_option_15'),
-                  title: '15°',
-                  subtitle: 'Standard',
-                  angle: 15.0,
-                  isRecommended: true,
-                  isSelected: selectedAngle == 15.0,
-                ),
-                _buildOptionCard(
-                  key: const Key('sun_angle_option_20'),
-                  title: '20°',
-                  subtitle: 'High Sun',
-                  angle: 20.0,
-                  isSelected: selectedAngle == 20.0,
-                ),
-                _buildOptionCard(
-                  key: const Key('sun_angle_option_custom'),
-                  title: 'Custom',
-                  subtitle: _isCustom ? '${selectedAngle.toStringAsFixed(1)}°' : 'Manual',
-                  angle: _isCustom ? selectedAngle : 12.0,
-                  isCustomOption: true,
-                  isSelected: _isCustom,
-                ),
-              ],
-            );
-          },
+        // Compact Single Row of 4 Option Chips
+        Row(
+          children: [
+            Expanded(
+              child: _buildCompactOption(
+                key: const Key('sun_angle_option_10'),
+                title: '10°',
+                subtitle: 'Wide',
+                angle: 10.0,
+                isRecommended: (widget.recommendedAngle - 10.0).abs() < 1.0,
+                isSelected: !_isCustomMode && (widget.selectedAngle - 10.0).abs() < 0.1,
+                onTap: () {
+                  setState(() => _isCustomMode = false);
+                  widget.onChanged(10.0);
+                },
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildCompactOption(
+                key: const Key('sun_angle_option_15'),
+                title: '15°',
+                subtitle: 'Standard',
+                angle: 15.0,
+                isRecommended: (widget.recommendedAngle - 15.0).abs() < 1.0,
+                isSelected: !_isCustomMode && (widget.selectedAngle - 15.0).abs() < 0.1,
+                onTap: () {
+                  setState(() => _isCustomMode = false);
+                  widget.onChanged(15.0);
+                },
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildCompactOption(
+                key: const Key('sun_angle_option_20'),
+                title: '20°',
+                subtitle: 'High Sun',
+                angle: 20.0,
+                isRecommended: (widget.recommendedAngle - 20.0).abs() < 1.0,
+                isSelected: !_isCustomMode && (widget.selectedAngle - 20.0).abs() < 0.1,
+                onTap: () {
+                  setState(() => _isCustomMode = false);
+                  widget.onChanged(20.0);
+                },
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: _buildCompactOption(
+                key: const Key('sun_angle_option_custom'),
+                title: 'Custom',
+                subtitle: _isCustomMode ? '${widget.selectedAngle.toStringAsFixed(0)}°' : 'Manual',
+                angle: widget.selectedAngle,
+                isRecommended: false,
+                isSelected: _isCustomMode,
+                onTap: () {
+                  setState(() => _isCustomMode = true);
+                  if ((widget.selectedAngle - 10.0).abs() < 0.1 ||
+                      (widget.selectedAngle - 15.0).abs() < 0.1 ||
+                      (widget.selectedAngle - 20.0).abs() < 0.1) {
+                    widget.onChanged(12.0);
+                  }
+                },
+              ),
+            ),
+          ],
         ),
 
-        // Custom Stepper if Custom is active
-        if (_isCustom) ...[
-          const SizedBox(height: 10),
+        // Persistent Custom Stepper when Custom is active
+        if (_isCustomMode) ...[
+          const SizedBox(height: 8),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
               color: AppColors.background,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.secondary.withValues(alpha: 0.4)),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: AppColors.secondary.withValues(alpha: 0.35)),
             ),
             child: Row(
               children: [
                 const Icon(
                   Icons.tune_rounded,
-                  size: 16,
+                  size: 15,
                   color: AppColors.secondary,
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Custom Sun Angle: ${selectedAngle.toStringAsFixed(1)}°',
+                    'Custom Sun Angle: ${widget.selectedAngle.toStringAsFixed(1)}°',
                     style: AppTypography.caption.copyWith(
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary,
+                      fontSize: 11,
                     ),
                   ),
                 ),
-                if (!readOnly) ...[
+                if (!widget.readOnly) ...[
                   IconButton(
                     key: const Key('custom_sun_angle_decrement'),
-                    icon: const Icon(Icons.remove_circle_outline, size: 20),
-                    color: selectedAngle > 5.0 ? AppColors.secondary : AppColors.border,
-                    splashRadius: 18,
-                    onPressed: selectedAngle > 5.0
-                        ? () => onChanged(selectedAngle - 1.0)
+                    icon: const Icon(Icons.remove_circle_outline, size: 18),
+                    color: widget.selectedAngle > 5.0 ? AppColors.secondary : AppColors.border,
+                    splashRadius: 16,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    onPressed: widget.selectedAngle > 5.0
+                        ? () => widget.onChanged(widget.selectedAngle - 1.0)
                         : null,
                   ),
                   Text(
-                    '${selectedAngle.toStringAsFixed(0)}°',
+                    '${widget.selectedAngle.toStringAsFixed(0)}°',
                     style: AppTypography.bodySmall.copyWith(
                       fontWeight: FontWeight.w700,
+                      fontSize: 12,
                     ),
                   ),
                   IconButton(
                     key: const Key('custom_sun_angle_increment'),
-                    icon: const Icon(Icons.add_circle_outline, size: 20),
-                    color: selectedAngle < 85.0 ? AppColors.secondary : AppColors.border,
-                    splashRadius: 18,
-                    onPressed: selectedAngle < 85.0
-                        ? () => onChanged(selectedAngle + 1.0)
+                    icon: const Icon(Icons.add_circle_outline, size: 18),
+                    color: widget.selectedAngle < 85.0 ? AppColors.secondary : AppColors.border,
+                    splashRadius: 16,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                    onPressed: widget.selectedAngle < 85.0
+                        ? () => widget.onChanged(widget.selectedAngle + 1.0)
                         : null,
                   ),
                 ],
@@ -198,9 +242,9 @@ class SolarAngleSelectorWidget extends StatelessWidget {
         ],
 
         // Contextual Explanation Banner
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: AppColors.primarySoft.withValues(alpha: 0.35),
             borderRadius: BorderRadius.circular(8),
@@ -210,17 +254,17 @@ class SolarAngleSelectorWidget extends StatelessWidget {
             children: [
               const Icon(
                 Icons.wb_sunny_outlined,
-                size: 14,
+                size: 13,
                 color: AppColors.secondary,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  _getContextualExplanation(selectedAngle),
+                  _getContextualExplanation(widget.selectedAngle),
                   style: AppTypography.caption.copyWith(
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.w500,
-                    fontSize: 11,
+                    fontSize: 10.5,
                   ),
                 ),
               ),
@@ -228,13 +272,13 @@ class SolarAngleSelectorWidget extends StatelessWidget {
           ),
         ),
 
-        if (sourceDescription != null && sourceDescription!.isNotEmpty) ...[
-          const SizedBox(height: 4),
+        if (widget.sourceDescription != null && widget.sourceDescription!.isNotEmpty) ...[
+          const SizedBox(height: 3),
           Text(
-            'Source: $sourceDescription',
+            'Source: ${widget.sourceDescription}',
             style: AppTypography.caption.copyWith(
               color: AppColors.textSecondary,
-              fontSize: 10.5,
+              fontSize: 10,
             ),
           ),
         ],
@@ -250,91 +294,75 @@ class SolarAngleSelectorWidget extends StatelessWidget {
     } else if (angle <= 20.0) {
       return 'Scans run only when the sun is higher in the sky. Avoids morning shadows from nearby trees or walls.';
     } else {
-      return 'Scans only run when the sun is at least ${angle.toStringAsFixed(1)}° above the horizon.';
+      return 'Scans run when the sun is at least ${angle.toStringAsFixed(1)}° above the horizon.';
     }
   }
 
-  Widget _buildOptionCard({
+  Widget _buildCompactOption({
     required Key key,
     required String title,
     required String subtitle,
     required double angle,
     required bool isSelected,
-    bool isRecommended = false,
-    bool isCustomOption = false,
+    required bool isRecommended,
+    required VoidCallback onTap,
   }) {
     return InkWell(
       key: key,
-      borderRadius: BorderRadius.circular(10),
-      onTap: readOnly
-          ? null
-          : () {
-              if (isCustomOption) {
-                if (!_isCustom) {
-                  onChanged(12.0);
-                }
-              } else {
-                onChanged(angle);
-              }
-            },
+      borderRadius: BorderRadius.circular(8),
+      onTap: widget.readOnly ? null : onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected
-              ? AppColors.primarySoft.withValues(alpha: 0.5)
+              ? AppColors.primarySoft.withValues(alpha: 0.6)
               : AppColors.surface,
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(8),
           border: Border.all(
             color: isSelected ? AppColors.secondary : AppColors.border,
             width: isSelected ? 1.5 : 1.0,
           ),
         ),
-        child: Stack(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Align(
-              alignment: Alignment.center,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: AppTypography.caption.copyWith(
-                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
-                      color: isSelected ? AppColors.textPrimary : AppColors.textPrimary,
-                    ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: AppTypography.caption.copyWith(
+                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                    color: AppColors.textPrimary,
+                    fontSize: 11.5,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: AppTypography.caption.copyWith(
-                      fontSize: 10,
-                      color: isSelected ? AppColors.secondary : AppColors.textSecondary,
-                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (isRecommended)
-              Align(
-                alignment: Alignment.topRight,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                  decoration: BoxDecoration(
-                    color: AppColors.secondary,
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: const Text(
+                ),
+                if (isRecommended) ...[
+                  const SizedBox(width: 2),
+                  const Text(
                     '★',
                     style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 8,
+                      color: AppColors.secondary,
+                      fontSize: 8.5,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 1),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.caption.copyWith(
+                fontSize: 9.5,
+                color: isSelected ? AppColors.secondary : AppColors.textSecondary,
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
+            ),
           ],
         ),
       ),
@@ -415,9 +443,9 @@ void showSunHeightGuideModal(BuildContext context) {
                 const SizedBox(height: 12),
                 _buildGuideCard(
                   number: '3',
-                  title: '15° Is the Recommended Standard',
+                  title: 'Location-Based Recommendation',
                   description:
-                      '15° corresponds to about 1 to 1.5 hours after sunrise until 1.5 hours before sunset. This ensures irradiance above 600 W/m² (the standard requirement for PV thermography under IEC 62446-3).',
+                      'The system automatically estimates the best minimum sun angle for your latitude. Higher latitudes experience lower winter sun, so 15°–20° is recommended to avoid shadows.',
                   icon: Icons.verified_outlined,
                 ),
                 const SizedBox(height: 20),

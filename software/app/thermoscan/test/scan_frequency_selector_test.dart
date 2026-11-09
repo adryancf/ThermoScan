@@ -43,10 +43,22 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('custom_frequency_increment')), findsOneWidget);
 
-    // Increment
+    // Increment 5 -> 6
     await tester.tap(find.byKey(const Key('custom_frequency_increment')));
     await tester.pumpAndSettle();
     expect(currentDays, 6);
     expect(find.text('The robot will automatically scan panels every 6 days.'), findsOneWidget);
+
+    // Increment 6 -> 7 (Crucial test: hitting preset 7 days MUST NOT switch back to preset or hide stepper)
+    await tester.tap(find.byKey(const Key('custom_frequency_increment')));
+    await tester.pumpAndSettle();
+    expect(currentDays, 7);
+    expect(find.byKey(const Key('custom_frequency_increment')), findsOneWidget);
+
+    // Increment 7 -> 8 to prove custom mode is fully persistent
+    await tester.tap(find.byKey(const Key('custom_frequency_increment')));
+    await tester.pumpAndSettle();
+    expect(currentDays, 8);
+    expect(find.text('The robot will automatically scan panels every 8 days.'), findsOneWidget);
   });
 }

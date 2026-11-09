@@ -762,6 +762,13 @@ class _ModuleConfigurationScreenState
                           selectedAngle:
                               double.tryParse(_solarAngleCtrl.text.trim()) ??
                                   15.0,
+                          recommendedAngle: () {
+                            final lat = mod.latitude?.abs();
+                            if (lat == null) return 15.0;
+                            if (lat < 15.0) return 10.0;
+                            if (lat < 30.0) return 15.0;
+                            return 20.0;
+                          }(),
                           readOnly: !perms.canEditSolarAngle,
                           onChanged: (angle) {
                             setState(() {

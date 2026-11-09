@@ -79,6 +79,7 @@ class _ModuleInstallationWizardScreenState
   final _countCtrl = TextEditingController(text: '1');
   final _spacingCtrl = TextEditingController(text: '0');
   final _solarAngleCtrl = TextEditingController(text: '15');
+  double _recommendedSolarAngle = 15.0;
   String _solarAngleSource = 'default (15°)';
   final _intervalCtrl = TextEditingController(text: '7');
   final _reservoirCtrl = TextEditingController(text: '2000');
@@ -169,7 +170,10 @@ class _ModuleInstallationWizardScreenState
         details.companyClients.where((c) => c.isAssigned).map((c) => c.id),
       );
 
-    if (mod.latitude != null) _latCtrl.text = mod.latitude.toString();
+    if (mod.latitude != null) {
+      _latCtrl.text = mod.latitude.toString();
+      _autoEstimateSolarAngle(mod.latitude!);
+    }
     if (mod.longitude != null) _lngCtrl.text = mod.longitude.toString();
     if (mod.elevationM != null) _elevCtrl.text = mod.elevationM.toString();
     if (mod.azimuthDeg != null) _azimuthCtrl.text = mod.azimuthDeg.toString();
@@ -384,6 +388,10 @@ class _ModuleInstallationWizardScreenState
   void _nextFromStep2() {
     setState(() => _errorMsg = null);
     if (!(_step2FormKey.currentState?.validate() ?? false)) return;
+    final lat = double.tryParse(_latCtrl.text.trim());
+    if (lat != null) {
+      _autoEstimateSolarAngle(lat);
+    }
     setState(() => _currentStep = 2);
     _scrollToTop();
   }
@@ -527,8 +535,8 @@ class _ModuleInstallationWizardScreenState
 
   void _autoEstimateSolarAngle(double latitude) {
     // Estimativa solar regional/geométrica:
-    // Em baixas latitudes (equador/tropicais), ângulo solar mínimo útil de corte costuma ficar em 10°-12°.
-    // Em latitudes médias/altas, 15°-18° evita sombreamentos de inverno no início da manhã.
+    // Em baixas latitudes (equador/tropicais), ângulo solar mínimo útil de corte costuma ficar em 10°.
+    // Em latitudes médias/altas, 15° ou 20° evita sombreamentos de inverno no início da manhã.
     final absLat = latitude.abs();
     double estimated;
     if (absLat < 15.0) {
@@ -536,13 +544,15 @@ class _ModuleInstallationWizardScreenState
     } else if (absLat < 30.0) {
       estimated = 15.0;
     } else {
-      estimated = 18.0;
+      estimated = 20.0;
     }
+    _recommendedSolarAngle = estimated;
 
     // Se o usuário ainda não editou manualmente ou está no default inicial
     if (_solarAngleSource.startsWith('default') || _solarAngleSource.startsWith('estimated')) {
       _solarAngleCtrl.text = estimated.toStringAsFixed(1);
-      _solarAngleSource = 'estimated from latitude ($absLat° S/N)';
+      final hemisphere = latitude >= 0 ? 'N' : 'S';
+      _solarAngleSource = 'estimated from latitude (${absLat.toStringAsFixed(1)}° $hemisphere)';
     }
   }
 
@@ -1729,6 +1739,7 @@ class _ModuleInstallationWizardScreenState
                 SolarAngleSelectorWidget(
                   selectedAngle:
                       double.tryParse(_solarAngleCtrl.text.trim()) ?? 15.0,
+                  recommendedAngle: _recommendedSolarAngle,
                   sourceDescription: _solarAngleSource,
                   onChanged: (angle) {
                     setState(() {

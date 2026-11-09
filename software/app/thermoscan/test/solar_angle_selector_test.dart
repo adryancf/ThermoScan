@@ -3,8 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/solar_angle_selector_widget.dart';
 
 void main() {
-  testWidgets('SolarAngleSelectorWidget renders presets and triggers selection', (tester) async {
+  testWidgets('SolarAngleSelectorWidget renders presets, handles dynamic recommendation, and persistent custom stepper', (tester) async {
     double currentAngle = 15.0;
+    double recommended = 10.0;
 
     await tester.pumpWidget(
       MaterialApp(
@@ -13,6 +14,7 @@ void main() {
             builder: (context, setState) {
               return SolarAngleSelectorWidget(
                 selectedAngle: currentAngle,
+                recommendedAngle: recommended,
                 sourceDescription: 'estimated from latitude',
                 onChanged: (angle) => setState(() => currentAngle = angle),
               );
@@ -22,11 +24,11 @@ void main() {
       ),
     );
 
-    // Verify Title and Preset 15°
+    // Verify Title and Preset
     expect(find.text('Minimum Sun Height'), findsOneWidget);
     expect(find.text('15°'), findsOneWidget);
-    expect(find.text('★'), findsOneWidget); // Recommended badge
-    expect(find.textContaining('Balanced daylight window'), findsOneWidget);
+    // Since recommended is 10.0, the star is present
+    expect(find.text('★'), findsOneWidget);
 
     // Select 10° Wide Window
     await tester.tap(find.byKey(const Key('sun_angle_option_10')));
@@ -46,10 +48,25 @@ void main() {
     expect(currentAngle, 12.0);
     expect(find.byKey(const Key('custom_sun_angle_increment')), findsOneWidget);
 
-    // Increment Custom Angle
+    // Increment Custom Angle: 12.0 -> 13.0 -> 14.0 -> 15.0
     await tester.tap(find.byKey(const Key('custom_sun_angle_increment')));
     await tester.pumpAndSettle();
     expect(currentAngle, 13.0);
+
+    await tester.tap(find.byKey(const Key('custom_sun_angle_increment')));
+    await tester.pumpAndSettle();
+    expect(currentAngle, 14.0);
+
+    // Increment 14.0 -> 15.0 (Hitting preset 15° MUST NOT deactivate custom mode or hide stepper)
+    await tester.tap(find.byKey(const Key('custom_sun_angle_increment')));
+    await tester.pumpAndSettle();
+    expect(currentAngle, 15.0);
+    expect(find.byKey(const Key('custom_sun_angle_increment')), findsOneWidget);
+
+    // Increment 15.0 -> 16.0
+    await tester.tap(find.byKey(const Key('custom_sun_angle_increment')));
+    await tester.pumpAndSettle();
+    expect(currentAngle, 16.0);
   });
 
   testWidgets('showSunHeightGuideModal explains why sun height matters and dismisses cleanly', (tester) async {
@@ -84,7 +101,7 @@ void main() {
     // Verify 3 Steps / Reasons
     expect(find.text('Panels Must Be Generating Power'), findsOneWidget);
     expect(find.text('Eliminating Low-Angle Shadows & Glare'), findsOneWidget);
-    expect(find.text('15° Is the Recommended Standard'), findsOneWidget);
+    expect(find.text('Location-Based Recommendation'), findsOneWidget);
 
     // Dismiss
     await tester.tap(find.text('Got it, Thanks!'));

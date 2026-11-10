@@ -433,14 +433,24 @@ void ThermoscanApp::handleScanning() {
 
         histogram_.reset();
         quantized_frames_.clear();
+
+        // Pre-reserve capacity to avoid vector reallocations and heap fragmentation during scan
+        size_t expected_steps = static_cast<size_t>((p_end - p_start) / STEP_SIZE_CM) + 2;
+        if (expected_steps > MAX_PANEL_ACQUISITIONS) {
+            expected_steps = MAX_PANEL_ACQUISITIONS;
+        }
+        quantized_frames_.reserve(expected_steps);
+
         bool panel_truncated = false;
 
         float current_x = p_start;
 
         std::vector<std::vector<float>> batch_frames_data;
         std::vector<PowerSnapshot> batch_power_data;
-        batch_frames_data.reserve(5);
-        batch_power_data.reserve(5);
+        const size_t BATCH_CHUNK_SIZE = 3;
+        batch_frames_data.reserve(BATCH_CHUNK_SIZE);
+        batch_power_data.reserve(BATCH_CHUNK_SIZE);
+        current_batch_.reserve(BATCH_CHUNK_SIZE);
 
         while (current_x <= p_end + 1e-3f) {
             if (quantized_frames_.size() >= MAX_PANEL_ACQUISITIONS) {
@@ -456,7 +466,15 @@ void ThermoscanApp::handleScanning() {
             ThermalFrame frame;
             bool frame_ok = false;
             if (camera_ != nullptr) {
-                frame_ok = camera_->captureFrame(frame);
+                for (int cap_retry = 0; cap_retry < 3; ++cap_retry) {
+                    frame_ok = camera_->captureFrame(frame);
+                    if (frame_ok) {
+                        break;
+                    }
+#if defined(ARDUINO) || defined(ESP32)
+                    delay(80 * (cap_retry + 1));
+#endif
+                }
             }
 
             PowerSnapshot power;
@@ -480,7 +498,7 @@ void ThermoscanApp::handleScanning() {
                 }
 
                 std::vector<float> frame_copy(frame.pixels, frame.pixels + ThermalFrame::PIXEL_COUNT);
-                batch_frames_data.push_back(frame_copy);
+                batch_frames_data.push_back(std::move(frame_copy));
                 batch_power_data.push_back(power);
 
                 TelemetryMeasurementItem item;
@@ -505,13 +523,13 @@ void ThermoscanApp::handleScanning() {
                 item.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
                 current_batch_.push_back(item);
 
-                Serial.printf("[SCAN] Panel %u: X = %.1f cm | T_max = %.1f C | Accumulated batch: %u/5\n",
-                              p, current_x, max_temp, current_batch_.size());
+                Serial.printf("[SCAN] Panel %u: X = %.1f cm | T_max = %.1f C | Accumulated batch: %u/%u\n",
+                              p, current_x, max_temp, current_batch_.size(), static_cast<unsigned>(BATCH_CHUNK_SIZE));
 
                 const bool is_last_step = ((current_x + STEP_SIZE_CM) > (p_end + 1e-3f)) ||
                                           (quantized_frames_.size() >= MAX_PANEL_ACQUISITIONS);
 
-                if (current_batch_.size() >= 5 || is_last_step) {
+                if (current_batch_.size() >= BATCH_CHUNK_SIZE || is_last_step) {
                     if (cloud_ != nullptr) {
                         IngestTelemetryBatchInput batch_input;
                         batch_input.inspection_source_event_id = inspection_source_event_id_;
@@ -520,13 +538,47 @@ void ThermoscanApp::handleScanning() {
                         batch_input.scheduled_for_epoch = inspection_scheduled_for_;
                         batch_input.batch = current_batch_;
 
-                        cloud_->ingestTelemetryBatch(batch_input);
+                        bool ingested = false;
+                        for (int retry = 0; retry < 3; ++retry) {
+                            if (cloud_->ingestTelemetryBatch(batch_input)) {
+                                ingested = true;
+                                break;
+                            }
+#if defined(ARDUINO) || defined(ESP32)
+                            delay(300 * (retry + 1));
+#endif
+                        }
+
+                        // Fallback: If batch of items failed (e.g. heap exhaustion during large JSON/TLS),
+                        // retry sending each item individually to minimize memory peak
+                        if (!ingested && current_batch_.size() > 1) {
+                            Serial.println(F("[SCAN] Batch submission failed. Retrying telemetry item-by-item..."));
+                            for (size_t single_idx = 0; single_idx < current_batch_.size(); ++single_idx) {
+                                IngestTelemetryBatchInput single_input;
+                                single_input.inspection_source_event_id = inspection_source_event_id_;
+                                single_input.inspection_type = "scheduled";
+                                single_input.started_at_epoch = inspection_started_at_;
+                                single_input.scheduled_for_epoch = inspection_scheduled_for_;
+                                single_input.batch.push_back(current_batch_[single_idx]);
+
+                                for (int retry = 0; retry < 2; ++retry) {
+                                    if (cloud_->ingestTelemetryBatch(single_input)) {
+                                        break;
+                                    }
+#if defined(ARDUINO) || defined(ESP32)
+                                    delay(200);
+#endif
+                                }
+                            }
+                        }
                     }
 
                     current_batch_.clear();
                     batch_frames_data.clear();
                     batch_power_data.clear();
                 }
+            } else {
+                Serial.printf("[SCAN] Warning: Failed to capture thermal frame at X = %.1f cm (skipped)\n", current_x);
             }
 
             current_x += STEP_SIZE_CM;

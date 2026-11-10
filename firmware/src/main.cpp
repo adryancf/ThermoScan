@@ -18,16 +18,16 @@
 
 // WiFi Configuration (overridable via compiler build flags)
 #ifndef WIFI_SSID
-#define WIFI_SSID "Alan"
+#define WIFI_SSID "GalaxyS"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "kczqqb66"
+#define WIFI_PASSWORD "acf12345"
 #endif
 
 #ifndef BACKEND_URL
-#define BACKEND_URL "https://api-thermoscan.realan.space/"
 #endif
+#define BACKEND_URL "https://api-thermoscan.realan.space"
 
 // loop() runs scans, MLX90640 capture (I2C) and HTTPS on this task. The default 8 KB stack
 // overflowed on the first capture (Stack canary watchpoint triggered (loopTask)).

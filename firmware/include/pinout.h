@@ -251,17 +251,17 @@ constexpr float DEFAULT_STEPS_PER_CM = STEPS_PER_CM_DEFAULT;
 constexpr uint32_t SERVO_SETTLE_DELAY_MS = 300;
 
 // Maximum scan acquisitions buffered in RAM during a single inspection pass.
-// With 35 acquisitions at 2.0 cm step, rail travel is 0 to 68 cm and thermal FOV coverage
-// reaches ~73 cm (68 cm + 5.0 cm FOV). If panel_length_cm exceeds 68 cm, scan truncates safely.
+// With 55 acquisitions at 2.0 cm step, rail travel is 0 to 108 cm and thermal FOV coverage
+// reaches ~113 cm (108 cm + 5.0 cm FOV). If panel_length_cm exceeds rail coverage, scan truncates safely.
 #ifndef MAX_SCAN_ACQUISITIONS
-#define MAX_SCAN_ACQUISITIONS 35
+#define MAX_SCAN_ACQUISITIONS 55
 #endif
 constexpr size_t SCAN_MAX_ACQUISITIONS        = MAX_SCAN_ACQUISITIONS;
 
 // Maximum scan acquisitions buffered in RAM per panel.
 // In multi-panel mode, buffered frames are released after each panel result is confirmed by the backend.
 #ifndef MAX_PANEL_ACQUISITIONS
-#define MAX_PANEL_ACQUISITIONS 35
+#define MAX_PANEL_ACQUISITIONS 55
 #endif
 constexpr size_t PANEL_MAX_ACQUISITIONS       = MAX_PANEL_ACQUISITIONS;
 

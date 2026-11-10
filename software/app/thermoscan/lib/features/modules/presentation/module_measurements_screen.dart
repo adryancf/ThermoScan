@@ -609,9 +609,9 @@ class _ModuleMeasurementsScreenState
   }) {
     final hasElec = avgPower != null || avgVolt != null || avgAmp != null;
     final powerText =
-        avgPower != null ? '${avgPower.toStringAsFixed(1)} W' : 'N/A';
+        avgPower != null ? '${avgPower.toStringAsFixed(3)} W' : 'N/A';
     final voltAmpText = (avgVolt != null && avgAmp != null)
-        ? '${avgVolt.toStringAsFixed(1)}V · ${avgAmp.toStringAsFixed(2)}A'
+        ? '${avgVolt.toStringAsFixed(3)}V · ${avgAmp.toStringAsFixed(3)}A'
         : (hasElec ? 'Partial' : 'No Elec');
 
     final tempText =
@@ -783,7 +783,7 @@ class _ModuleMeasurementsScreenState
       }
     }
     final elecStr = elecMeas != null
-        ? ' • Electrical Output: ${elecMeas.voltageV?.toStringAsFixed(1) ?? "N/A"}V · ${elecMeas.currentA?.toStringAsFixed(2) ?? "N/A"}A · ${elecMeas.powerW?.toStringAsFixed(1) ?? "N/A"}W'
+        ? ' • Electrical Output: ${elecMeas.voltageV?.toStringAsFixed(3) ?? "N/A"}V · ${elecMeas.currentA?.toStringAsFixed(3) ?? "N/A"}A · ${elecMeas.powerW?.toStringAsFixed(3) ?? "N/A"}W'
         : '';
 
     final panelHotspots = latestInspection?.confirmedAnomalies.where((a) {
@@ -1091,11 +1091,11 @@ class _ModuleMeasurementsScreenState
 
   Widget _buildPaginatedStepTile(ModuleMeasurement m, bool isConfirmed) {
     final vText =
-        m.voltageV != null ? '${m.voltageV!.toStringAsFixed(1)}V' : 'N/A';
+        m.voltageV != null ? '${m.voltageV!.toStringAsFixed(3)}V' : 'N/A';
     final iText =
-        m.currentA != null ? '${m.currentA!.toStringAsFixed(2)}A' : 'N/A';
+        m.currentA != null ? '${m.currentA!.toStringAsFixed(3)}A' : 'N/A';
     final pText =
-        m.powerW != null ? '${m.powerW!.toStringAsFixed(1)}W' : 'N/A';
+        m.powerW != null ? '${m.powerW!.toStringAsFixed(3)}W' : 'N/A';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

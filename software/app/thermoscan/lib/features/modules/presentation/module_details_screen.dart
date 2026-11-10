@@ -1311,7 +1311,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 label: 'DC Output',
                 value: (voltage == null && current == null)
                     ? 'N/A'
-                    : '${voltage != null ? "${voltage.toStringAsFixed(1)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(2)} A" : "N/A"}',
+                    : '${voltage != null ? "${voltage.toStringAsFixed(3)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(3)} A" : "N/A"}',
                 subtext: 'Array electrical output',
                 isWarning: false,
               ),
@@ -1320,7 +1320,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             Expanded(
               child: _buildTelemetryMetricTile(
                 label: 'Active Power',
-                value: power != null ? '${power.toStringAsFixed(1)} W' : 'N/A',
+                value: power != null ? '${power.toStringAsFixed(3)} W' : 'N/A',
                 subtext: (voltage != null && current != null)
                     ? 'Calculated (V × I)'
                     : 'Yield output',

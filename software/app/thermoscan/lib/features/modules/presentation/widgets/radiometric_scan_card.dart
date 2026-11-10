@@ -1350,7 +1350,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   label: 'DC Voltage & Current',
                   value: (voltage == null && current == null)
                       ? 'N/A'
-                      : '${voltage != null ? "${voltage.toStringAsFixed(1)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(2)} A" : "N/A"}',
+                      : '${voltage != null ? "${voltage.toStringAsFixed(3)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(3)} A" : "N/A"}',
                   subtext: 'Array electrical output',
                   isWarning: false,
                 ),
@@ -1359,7 +1359,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               Expanded(
                 child: _buildMetricTile(
                   label: 'Active Power',
-                  value: power != null ? '${power.toStringAsFixed(1)} W' : 'N/A',
+                  value: power != null ? '${power.toStringAsFixed(3)} W' : 'N/A',
                   subtext: (voltage != null && current != null)
                       ? 'Calculated (V × I)'
                       : 'Yield output',
@@ -1534,13 +1534,13 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                               final isSelected = _selectedFrameIndex == idx;
 
                               final vStr = f.voltageV != null
-                                  ? '${f.voltageV!.toStringAsFixed(1)}V'
+                                  ? '${f.voltageV!.toStringAsFixed(3)}V'
                                   : 'N/A';
                               final iStr = f.currentA != null
-                                  ? '${f.currentA!.toStringAsFixed(2)}A'
+                                  ? '${f.currentA!.toStringAsFixed(3)}A'
                                   : 'N/A';
                               final pStr = f.powerW != null
-                                  ? '${f.powerW!.toStringAsFixed(1)}W'
+                                  ? '${f.powerW!.toStringAsFixed(3)}W'
                                   : 'N/A';
 
                               final fovStart =
@@ -3254,7 +3254,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             ),
                           ),
                           Text(
-                            '${measurement.voltageV?.toStringAsFixed(1) ?? "N/A"}V • ${measurement.currentA?.toStringAsFixed(2) ?? "N/A"}A • ${measurement.powerW?.toStringAsFixed(1) ?? "N/A"}W',
+                            '${measurement.voltageV?.toStringAsFixed(3) ?? "N/A"}V • ${measurement.currentA?.toStringAsFixed(3) ?? "N/A"}A • ${measurement.powerW?.toStringAsFixed(3) ?? "N/A"}W',
                             style: AppTypography.caption.copyWith(
                               fontSize: 10,
                               color: AppColors.primary,

@@ -121,6 +121,12 @@ public:
     }
     virtual bool finalizeInspection(const std::string& inspection_source_event_id,
                                     const FinalizeInspectionInput& input) = 0;
+    virtual bool abortInspection(const std::string& inspection_source_event_id,
+                                 const std::string& failure_reason) {
+        (void)inspection_source_event_id;
+        (void)failure_reason;
+        return true;
+    }
     virtual bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) = 0;
     virtual std::string getLastConfirmedAnomalyId() const { return ""; }
     virtual std::vector<ConfirmedAnomalyRecord> getLastConfirmedAnomalies() const { return {}; }

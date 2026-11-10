@@ -324,6 +324,10 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 	if inspRow.VerificationResult.Valid {
 		verifResult = &inspRow.VerificationResult.String
 	}
+	var failReason *string
+	if inspRow.FailureReason.Valid {
+		failReason = &inspRow.FailureReason.String
+	}
 
 	pLen := numericToFloatPtr(row.PanelLengthCm)
 	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
@@ -414,6 +418,7 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 			StartedAt:            startedAtStr,
 			FinishedAt:           finishedAtStr,
 			Status:               inspRow.Status,
+			FailureReason:        failReason,
 			VerificationResult:   verifResult,
 			CreatedAt:            inspRow.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt:            inspRow.UpdatedAt.UTC().Format(time.RFC3339),
@@ -895,9 +900,65 @@ func (s *Service) FinalizeInspection(
 		return nil, err
 	}
 
-	// Idempotency check: if inspection is already completed, return existing state
-	if insp.Status == "completed" {
+	// Idempotency check: if inspection is already completed, failed, or cancelled, return existing state
+	if insp.Status == "completed" || insp.Status == "failed" || insp.Status == "cancelled" {
 		_ = tx.Rollback(ctx)
+		return s.GetLatestInspection(ctx, principal, moduleID)
+	}
+
+	targetStatus := "completed"
+	if input.Status != nil && *input.Status != "" {
+		switch *input.Status {
+		case "completed", "failed", "cancelled":
+			targetStatus = *input.Status
+		default:
+			return nil, ErrInvalidInput
+		}
+	}
+
+	if targetStatus == "failed" || targetStatus == "cancelled" {
+		now := time.Now().UTC()
+		finAt := now
+		if input.FinishedAt != nil && !input.FinishedAt.IsZero() {
+			finAt = input.FinishedAt.UTC()
+		}
+		if insp.StartedAt != nil && finAt.Before(*insp.StartedAt) {
+			finAt = *insp.StartedAt
+		}
+
+		var failReasonPg pgtype.Text
+		if input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) != "" {
+			failReasonPg = pgtype.Text{String: strings.TrimSpace(*input.FailureReason), Valid: true}
+		}
+
+		var baseTempPg pgtype.Numeric
+		if input.BaselineTemperatureC > 0 {
+			baseTempPg = floatPtrToNumeric(&input.BaselineTemperatureC)
+		}
+
+		_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{
+			Status:               targetStatus,
+			FinishedAt:           &finAt,
+			BaselineTemperatureC: baseTempPg,
+			VerificationResult:   pgtype.Text{Valid: false},
+			FailureReason:        failReasonPg,
+			ID:                   insp.ID,
+			ModuleID:             moduleID,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		_ = qtx.ClearPendingScheduledInspections(ctx, moduleID)
+
+		_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+			ID: moduleID,
+		})
+
+		if err := tx.Commit(ctx); err != nil {
+			return nil, err
+		}
+
 		return s.GetLatestInspection(ctx, principal, moduleID)
 	}
 
@@ -1151,11 +1212,17 @@ func (s *Service) FinalizeInspection(
 		}
 	}
 
+	var failReasonPg pgtype.Text
+	if input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) != "" {
+		failReasonPg = pgtype.Text{String: strings.TrimSpace(*input.FailureReason), Valid: true}
+	}
+
 	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{
 		Status:               "completed",
 		FinishedAt:           &finAt,
 		BaselineTemperatureC: floatPtrToNumeric(&baselineTemp),
 		VerificationResult:   verifResultPg,
+		FailureReason:        failReasonPg,
 		ID:                   insp.ID,
 		ModuleID:             moduleID,
 	})
@@ -1263,6 +1330,90 @@ func (s *Service) FinalizeInspection(
 	}
 
 	return s.GetLatestInspection(ctx, principal, moduleID)
+}
+
+func (s *Service) AbortInspection(
+	ctx context.Context,
+	principal auth.Principal,
+	moduleID pgtype.UUID,
+	inspSourceEventID pgtype.UUID,
+	input AbortInspectionInput,
+) error {
+	if !principal.CompanyID.Valid || !moduleID.Valid || !inspSourceEventID.Valid {
+		return ErrForbidden
+	}
+
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := db.New(tx)
+
+	row, err := qtx.GetModuleByIDForUpdate(ctx, db.GetModuleByIDForUpdateParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	_, _, err = s.resolveUserModuleRelationship(ctx, qtx, principal, row.ID, row.InstallerTechnicianID)
+	if err != nil {
+		return err
+	}
+
+	insp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
+		ModuleID:      moduleID,
+		SourceEventID: inspSourceEventID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	// Idempotency check: if inspection is already completed, failed, or cancelled, return idempotently
+	if insp.Status == "completed" || insp.Status == "failed" || insp.Status == "cancelled" {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	finAt := now
+	if insp.StartedAt != nil && finAt.Before(*insp.StartedAt) {
+		finAt = *insp.StartedAt
+	}
+
+	failReason := strings.TrimSpace(input.FailureReason)
+	if failReason == "" {
+		failReason = "aborted_by_device"
+	}
+
+	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{
+		Status:               "failed",
+		FinishedAt:           &finAt,
+		BaselineTemperatureC: pgtype.Numeric{Valid: false},
+		VerificationResult:   pgtype.Text{Valid: false},
+		FailureReason:        pgtype.Text{String: failReason, Valid: true},
+		ID:                   insp.ID,
+		ModuleID:             moduleID,
+	})
+	if err != nil {
+		return err
+	}
+
+	_ = qtx.ClearPendingScheduledInspections(ctx, moduleID)
+
+	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+		ID: moduleID,
+	})
+
+	return tx.Commit(ctx)
 }
 
 func (s *Service) RecordPanelThermalResult(
@@ -1671,6 +1822,10 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 		if inspRow.VerificationResult.Valid {
 			verifResult = &inspRow.VerificationResult.String
 		}
+		var failReason *string
+		if inspRow.FailureReason.Valid {
+			failReason = &inspRow.FailureReason.String
+		}
 
 		out = append(out, InspectionDTO{
 			ID:                   auth.FormatUUID(inspRow.ID),
@@ -1683,6 +1838,7 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 			StartedAt:            startedAtStr,
 			FinishedAt:           finishedAtStr,
 			Status:               inspRow.Status,
+			FailureReason:        failReason,
 			VerificationResult:   verifResult,
 			CreatedAt:            inspRow.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt:            inspRow.UpdatedAt.UTC().Format(time.RFC3339),

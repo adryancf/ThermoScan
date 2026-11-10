@@ -187,6 +187,61 @@ func (h *Handler) handleFinalizeInspection(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h *Handler) handleAbortInspection(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := parseModuleIDParam(r)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	if strings.HasPrefix(principal.Email, "device@") && principal.ID.Bytes != moduleID.Bytes {
+		httpjson.WriteError(w, http.StatusForbidden, "device token does not match module", "FORBIDDEN")
+		return
+	}
+
+	inspSourceEventID, err := auth.ParseUUID(chi.URLParam(r, "inspectionSourceEventId"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid inspection source event ID", "INVALID_ID")
+		return
+	}
+
+	var req AbortInspectionInput
+	if r.Body != nil && r.ContentLength != 0 {
+		_ = httpjson.DecodeJSON(r, &req)
+	}
+	if strings.TrimSpace(req.FailureReason) == "" {
+		req.FailureReason = "aborted_by_device"
+	}
+
+	err = h.service.AbortInspection(r.Context(), principal, moduleID, inspSourceEventID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "inspection not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrConflict):
+			httpjson.WriteError(w, http.StatusConflict, "conflict with inspection state", "CONFLICT")
+		case errors.Is(err, ErrInvalidInput):
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid inspection abort data: "+err.Error(), "INVALID_INPUT")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"status":  "failed",
+		"message": "inspection aborted",
+	})
+}
+
 func (h *Handler) handleRecordPanelThermalResult(w http.ResponseWriter, r *http.Request) {
 	principal, ok := auth.PrincipalFromContext(r.Context())
 	if !ok || !principal.CompanyID.Valid {

@@ -635,6 +635,54 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
     return false;
 }
 
+std::string HttpCloudClient::buildAbortInspectionJson(const std::string& failure_reason) {
+    JsonDocument doc;
+    doc["failure_reason"] = failure_reason;
+    std::string requestBody;
+    serializeJson(doc, requestBody);
+    return requestBody;
+}
+
+bool HttpCloudClient::abortInspection(const std::string& inspection_source_event_id,
+                                      const std::string& failure_reason) {
+    if (!isConnected() || module_id_.empty() || device_token_.empty()) {
+        Serial.println(F("[INSPECTION] Abort skipped: No Wi-Fi or credentials!"));
+        return false;
+    }
+    if (inspection_source_event_id.empty()) {
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/inspections/" +
+                      inspection_source_event_id + "/abort";
+    Serial.printf("[INSPECTION] Aborting inspection %s (Reason: %s)...\n",
+                  inspection_source_event_id.c_str(), failure_reason.c_str());
+
+    HTTPClient http;
+    http.begin(url.c_str());
+    appendAuthHeader(http);
+
+    std::string requestBody = buildAbortInspectionJson(failure_reason);
+
+    int httpCode = http.POST(String(requestBody.c_str()));
+    http.end();
+
+    if (httpCode == 401) {
+        Serial.println(F("[INSPECTION] Abort FAILED HTTP 401: Invalid token!"));
+        auth_error_ = true;
+        return false;
+    }
+
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_NO_CONTENT || httpCode == HTTP_CODE_CREATED) {
+        Serial.printf("[INSPECTION] Inspection %s aborted successfully! HTTP %d\n",
+                      inspection_source_event_id.c_str(), httpCode);
+        return true;
+    }
+
+    Serial.printf("[INSPECTION] Failed to abort inspection! HTTP code: %d\n", httpCode);
+    return false;
+}
+
 std::string HttpCloudClient::buildCleaningReportJson(const CleaningReportInput& input) {
     JsonDocument doc;
     if (!input.anomaly_event_id.empty()) {

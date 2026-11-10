@@ -109,6 +109,8 @@ void ThermoscanApp::saveCurrentStateToNvs() {
     s.baseline_temp_c = baseline_temp_c_;
     s.cleaning_operation_id = current_cleaning_op_id_;
     s.inspection_source_event_id = inspection_source_event_id_;
+    s.last_completed_panel = last_completed_panel_;
+    s.inspection_crash_retries = inspection_crash_retries_;
     if (!active_anomaly_id_.empty()) {
         s.anomaly_event_id = active_anomaly_id_;
     } else if (active_hotspot_.confirmed) {
@@ -153,6 +155,12 @@ void ThermoscanApp::restoreStateFromNvs() {
         baseline_temp_c_ = (s.baseline_temp_c > 0.0f) ? s.baseline_temp_c : 25.0f;
         current_cleaning_op_id_ = s.cleaning_operation_id;
         inspection_source_event_id_ = s.inspection_source_event_id;
+        last_completed_panel_ = s.last_completed_panel;
+        inspection_crash_retries_ = s.inspection_crash_retries;
+
+        if (inspection_source_event_id_.empty()) {
+            storage_->getInspectionProgress(inspection_source_event_id_, last_completed_panel_, inspection_crash_retries_);
+        }
 
         // Restore cleaning queue from NVS
         storage_->getCleaningQueue(cleaning_queue_);
@@ -253,6 +261,34 @@ void ThermoscanApp::handleBootInit() {
 
     // Conservative NVS state restoration
     restoreStateFromNvs();
+
+    // Check if an inspection was interrupted by a crash/power cycle
+    if (!inspection_source_event_id_.empty() && state_ == AppState::BOOT_INIT) {
+        if (inspection_crash_retries_ < MAX_INSPECTION_CRASH_RETRIES) {
+            inspection_crash_retries_++;
+            saveCurrentStateToNvs();
+            state_ = AppState::SCANNING;
+            Serial.printf("[APP] Resuming interrupted inspection ID %s from panel %u (crash retry %u)\n",
+                          inspection_source_event_id_.c_str(),
+                          static_cast<unsigned>(last_completed_panel_ + 1),
+                          static_cast<unsigned>(inspection_crash_retries_));
+        } else {
+            Serial.printf("[APP] Inspection crash retries exhausted (%u). Aborting inspection ID %s.\n",
+                          static_cast<unsigned>(inspection_crash_retries_),
+                          inspection_source_event_id_.c_str());
+            if (cloud_ != nullptr) {
+                cloud_->abortInspection(inspection_source_event_id_, "crash_recovery_exhausted");
+            }
+            inspection_source_event_id_.clear();
+            last_completed_panel_ = 0;
+            inspection_crash_retries_ = 0;
+            if (storage_ != nullptr) {
+                storage_->clearInspectionProgress();
+            }
+            saveCurrentStateToNvs();
+            state_ = AppState::IDLE;
+        }
+    }
 
     // If no verification was pending from prior power cycle, proceed to IDLE
     if (state_ == AppState::BOOT_INIT) {
@@ -409,10 +445,20 @@ void ThermoscanApp::handleIdle() {
 }
 
 void ThermoscanApp::handleScanning() {
-    inspection_source_event_id_ = utils::generateUUIDv4();
-    inspection_started_at_ = getCurrentTime();
-    inspection_scheduled_for_ = (time_provider_ && time_provider_->isTimeSynchronized())
-                                ? inspection_started_at_ : 0;
+    if (inspection_crash_retries_ == 0 && last_completed_panel_ == 0) {
+        inspection_source_event_id_ = utils::generateUUIDv4();
+        inspection_started_at_ = getCurrentTime();
+        inspection_scheduled_for_ = (time_provider_ && time_provider_->isTimeSynchronized())
+                                    ? inspection_started_at_ : 0;
+        saveCurrentStateToNvs();
+    } else {
+        if (inspection_started_at_ == 0) {
+            inspection_started_at_ = getCurrentTime();
+        }
+        if (inspection_scheduled_for_ == 0 && time_provider_ && time_provider_->isTimeSynchronized()) {
+            inspection_scheduled_for_ = inspection_started_at_;
+        }
+    }
 
     all_confirmed_hotspots_.clear();
     confirmed_anomaly_records_.clear();
@@ -423,13 +469,19 @@ void ThermoscanApp::handleScanning() {
     utils::HeapTracker::start();
 
     const uint8_t total_panels = (config_.panel_count > 0) ? static_cast<uint8_t>(config_.panel_count) : 1;
-    Serial.printf("[SCAN] Starting inspection scan cycle. Event ID: %s, Total Panels: %u\n",
-                  inspection_source_event_id_.c_str(), total_panels);
+    Serial.printf("[SCAN] %s inspection scan cycle. Event ID: %s, Total Panels: %u, Resuming from Panel: %u\n",
+                  (last_completed_panel_ > 0 ? "Resuming" : "Starting"),
+                  inspection_source_event_id_.c_str(), total_panels, static_cast<unsigned>(last_completed_panel_ + 1));
 
-    for (uint8_t p = 1; p <= total_panels; ++p) {
+    for (uint8_t p = last_completed_panel_ + 1; p <= total_panels; ++p) {
         float p_start = 0.0f, p_end = 0.0f;
         domain::getPanelBounds(p, config_.panel_length_cm, config_.panel_spacing_cm, p_start, p_end);
         Serial.printf("[SCAN] Scanning Panel %u: Range X = [%.1f cm -> %.1f cm]\n", p, p_start, p_end);
+
+        // If resuming and p > 1, move carriage directly to the start position of panel p
+        if (p > 1 && motion_ != nullptr) {
+            motion_->moveToXCm(p_start);
+        }
 
         histogram_.reset();
         quantized_frames_.clear();
@@ -655,7 +707,13 @@ void ThermoscanApp::handleScanning() {
             result_accepted = true;
         }
 
-        if (!result_accepted) {
+        if (result_accepted) {
+            last_completed_panel_ = p;
+            if (storage_ != nullptr) {
+                storage_->saveInspectionProgress(inspection_source_event_id_, last_completed_panel_, inspection_crash_retries_);
+            }
+            saveCurrentStateToNvs();
+        } else {
             all_panels_accepted_ = false;
 #if defined(ARDUINO) || defined(ESP32)
             Serial.printf("[ERR] Panel %u thermal result not accepted by backend after retries!\n", p);
@@ -692,8 +750,20 @@ void ThermoscanApp::handleAnalyzing() {
     // Safeguard 2: Never finalize inspection as complete if any panel result was rejected
     if (!all_panels_accepted_) {
 #if defined(ARDUINO) || defined(ESP32)
-        Serial.println(F("[ERR] Aborting finalizeInspection because one or more panel thermal results were not accepted."));
+        Serial.println(F("[ERR] Aborting inspection because one or more panel thermal results were not accepted."));
 #endif
+        if (cloud_ != nullptr) {
+            cloud_->abortInspection(inspection_source_event_id_, "panel_result_rejected");
+        }
+        inspection_source_event_id_.clear();
+        last_completed_panel_ = 0;
+        inspection_crash_retries_ = 0;
+        if (storage_ != nullptr) {
+            storage_->clearInspectionProgress();
+        }
+        if (motion_ != nullptr) {
+            motion_->moveToXCm(0.0f);
+        }
         utils::HeapTracker::stop();
         saveCurrentStateToNvs();
         state_ = AppState::SYNCING;
@@ -705,8 +775,9 @@ void ThermoscanApp::handleAnalyzing() {
     fin.baseline_temperature_c = 0.0f; // backend computes consolidated average across panel results
     fin.confirmed_hotspots = all_confirmed_hotspots_;
 
+    bool fin_ok = true;
     if (cloud_ != nullptr) {
-        cloud_->finalizeInspection(inspection_source_event_id_, fin);
+        fin_ok = cloud_->finalizeInspection(inspection_source_event_id_, fin);
         active_anomaly_id_ = cloud_->getLastConfirmedAnomalyId();
         auto fin_anoms = cloud_->getLastConfirmedAnomalies();
         for (const auto& rec : fin_anoms) {
@@ -721,6 +792,16 @@ void ThermoscanApp::handleAnalyzing() {
                 confirmed_anomaly_records_.push_back(rec);
             }
         }
+    }
+
+    if (fin_ok) {
+        inspection_source_event_id_.clear();
+        last_completed_panel_ = 0;
+        inspection_crash_retries_ = 0;
+        if (storage_ != nullptr) {
+            storage_->clearInspectionProgress();
+        }
+        saveCurrentStateToNvs();
     }
 
     utils::HeapTracker::stop();

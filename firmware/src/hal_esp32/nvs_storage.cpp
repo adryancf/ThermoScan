@@ -141,6 +141,38 @@ bool NvsStorage::getNextInspectionTimestamp(uint32_t& out) {
     return true;
 }
 
+bool NvsStorage::saveInspectionProgress(const std::string& source_event_id, uint8_t last_completed_panel, uint8_t crash_retries) {
+    if (!initialized_ && !init()) return false;
+    bool ok = true;
+    ok &= (preferences_.putString(KEY_INSP_ID, source_event_id.c_str()) > 0);
+    ok &= (preferences_.putUChar(KEY_INSP_PANEL, last_completed_panel) > 0);
+    ok &= (preferences_.putUChar(KEY_INSP_RETRY, crash_retries) > 0);
+    return ok;
+}
+
+bool NvsStorage::getInspectionProgress(std::string& source_event_id, uint8_t& last_completed_panel, uint8_t& crash_retries) {
+    if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_INSP_ID)) {
+        source_event_id.clear();
+        last_completed_panel = 0;
+        crash_retries = 0;
+        return false;
+    }
+    String val = preferences_.getString(KEY_INSP_ID, "");
+    source_event_id = val.c_str();
+    last_completed_panel = preferences_.getUChar(KEY_INSP_PANEL, 0);
+    crash_retries = preferences_.getUChar(KEY_INSP_RETRY, 0);
+    return true;
+}
+
+bool NvsStorage::clearInspectionProgress() {
+    if (!initialized_ && !init()) return false;
+    preferences_.remove(KEY_INSP_ID);
+    preferences_.remove(KEY_INSP_PANEL);
+    preferences_.remove(KEY_INSP_RETRY);
+    return true;
+}
+
 bool NvsStorage::saveCleaningQueue(const std::vector<QueuedHotspot>& queue) {
     if (!initialized_ && !init()) return false;
     JsonDocument doc;
@@ -206,7 +238,10 @@ bool NvsStorage::saveAll(const StorageState& state) {
     preferences_.putFloat("base_temp", state.baseline_temp_c);
     preferences_.putString("clean_op_id", state.cleaning_operation_id.c_str());
     preferences_.putString("insp_src_id", state.inspection_source_event_id.c_str());
+    preferences_.putString(KEY_INSP_ID, state.inspection_source_event_id.c_str());
     preferences_.putUChar("act_p_idx", state.active_panel_index);
+    preferences_.putUChar(KEY_INSP_PANEL, state.last_completed_panel);
+    preferences_.putUChar(KEY_INSP_RETRY, state.inspection_crash_retries);
     return ok;
 }
 
@@ -223,8 +258,14 @@ bool NvsStorage::loadAll(StorageState& state) {
     state.active_hotspot_x_cm = preferences_.getFloat("hotspot_x", 0.0f);
     state.baseline_temp_c = preferences_.getFloat("base_temp", 25.0f);
     state.cleaning_operation_id = preferences_.getString("clean_op_id", "").c_str();
-    state.inspection_source_event_id = preferences_.getString("insp_src_id", "").c_str();
+    if (preferences_.isKey(KEY_INSP_ID)) {
+        state.inspection_source_event_id = preferences_.getString(KEY_INSP_ID, "").c_str();
+    } else {
+        state.inspection_source_event_id = preferences_.getString("insp_src_id", "").c_str();
+    }
     state.active_panel_index = preferences_.getUChar("act_p_idx", 1);
+    state.last_completed_panel = preferences_.getUChar(KEY_INSP_PANEL, 0);
+    state.inspection_crash_retries = preferences_.getUChar(KEY_INSP_RETRY, 0);
     return true;
 }
 

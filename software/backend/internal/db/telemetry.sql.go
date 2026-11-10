@@ -518,12 +518,14 @@ const finalizeInspection = `-- name: FinalizeInspection :one
 UPDATE inspections
 SET
     status = $1,
+    started_at = COALESCE(started_at, $2),
     finished_at = $2,
     baseline_temperature_c = $3,
     verification_result = $4,
+    failure_reason = $5,
     updated_at = now()
-WHERE id = $5 AND module_id = $6
-RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at
+WHERE id = $6 AND module_id = $7
+RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, failure_reason, verification_result, created_at, updated_at
 `
 
 type FinalizeInspectionParams struct {
@@ -531,6 +533,7 @@ type FinalizeInspectionParams struct {
 	FinishedAt           *time.Time
 	BaselineTemperatureC pgtype.Numeric
 	VerificationResult   pgtype.Text
+	FailureReason        pgtype.Text
 	ID                   pgtype.UUID
 	ModuleID             pgtype.UUID
 }
@@ -546,6 +549,7 @@ type FinalizeInspectionRow struct {
 	StartedAt            *time.Time
 	FinishedAt           *time.Time
 	Status               string
+	FailureReason        pgtype.Text
 	VerificationResult   pgtype.Text
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -557,6 +561,7 @@ func (q *Queries) FinalizeInspection(ctx context.Context, arg FinalizeInspection
 		arg.FinishedAt,
 		arg.BaselineTemperatureC,
 		arg.VerificationResult,
+		arg.FailureReason,
 		arg.ID,
 		arg.ModuleID,
 	)
@@ -572,6 +577,7 @@ func (q *Queries) FinalizeInspection(ctx context.Context, arg FinalizeInspection
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Status,
+		&i.FailureReason,
 		&i.VerificationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -764,6 +770,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at
@@ -787,6 +794,7 @@ type GetInspectionByIDRow struct {
 	StartedAt            *time.Time
 	FinishedAt           *time.Time
 	Status               string
+	FailureReason        pgtype.Text
 	VerificationResult   pgtype.Text
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -806,6 +814,7 @@ func (q *Queries) GetInspectionByID(ctx context.Context, arg GetInspectionByIDPa
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Status,
+		&i.FailureReason,
 		&i.VerificationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -825,6 +834,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at
@@ -848,6 +858,7 @@ type GetInspectionBySourceEventIDRow struct {
 	StartedAt            *time.Time
 	FinishedAt           *time.Time
 	Status               string
+	FailureReason        pgtype.Text
 	VerificationResult   pgtype.Text
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -867,6 +878,7 @@ func (q *Queries) GetInspectionBySourceEventID(ctx context.Context, arg GetInspe
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Status,
+		&i.FailureReason,
 		&i.VerificationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -925,6 +937,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at
@@ -945,6 +958,7 @@ type GetLatestInspectionByModuleRow struct {
 	StartedAt            *time.Time
 	FinishedAt           *time.Time
 	Status               string
+	FailureReason        pgtype.Text
 	VerificationResult   pgtype.Text
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -964,6 +978,7 @@ func (q *Queries) GetLatestInspectionByModule(ctx context.Context, moduleID pgty
 		&i.StartedAt,
 		&i.FinishedAt,
 		&i.Status,
+		&i.FailureReason,
 		&i.VerificationResult,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -1464,6 +1479,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at
@@ -1490,6 +1506,7 @@ type ListInspectionsByModuleRow struct {
 	StartedAt            *time.Time
 	FinishedAt           *time.Time
 	Status               string
+	FailureReason        pgtype.Text
 	VerificationResult   pgtype.Text
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
@@ -1515,6 +1532,7 @@ func (q *Queries) ListInspectionsByModule(ctx context.Context, arg ListInspectio
 			&i.StartedAt,
 			&i.FinishedAt,
 			&i.Status,
+			&i.FailureReason,
 			&i.VerificationResult,
 			&i.CreatedAt,
 			&i.UpdatedAt,

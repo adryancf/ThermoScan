@@ -83,6 +83,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at
@@ -103,6 +104,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at
@@ -121,6 +123,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at
@@ -131,12 +134,14 @@ WHERE i.id = $1 AND i.module_id = $2;
 UPDATE inspections
 SET
     status = $1,
+    started_at = COALESCE(started_at, $2),
     finished_at = $2,
     baseline_temperature_c = $3,
     verification_result = $4,
+    failure_reason = $5,
     updated_at = now()
-WHERE id = $5 AND module_id = $6
-RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, verification_result, created_at, updated_at;
+WHERE id = $6 AND module_id = $7
+RETURNING id, module_id, source_event_id, type, cleaning_operation_id, COALESCE(baseline_temperature_c::text, '')::text AS baseline_temperature_c, scheduled_for, started_at, finished_at, status, failure_reason, verification_result, created_at, updated_at;
 
 -- name: GetLatestReservoirReadingByModule :one
 SELECT
@@ -446,6 +451,7 @@ SELECT
     i.started_at,
     i.finished_at,
     i.status,
+    i.failure_reason,
     i.verification_result,
     i.created_at,
     i.updated_at

@@ -329,11 +329,19 @@ void test_panel_thermal_result_and_multi_panel_index_contracts() {
     TEST_ASSERT_EQUAL(1, c_doc["attempt_number"].as<int>());
 }
 
+void test_abort_inspection_json_contract() {
+    std::string json = HttpCloudClient::buildAbortInspectionJson("crash_recovery_exhausted");
+    JsonDocument doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc, json).code());
+    TEST_ASSERT_EQUAL_STRING("crash_recovery_exhausted", doc["failure_reason"].as<std::string>().c_str());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
     RUN_TEST(test_finalize_inspection_json_contract);
     RUN_TEST(test_cleaning_report_refused_contract);
     RUN_TEST(test_panel_thermal_result_and_multi_panel_index_contracts);
+    RUN_TEST(test_abort_inspection_json_contract);
     return UNITY_END();
 }

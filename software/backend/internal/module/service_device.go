@@ -482,11 +482,41 @@ func (s *Service) TriggerManualInspection(ctx context.Context, principal auth.Pr
 	// Check if an inspection is already actively in progress
 	latestInsp, err := s.queries.GetLatestInspectionByModule(ctx, moduleID)
 	if err == nil && latestInsp.Status == "in_progress" {
-		return &TriggerInspectionDTO{
-			Success: true,
-			Message: "Inspection is already in progress on this module",
-			Status:  "in_progress",
-		}, nil
+		isStale := false
+		if !latestInsp.UpdatedAt.IsZero() && time.Since(latestInsp.UpdatedAt) > 15*time.Minute {
+			isStale = true
+		} else if latestInsp.StartedAt != nil && !latestInsp.StartedAt.IsZero() && time.Since(*latestInsp.StartedAt) > 15*time.Minute {
+			isStale = true
+		} else if !latestInsp.CreatedAt.IsZero() && time.Since(latestInsp.CreatedAt) > 15*time.Minute {
+			isStale = true
+		}
+
+		if isStale {
+			now := time.Now().UTC()
+			finAt := now
+			if latestInsp.StartedAt != nil && finAt.Before(*latestInsp.StartedAt) {
+				finAt = *latestInsp.StartedAt
+			}
+			_, _ = s.queries.FinalizeInspection(ctx, db.FinalizeInspectionParams{
+				Status:               "failed",
+				FinishedAt:           &finAt,
+				BaselineTemperatureC: pgtype.Numeric{Valid: false},
+				VerificationResult:   pgtype.Text{Valid: false},
+				FailureReason:        pgtype.Text{String: "device_timeout_inactivity", Valid: true},
+				ID:                   latestInsp.ID,
+				ModuleID:             moduleID,
+			})
+			_ = s.queries.ClearPendingScheduledInspections(ctx, moduleID)
+			_, _ = s.queries.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+				ID: moduleID,
+			})
+		} else {
+			return &TriggerInspectionDTO{
+				Success: true,
+				Message: "Inspection is already in progress on this module",
+				Status:  "in_progress",
+			}, nil
+		}
 	}
 
 	// Check if an inspection is already pending

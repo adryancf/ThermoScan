@@ -246,6 +246,7 @@ type InspectionDTO struct {
 	StartedAt            *string  `json:"started_at,omitempty"`
 	FinishedAt           *string  `json:"finished_at,omitempty"`
 	Status               string   `json:"status"`
+	FailureReason        *string  `json:"failure_reason,omitempty"`
 	VerificationResult   *string  `json:"verification_result,omitempty"`
 	CreatedAt            string   `json:"created_at"`
 	UpdatedAt            string   `json:"updated_at"`
@@ -423,9 +424,15 @@ type IngestTelemetryInput struct {
 }
 
 type FinalizeInspectionInput struct {
+	Status                *string                 `json:"status,omitempty"`
+	FailureReason         *string                 `json:"failure_reason,omitempty"`
 	FinishedAt            *time.Time              `json:"finished_at"`
 	BaselineTemperatureC float64                 `json:"baseline_temperature_c"`
 	ConfirmedHotspots     []ConfirmedHotspotInput `json:"confirmed_hotspots"`
+}
+
+type AbortInspectionInput struct {
+	FailureReason string `json:"failure_reason"`
 }
 
 type RecordPanelResultInput struct {

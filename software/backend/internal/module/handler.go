@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"backend/internal/auth"
 	"backend/internal/db"
@@ -32,6 +33,11 @@ func parseModuleIDParam(r *http.Request) (pgtype.UUID, error) {
 	if raw == "" {
 		raw = chi.URLParam(r, "moduleID")
 	}
+	if raw == "" {
+		if principal, ok := auth.PrincipalFromContext(r.Context()); ok && strings.HasPrefix(principal.Email, "device@") {
+			return principal.ID, nil
+		}
+	}
 	return auth.ParseUUID(raw)
 }
 
@@ -42,6 +48,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Authenticate(h.queries, h.tokens))
+			r.Post("/inspections/{inspectionSourceEventId}/abort", h.handleAbortInspection)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/configuration", h.handleGetDeviceConfiguration)
 				r.Post("/configuration/ack", h.handleAcknowledgeDeviceConfiguration)
@@ -49,6 +56,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 				r.Post("/telemetry", h.handleIngestTelemetry)
 				r.Post("/inspections/{inspectionSourceEventId}/panels/{panelIndex}/result", h.handleRecordPanelThermalResult)
 				r.Post("/inspections/{inspectionSourceEventId}/finalize", h.handleFinalizeInspection)
+				r.Post("/inspections/{inspectionSourceEventId}/abort", h.handleAbortInspection)
 				r.Post("/cleanings", h.handleIngestCleaning)
 			})
 		})
@@ -87,6 +95,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/{moduleID}/telemetry", h.handleIngestTelemetry)
 		r.Post("/{moduleID}/inspections/{inspectionSourceEventId}/panels/{panelIndex}/result", h.handleRecordPanelThermalResult)
 		r.Post("/{moduleID}/inspections/{inspectionSourceEventId}/finalize", h.handleFinalizeInspection)
+		r.Post("/{moduleID}/inspections/{inspectionSourceEventId}/abort", h.handleAbortInspection)
 		r.Post("/{moduleID}/cleanings", h.handleIngestCleaning)
 		r.Put("/{moduleID}/managers", h.handleSetModuleManagers)
 		r.Put("/{moduleID}/technicians/{technicianID}", h.handleSetTechnicianAccess)

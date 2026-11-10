@@ -19,6 +19,7 @@
 using String = std::string;
 static const int HTTP_CODE_OK = 200;
 static const int HTTP_CODE_CREATED = 201;
+static const int HTTP_CODE_NO_CONTENT = 204;
 static const int WL_CONNECTED = 3;
 
 class NativeWiFiClass {

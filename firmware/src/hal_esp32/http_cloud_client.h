@@ -41,6 +41,8 @@ public:
                                   const PanelThermalResultInput& input) override;
     bool finalizeInspection(const std::string& inspection_source_event_id,
                             const FinalizeInspectionInput& input) override;
+    bool abortInspection(const std::string& inspection_source_event_id,
+                         const std::string& failure_reason) override;
     bool ingestCleaningReport(const CleaningReportInput& input, std::string& out_cleaning_id) override;
     std::string getLastConfirmedAnomalyId() const override { return last_confirmed_anomaly_id_; }
     std::vector<ConfirmedAnomalyRecord> getLastConfirmedAnomalies() const override { return last_confirmed_anomalies_; }
@@ -62,6 +64,7 @@ public:
     static std::string buildTelemetryBatchJson(const IngestTelemetryBatchInput& input);
     static std::string buildPanelThermalResultJson(const PanelThermalResultInput& input);
     static std::string buildFinalizeJson(const FinalizeInspectionInput& input);
+    static std::string buildAbortInspectionJson(const std::string& failure_reason);
     static std::string buildCleaningReportJson(const CleaningReportInput& input);
 
     // Advanced & Diagnostic helpers

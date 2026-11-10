@@ -83,6 +83,9 @@ public:
     const std::vector<QueuedHotspot>& getCleaningQueue() const { return cleaning_queue_; }
     const std::vector<ConfirmedHotspotOutput>& getAllConfirmedHotspots() const { return all_confirmed_hotspots_; }
     bool areAllPanelsAccepted() const { return all_panels_accepted_; }
+    uint8_t getLastCompletedPanel() const { return last_completed_panel_; }
+    uint8_t getInspectionCrashRetries() const { return inspection_crash_retries_; }
+    const std::string& getInspectionSourceEventId() const { return inspection_source_event_id_; }
 
     // Configuration sync query and getters
     bool isConfigUpdatePending() const { return config_update_pending_; }
@@ -119,6 +122,9 @@ private:
     domain::TemperatureHistogram histogram_;
     std::vector<TelemetryMeasurementItem> current_batch_;
     std::string inspection_source_event_id_{};
+    uint8_t last_completed_panel_{0};
+    uint8_t inspection_crash_retries_{0};
+    static constexpr uint8_t MAX_INSPECTION_CRASH_RETRIES = 1;
     uint32_t inspection_started_at_{0};
     uint32_t inspection_scheduled_for_{0};
     std::string current_cleaning_op_id_{};

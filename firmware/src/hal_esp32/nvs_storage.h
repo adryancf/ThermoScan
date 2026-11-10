@@ -46,6 +46,11 @@ public:
     bool saveNextInspectionTimestamp(uint32_t timestamp) override;
     bool getNextInspectionTimestamp(uint32_t& out) override;
 
+    // Inspection progress persistence (IStorage interface)
+    bool saveInspectionProgress(const std::string& source_event_id, uint8_t last_completed_panel, uint8_t crash_retries) override;
+    bool getInspectionProgress(std::string& source_event_id, uint8_t& last_completed_panel, uint8_t& crash_retries) override;
+    bool clearInspectionProgress() override;
+
     // Cleaning queue persistence (IStorage interface)
     bool saveCleaningQueue(const std::vector<QueuedHotspot>& queue) override;
     bool getCleaningQueue(std::vector<QueuedHotspot>& out) override;
@@ -92,6 +97,9 @@ private:
     static constexpr const char* KEY_PENDING_VER  = "pend_ver";
     static constexpr const char* KEY_NEXT_INSP    = "next_insp";
     static constexpr const char* KEY_CLEAN_QUEUE  = "clean_q";
+    static constexpr const char* KEY_INSP_ID      = "insp_id";
+    static constexpr const char* KEY_INSP_PANEL   = "insp_pnl";
+    static constexpr const char* KEY_INSP_RETRY   = "insp_rtr";
 
     static constexpr const char* KEY_PANEL_LEN    = "p_len";
     static constexpr const char* KEY_PANEL_WIDTH  = "p_width";

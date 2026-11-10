@@ -32,6 +32,8 @@ struct StorageState {
     std::string cleaning_operation_id;
     std::string inspection_source_event_id;
     uint8_t active_panel_index{1};
+    uint8_t last_completed_panel{0};
+    uint8_t inspection_crash_retries{0};
 };
 
 class IStorage {
@@ -64,6 +66,11 @@ public:
 
     virtual bool saveNextInspectionTimestamp(uint32_t timestamp) = 0;
     virtual bool getNextInspectionTimestamp(uint32_t& out) = 0;
+
+    // Inspection progress persistence
+    virtual bool saveInspectionProgress(const std::string& /*source_event_id*/, uint8_t /*last_completed_panel*/, uint8_t /*crash_retries*/) { return true; }
+    virtual bool getInspectionProgress(std::string& /*source_event_id*/, uint8_t& /*last_completed_panel*/, uint8_t& /*crash_retries*/) { return true; }
+    virtual bool clearInspectionProgress() { return true; }
 
     // Cleaning queue persistence
     virtual bool saveCleaningQueue(const std::vector<QueuedHotspot>& /*queue*/) { return true; }

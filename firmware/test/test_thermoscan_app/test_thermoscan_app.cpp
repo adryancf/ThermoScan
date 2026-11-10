@@ -160,6 +160,24 @@ public:
     bool saveMinSolarAngle(float ang) override { min_solar = ang; return true; }
     bool saveIntervalDays(int32_t d) override { interval_d = d; return true; }
     bool savePingIntervalSeconds(int32_t s) override { ping_s = s; return true; }
+    bool saveInspectionProgress(const std::string& source_event_id, uint8_t last_completed_panel, uint8_t crash_retries) override {
+        state.inspection_source_event_id = source_event_id;
+        state.last_completed_panel = last_completed_panel;
+        state.inspection_crash_retries = crash_retries;
+        return true;
+    }
+    bool getInspectionProgress(std::string& source_event_id, uint8_t& last_completed_panel, uint8_t& crash_retries) override {
+        source_event_id = state.inspection_source_event_id;
+        last_completed_panel = state.last_completed_panel;
+        crash_retries = state.inspection_crash_retries;
+        return !source_event_id.empty();
+    }
+    bool clearInspectionProgress() override {
+        state.inspection_source_event_id.clear();
+        state.last_completed_panel = 0;
+        state.inspection_crash_retries = 0;
+        return true;
+    }
     bool saveAll(const StorageState& s) override { state = s; return true; }
     bool loadAll(StorageState& s) override { s = state; return true; }
     bool clear() override { state = StorageState{}; saved_queue.clear(); return true; }
@@ -175,6 +193,9 @@ public:
     int batches_ingested{0};
     int panel_results_submitted{0};
     int inspections_finalized{0};
+    int inspections_aborted{0};
+    std::string last_abort_inspection_id;
+    std::string last_abort_reason;
     int cleaning_reports_ingested{0};
     uint32_t last_acked_config_version{0};
     CleaningReportInput last_cleaning_report{};
@@ -207,6 +228,12 @@ public:
         return true;
     }
     bool finalizeInspection(const std::string&, const FinalizeInspectionInput&) override { inspections_finalized++; return true; }
+    bool abortInspection(const std::string& inspection_source_event_id, const std::string& failure_reason) override {
+        inspections_aborted++;
+        last_abort_inspection_id = inspection_source_event_id;
+        last_abort_reason = failure_reason;
+        return true;
+    }
     bool ingestCleaningReport(const CleaningReportInput& cr, std::string& out_id) override {
         cleaning_reports_ingested++;
         last_cleaning_report = cr;
@@ -871,6 +898,148 @@ void test_clock_not_synchronized_does_not_erase_existing_schedule(void) {
     TEST_ASSERT_EQUAL_UINT32(future_target, storage.state.next_inspection_timestamp);
 }
 
+void test_inspection_crash_recovery_resumes_from_panel_2(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    motion.camera = &cam;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // Multi-panel geometry: 2 panels, each 20 cm, spacing 2 cm
+    // Panel 1: [0.0, 20.0], Panel 2: [22.0, 42.0]
+    storage.panel_cnt = 2;
+    storage.panel_len = 20.0f;
+    storage.panel_spc = 2.0f;
+
+    // Simulate crash after completing panel 1
+    storage.state.inspection_source_event_id = "test-insp-uuid-crash-1";
+    storage.state.last_completed_panel = 1;
+    storage.state.inspection_crash_retries = 0;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+
+    // Bootinit detected crash recovery, incremented retries to 1, and set state to SCANNING
+    TEST_ASSERT_EQUAL(AppState::SCANNING, app.getState());
+    TEST_ASSERT_EQUAL_UINT8(1, app.getInspectionCrashRetries());
+    TEST_ASSERT_EQUAL_UINT8(1, app.getLastCompletedPanel());
+    TEST_ASSERT_EQUAL_STRING("test-insp-uuid-crash-1", app.getInspectionSourceEventId().c_str());
+
+    // Verify storage has crash retry count updated
+    TEST_ASSERT_EQUAL_UINT8(1, storage.state.inspection_crash_retries);
+
+    // Tick SCANNING: should resume from Panel 2 (start X = 22.0 cm)
+    app.tick(); // SCANNING executes for panel 2, then transitions to ANALYZING
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app.getState());
+
+    // Verify motion moved to Panel 2 start (22.0 cm) and not panel 1 (0.0 cm)
+    TEST_ASSERT_FALSE(motion.visited_x.empty());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 22.0f, motion.visited_x[0]);
+
+    // Panel 2 submitted
+    TEST_ASSERT_EQUAL(1, cloud.panel_results_submitted);
+    TEST_ASSERT_EQUAL_UINT8(2, cloud.submitted_panel_results[0].panel_index);
+
+    // Tick ANALYZING: finalizes inspection, clears inspection progress, transitions to SYNCING
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_finalized);
+    TEST_ASSERT_TRUE(app.getInspectionSourceEventId().empty());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getLastCompletedPanel());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getInspectionCrashRetries());
+    TEST_ASSERT_TRUE(storage.state.inspection_source_event_id.empty());
+    TEST_ASSERT_EQUAL_UINT8(0, storage.state.last_completed_panel);
+    TEST_ASSERT_EQUAL_UINT8(0, storage.state.inspection_crash_retries);
+}
+
+void test_inspection_crash_retries_exhausted_aborts_inspection(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // Simulate crash where retries already reached MAX_INSPECTION_CRASH_RETRIES (1)
+    storage.state.inspection_source_event_id = "test-insp-uuid-exhausted";
+    storage.state.last_completed_panel = 1;
+    storage.state.inspection_crash_retries = 1;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+
+    // Bootinit detects retries exhausted, calls abortInspection, clears state, enters IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_aborted);
+    TEST_ASSERT_EQUAL_STRING("test-insp-uuid-exhausted", cloud.last_abort_inspection_id.c_str());
+    TEST_ASSERT_EQUAL_STRING("crash_recovery_exhausted", cloud.last_abort_reason.c_str());
+
+    // App state cleaned
+    TEST_ASSERT_TRUE(app.getInspectionSourceEventId().empty());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getLastCompletedPanel());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getInspectionCrashRetries());
+
+    // Storage progress cleared
+    TEST_ASSERT_TRUE(storage.state.inspection_source_event_id.empty());
+    TEST_ASSERT_EQUAL_UINT8(0, storage.state.last_completed_panel);
+    TEST_ASSERT_EQUAL_UINT8(0, storage.state.inspection_crash_retries);
+}
+
+void test_inspection_abort_on_panel_result_rejected(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    storage.panel_cnt = 1;
+    storage.panel_len = 20.0f;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    // Configure cloud to reject panel thermal result
+    cloud.submit_panel_result_success = false;
+
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    TEST_ASSERT_EQUAL(AppState::SCANNING, app.getState());
+
+    app.tick(); // SCANNING completes, panel result rejected after retries -> ANALYZING
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app.getState());
+    TEST_ASSERT_FALSE(app.areAllPanelsAccepted());
+
+    std::string active_insp_id = app.getInspectionSourceEventId();
+    TEST_ASSERT_FALSE(active_insp_id.empty());
+
+    // Tick ANALYZING: detects !all_panels_accepted_, calls abortInspection, resets to 0 cm, transitions to SYNCING
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_aborted);
+    TEST_ASSERT_EQUAL_STRING(active_insp_id.c_str(), cloud.last_abort_inspection_id.c_str());
+    TEST_ASSERT_EQUAL_STRING("panel_result_rejected", cloud.last_abort_reason.c_str());
+    TEST_ASSERT_EQUAL(0, cloud.inspections_finalized);
+
+    // Carriage returned to 0 cm
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, motion.x_pos);
+
+    // Inspection state cleared
+    TEST_ASSERT_TRUE(app.getInspectionSourceEventId().empty());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getLastCompletedPanel());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getInspectionCrashRetries());
+    TEST_ASSERT_TRUE(storage.state.inspection_source_event_id.empty());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -894,5 +1063,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_return_to_idle_after_verification_triggers_pending_sync);
     RUN_TEST(test_invalid_config_retains_previous_and_does_not_ack);
     RUN_TEST(test_network_failure_in_get_config_retains_pending_and_returns_idle);
+    RUN_TEST(test_inspection_crash_recovery_resumes_from_panel_2);
+    RUN_TEST(test_inspection_crash_retries_exhausted_aborts_inspection);
+    RUN_TEST(test_inspection_abort_on_panel_result_rejected);
     return UNITY_END();
 }

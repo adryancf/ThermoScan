@@ -266,15 +266,12 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
         }
     }
 
-    // Track confirmed status
-    std::vector<std::vector<bool>> candidate_confirmed(frames.size());
-    for (size_t i = 0; i < frames.size(); ++i) {
-        candidate_confirmed[i].resize(per_frame_candidates[i].size(), false);
-    }
+    // Direct online clustering of confirmed events:
+    // Instead of buffering thousands of raw pair events into RAM (which exhausts heap on large spots),
+    // we match consecutive candidate pixels and merge directly into a clustered result list.
+    // Neighbors in adjacent rows (row diff <= 1) and spatial tolerance in X belong to the same physical anomaly.
+    std::vector<HotspotEvent> result_events;
 
-    std::vector<HotspotEvent> raw_confirmed_events;
-
-    // Evaluate consecutive acquisitions k and k+1
     for (size_t k = 0; k + 1 < frames.size(); ++k) {
         const auto& f_k = frames[k];
         const auto& f_next = frames[k + 1];
@@ -295,56 +292,56 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
                 if (cand_a.row == cand_b.row) {
                     const float spatial_diff = std::abs(cand_a.global_x_cm - cand_b.global_x_cm);
                     if (spatial_diff <= eff_tolerance) {
-                        candidate_confirmed[k][idx_a] = true;
-                        candidate_confirmed[k + 1][idx_b] = true;
-
-                        HotspotEvent ev;
-                        ev.panel_index = panel_index;
-                        ev.target_x_cm = (cand_a.global_x_cm + cand_b.global_x_cm) / 2.0f;
+                        float pair_x = (cand_a.global_x_cm + cand_b.global_x_cm) / 2.0f;
                         if (panel_end_cm > panel_start_cm) {
-                            if (ev.target_x_cm < panel_start_cm) ev.target_x_cm = panel_start_cm;
-                            if (ev.target_x_cm > panel_end_cm) ev.target_x_cm = panel_end_cm;
+                            if (pair_x < panel_start_cm) pair_x = panel_start_cm;
+                            if (pair_x > panel_end_cm) pair_x = panel_end_cm;
                         }
-                        ev.row = cand_a.row;
-                        ev.max_temp_c = std::max(cand_a.temp_c, cand_b.temp_c);
-                        ev.baseline_temp_c = baseline_temp_c;
-                        ev.confirmed = true;
-                        ev.origin_measurement_event_id = f_k.source_event_id;
-                        if (!f_k.source_event_id.empty()) {
-                            ev.confirming_event_ids.push_back(f_k.source_event_id);
-                        }
-                        if (!f_next.source_event_id.empty()) {
-                            ev.confirming_event_ids.push_back(f_next.source_event_id);
-                        }
-                        raw_confirmed_events.push_back(ev);
-                    }
-                }
-            }
-        }
-    }
+                        float pair_max_temp = std::max(cand_a.temp_c, cand_b.temp_c);
 
-    // Cluster/merge overlapping confirmed events in same row within eff_tolerance
-    std::vector<HotspotEvent> result_events;
-    for (const auto& ev : raw_confirmed_events) {
-        bool merged = false;
-        for (auto& existing : result_events) {
-            if (existing.row == ev.row && std::abs(existing.target_x_cm - ev.target_x_cm) <= eff_tolerance) {
-                if (ev.max_temp_c > existing.max_temp_c) {
-                    existing.max_temp_c = ev.max_temp_c;
-                    existing.target_x_cm = ev.target_x_cm;
-                }
-                for (const auto& cid : ev.confirming_event_ids) {
-                    if (std::find(existing.confirming_event_ids.begin(), existing.confirming_event_ids.end(), cid) ==
-                        existing.confirming_event_ids.end()) {
-                        existing.confirming_event_ids.push_back(cid);
+                        // Check if an existing hotspot cluster covers this detection (within X tolerance and neighbouring rows)
+                        bool merged = false;
+                        for (auto& existing : result_events) {
+                            if (std::abs(existing.row - cand_a.row) <= 1 &&
+                                std::abs(existing.target_x_cm - pair_x) <= eff_tolerance) {
+                                if (pair_max_temp > existing.max_temp_c) {
+                                    existing.max_temp_c = pair_max_temp;
+                                    existing.target_x_cm = pair_x;
+                                    existing.row = cand_a.row;
+                                }
+                                if (!f_k.source_event_id.empty() &&
+                                    std::find(existing.confirming_event_ids.begin(), existing.confirming_event_ids.end(), f_k.source_event_id) == existing.confirming_event_ids.end()) {
+                                    existing.confirming_event_ids.push_back(f_k.source_event_id);
+                                }
+                                if (!f_next.source_event_id.empty() &&
+                                    std::find(existing.confirming_event_ids.begin(), existing.confirming_event_ids.end(), f_next.source_event_id) == existing.confirming_event_ids.end()) {
+                                    existing.confirming_event_ids.push_back(f_next.source_event_id);
+                                }
+                                merged = true;
+                                break;
+                            }
+                        }
+
+                        if (!merged && result_events.size() < MAX_PANEL_HOTSPOTS) {
+                            HotspotEvent ev;
+                            ev.panel_index = panel_index;
+                            ev.target_x_cm = pair_x;
+                            ev.row = cand_a.row;
+                            ev.max_temp_c = pair_max_temp;
+                            ev.baseline_temp_c = baseline_temp_c;
+                            ev.confirmed = true;
+                            ev.origin_measurement_event_id = f_k.source_event_id;
+                            if (!f_k.source_event_id.empty()) {
+                                ev.confirming_event_ids.push_back(f_k.source_event_id);
+                            }
+                            if (!f_next.source_event_id.empty()) {
+                                ev.confirming_event_ids.push_back(f_next.source_event_id);
+                            }
+                            result_events.push_back(ev);
+                        }
                     }
                 }
-                merged = true;
-                break;
             }
-        }
-        if (!merged) {
-            result_events.push_back(ev);
         }
     }
 

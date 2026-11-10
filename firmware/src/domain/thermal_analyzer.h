@@ -68,6 +68,7 @@ public:
     static constexpr float MAX_VALID_TEMP_C = 300.0f;
     static constexpr float DEFAULT_POSITION_TOLERANCE_CM = SPATIAL_TOLERANCE_CM;
     static constexpr float DEFAULT_CALIBRATED_FOV_WIDTH_CM = FOV_OPTICAL_CM;
+    static constexpr size_t MAX_PANEL_HOTSPOTS = 10;
 
     /**
      * @brief Constructor allowing configurable optical FOV calibration width and spatial tolerance.

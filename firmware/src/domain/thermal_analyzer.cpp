@@ -256,8 +256,6 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeScan(const std::vector<ScanAcq
                             if (std::find(ev.confirming_event_ids.begin(), ev.confirming_event_ids.end(), acquisitions[adj_idx].source_event_id) == ev.confirming_event_ids.end()) {
                                 ev.confirming_event_ids.push_back(acquisitions[adj_idx].source_event_id);
                             }
-                        } else if (!acquisitions[i].source_event_id.empty()) {
-                            ev.confirming_event_ids.push_back(acquisitions[i].source_event_id + "-adj");
                         }
                         result_events.push_back(ev);
                     }
@@ -325,18 +323,20 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
                 size_t idx = static_cast<size_t>(row * MLX_COLS + col);
                 int16_t q = f.pixels[idx];
                 if (q != QuantizedThermalFrame::INVALID_PIXEL && q >= threshold_q) {
-                    HotspotCandidate cand;
-                    cand.col = col;
-                    cand.row = row;
-                    cand.temp_c = QuantizedThermalFrame::toFloat(q);
-                    cand.global_x_cm = calculateGlobalX(f.x_position_cm, col, calibrated_fov_cm_);
-                    if (panel_end_cm > panel_start_cm) {
-                        if (cand.global_x_cm < panel_start_cm) cand.global_x_cm = panel_start_cm;
-                        if (cand.global_x_cm > panel_end_cm) cand.global_x_cm = panel_end_cm;
+                    if (per_frame_candidates[i].size() < MAX_CANDIDATES_PER_FRAME) {
+                        HotspotCandidate cand;
+                        cand.col = col;
+                        cand.row = row;
+                        cand.temp_c = QuantizedThermalFrame::toFloat(q);
+                        cand.global_x_cm = calculateGlobalX(f.x_position_cm, col, calibrated_fov_cm_);
+                        if (panel_end_cm > panel_start_cm) {
+                            if (cand.global_x_cm < panel_start_cm) cand.global_x_cm = panel_start_cm;
+                            if (cand.global_x_cm > panel_end_cm) cand.global_x_cm = panel_end_cm;
+                        }
+                        cand.acquisition_index = i;
+                        cand.panel_index = panel_index;
+                        per_frame_candidates[i].push_back(cand);
                     }
-                    cand.acquisition_index = i;
-                    cand.panel_index = panel_index;
-                    per_frame_candidates[i].push_back(cand);
                 }
             }
         }
@@ -481,8 +481,6 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
                             if (std::find(ev.confirming_event_ids.begin(), ev.confirming_event_ids.end(), frames[adj_idx].source_event_id) == ev.confirming_event_ids.end()) {
                                 ev.confirming_event_ids.push_back(frames[adj_idx].source_event_id);
                             }
-                        } else if (!frames[i].source_event_id.empty()) {
-                            ev.confirming_event_ids.push_back(frames[i].source_event_id + "-adj");
                         }
                         result_events.push_back(ev);
                     }

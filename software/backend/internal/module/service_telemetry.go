@@ -345,45 +345,7 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 		spcCm = *pSpc
 	}
 
-	anomalies := make([]ConfirmedAnomalyDTO, 0, len(anomRows))
-	for _, a := range anomRows {
-		xPos, _ := strconv.ParseFloat(a.XPositionCm, 64)
-		confirmingIDs := make([]string, 0, len(a.ConfirmingMeasurementIds))
-		for _, cid := range a.ConfirmingMeasurementIds {
-			confirmingIDs = append(confirmingIDs, auth.FormatUUID(cid))
-		}
-
-		var closedAtStr *string
-		if a.ClosedAt != nil {
-			c := a.ClosedAt.UTC().Format(time.RFC3339)
-			closedAtStr = &c
-		}
-
-		var localXPtr *float64
-		if lenCm > 0 {
-			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, xPos)
-			if !posRes.InGap {
-				localXPtr = &posRes.LocalXCm
-			}
-		}
-		pIdx := a.PanelIndex
-
-		anomalies = append(anomalies, ConfirmedAnomalyDTO{
-			ID:                       auth.FormatUUID(a.ID),
-			ModuleID:                 auth.FormatUUID(a.ModuleID),
-			OriginMeasurementID:      auth.FormatUUID(a.OriginMeasurementID),
-			ConfirmingMeasurementIDs: confirmingIDs,
-			SourceEventID:            auth.FormatUUID(a.SourceEventID),
-			PanelIndex:               &pIdx,
-			XPositionCM:              xPos,
-			LocalXPositionCM:         localXPtr,
-			DetectedAt:               a.DetectedAt.UTC().Format(time.RFC3339),
-			Status:                   a.Status,
-			ActuatedAttemptsCount:    a.ActuatedAttemptsCount,
-			RetryPending:             a.RetryPending,
-			ClosedAt:                 closedAtStr,
-		})
-	}
+	anomalies := s.mapAnomalyRowsToDTO(anomRows, cnt, lenCm, spcCm)
 
 	panelResultsRows, err := s.queries.ListInspectionPanelResults(ctx, db.ListInspectionPanelResultsParams{
 		InspectionID: inspRow.ID,
@@ -422,6 +384,7 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 			VerificationResult:   verifResult,
 			CreatedAt:            inspRow.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt:            inspRow.UpdatedAt.UTC().Format(time.RFC3339),
+			ConfirmedAnomalies:   anomalies,
 		},
 		TotalMeasurements:  totalMeas,
 		ConfirmedAnomalies: anomalies,
@@ -1787,6 +1750,22 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 		offset = 0
 	}
 
+	pLen := numericToFloatPtr(row.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(row.PanelCount)
+	pSpc := numericToFloatPtr(row.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
 	rows, err := s.queries.ListInspectionsByModule(ctx, db.ListInspectionsByModuleParams{
 		ModuleID: moduleID,
 		Limit:    limit,
@@ -1827,6 +1806,15 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 			failReason = &inspRow.FailureReason.String
 		}
 
+		anomRows, err := s.queries.ListAnomaliesByInspection(ctx, db.ListAnomaliesByInspectionParams{
+			InspectionID: inspRow.ID,
+			ModuleID:     moduleID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		anomalies := s.mapAnomalyRowsToDTO(anomRows, cnt, lenCm, spcCm)
+
 		out = append(out, InspectionDTO{
 			ID:                   auth.FormatUUID(inspRow.ID),
 			ModuleID:             auth.FormatUUID(inspRow.ModuleID),
@@ -1842,9 +1830,53 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 			VerificationResult:   verifResult,
 			CreatedAt:            inspRow.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt:            inspRow.UpdatedAt.UTC().Format(time.RFC3339),
+			ConfirmedAnomalies:   anomalies,
 		})
 	}
 	return out, nil
+}
+
+func (s *Service) mapAnomalyRowsToDTO(anomRows []db.ListAnomaliesByInspectionRow, cnt int32, lenCm, spcCm float64) []ConfirmedAnomalyDTO {
+	anomalies := make([]ConfirmedAnomalyDTO, 0, len(anomRows))
+	for _, a := range anomRows {
+		xPos, _ := strconv.ParseFloat(a.XPositionCm, 64)
+		confirmingIDs := make([]string, 0, len(a.ConfirmingMeasurementIds))
+		for _, cid := range a.ConfirmingMeasurementIds {
+			confirmingIDs = append(confirmingIDs, auth.FormatUUID(cid))
+		}
+
+		var closedAtStr *string
+		if a.ClosedAt != nil {
+			c := a.ClosedAt.UTC().Format(time.RFC3339)
+			closedAtStr = &c
+		}
+
+		var localXPtr *float64
+		if lenCm > 0 {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, xPos)
+			if !posRes.InGap {
+				localXPtr = &posRes.LocalXCm
+			}
+		}
+		pIdx := a.PanelIndex
+
+		anomalies = append(anomalies, ConfirmedAnomalyDTO{
+			ID:                       auth.FormatUUID(a.ID),
+			ModuleID:                 auth.FormatUUID(a.ModuleID),
+			OriginMeasurementID:      auth.FormatUUID(a.OriginMeasurementID),
+			ConfirmingMeasurementIDs: confirmingIDs,
+			SourceEventID:            auth.FormatUUID(a.SourceEventID),
+			PanelIndex:               &pIdx,
+			XPositionCM:              xPos,
+			LocalXPositionCM:         localXPtr,
+			DetectedAt:               a.DetectedAt.UTC().Format(time.RFC3339),
+			Status:                   a.Status,
+			ActuatedAttemptsCount:    a.ActuatedAttemptsCount,
+			RetryPending:             a.RetryPending,
+			ClosedAt:                 closedAtStr,
+		})
+	}
+	return anomalies
 }
 
 // deciCelsiusFrameToCelsius converts a thermal frame of integer tenths of °C to °C,

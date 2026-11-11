@@ -56,14 +56,20 @@ class _ModuleMeasurementsScreenState
         ref.watch(latestInspectionProvider(widget.moduleId));
     final allMeasurementsAsync =
         ref.watch(moduleMeasurementsProvider(widget.moduleId));
+    final inspectionsAsync =
+        ref.watch(moduleInspectionsProvider(widget.moduleId));
 
     final mod = detailsAsync.valueOrNull?.module;
+    final inspectionsList =
+        inspectionsAsync.valueOrNull ?? const <ModuleInspection>[];
+    final inspectionsMap = {for (var i in inspectionsList) i.id: i};
 
     final content = RefreshIndicator(
       color: AppColors.primary,
       onRefresh: () async {
         ref.invalidate(latestInspectionProvider(widget.moduleId));
         ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+        ref.invalidate(moduleInspectionsProvider(widget.moduleId));
         ref.invalidate(inspectionMeasurementsPagedProvider);
       },
       child: SingleChildScrollView(
@@ -141,6 +147,7 @@ class _ModuleMeasurementsScreenState
                   latestInspection: latestInspection,
                   allMeasurements: allMeasurements,
                   mod: mod,
+                  inspectionsMap: inspectionsMap,
                 );
               },
             ),
@@ -186,6 +193,7 @@ class _ModuleMeasurementsScreenState
     required LatestInspection? latestInspection,
     required List<ModuleMeasurement> allMeasurements,
     required PvModule? mod,
+    required Map<String, ModuleInspection> inspectionsMap,
   }) {
     // 1. Group measurements by inspectionId
     final Map<String, List<ModuleMeasurement>> grouped = {};
@@ -321,6 +329,7 @@ class _ModuleMeasurementsScreenState
               isLatest: isLatest,
               latestInspection: isLatest ? latestInspection : null,
               mod: mod,
+              inspectionsMap: inspectionsMap,
             );
           },
         ),
@@ -366,7 +375,17 @@ class _ModuleMeasurementsScreenState
     required bool isLatest,
     required LatestInspection? latestInspection,
     required PvModule? mod,
+    required Map<String, ModuleInspection> inspectionsMap,
   }) {
+    final inspModel = inspectionsMap[inspectionId];
+    final inspAnomalies = isLatest
+        ? (latestInspection?.confirmedAnomalies ?? const [])
+        : (inspModel?.confirmedAnomalies ?? const []);
+    final baselineTemp = isLatest
+        ? latestInspection?.inspection.baselineTemperatureC
+        : inspModel?.baselineTemperatureC;
+    final totalHotspots = inspAnomalies.length;
+
     final shortId = inspectionId.length > 8
         ? '${inspectionId.substring(0, 8)}...'
         : inspectionId;
@@ -374,7 +393,10 @@ class _ModuleMeasurementsScreenState
     final latestDt = (isLatest && latestInspection != null)
         ? (DateTime.tryParse(latestInspection.inspection.createdAt) ??
             _maxMeasuredAt(measurements))
-        : _maxMeasuredAt(measurements);
+        : (inspModel != null && inspModel.createdAt.isNotEmpty
+            ? (DateTime.tryParse(inspModel.createdAt) ??
+                _maxMeasuredAt(measurements))
+            : _maxMeasuredAt(measurements));
 
     final dateLabel = latestDt != null
         ? _formatReadableTimestamp(latestDt.toIso8601String())
@@ -384,7 +406,7 @@ class _ModuleMeasurementsScreenState
 
     final statusStr = (isLatest && latestInspection != null
             ? latestInspection.inspection.status
-            : 'completed')
+            : (inspModel?.status ?? 'completed'))
         .toUpperCase();
 
     final int effectivePanelCount =
@@ -445,10 +467,9 @@ class _ModuleMeasurementsScreenState
             latestInspection != null &&
             latestInspection.inspection.type.isNotEmpty)
         ? '${latestInspection.inspection.type[0].toUpperCase()}${latestInspection.inspection.type.substring(1)} Scan'
-        : 'Robotic Scan';
-
-    final baselineTemp =
-        isLatest ? latestInspection?.inspection.baselineTemperatureC : null;
+        : (inspModel != null && inspModel.type.isNotEmpty
+            ? '${inspModel.type[0].toUpperCase()}${inspModel.type.substring(1)} Scan'
+            : 'Robotic Scan');
 
     final Map<int, List<ModuleMeasurement>> byPanel = {};
     for (final m in measurements) {
@@ -561,10 +582,6 @@ class _ModuleMeasurementsScreenState
       powerLabel = 'Power';
       powerSublabel = null;
     }
-
-    final totalHotspots = (isLatest && latestInspection != null)
-        ? latestInspection.confirmedAnomalies.length
-        : 0;
 
     final totalFramesCount = measurements.isNotEmpty
         ? measurements.length
@@ -749,6 +766,8 @@ class _ModuleMeasurementsScreenState
                   panelMeasurements: byPanel[p]!,
                   mod: mod,
                   latestInspection: isLatest ? latestInspection : null,
+                  inspAnomalies: inspAnomalies,
+                  baselineTemp: baselineTemp,
                 )),
           ],
 
@@ -913,6 +932,8 @@ class _ModuleMeasurementsScreenState
     required List<ModuleMeasurement> panelMeasurements,
     required PvModule? mod,
     required LatestInspection? latestInspection,
+    List<ConfirmedAnomaly> inspAnomalies = const [],
+    double? baselineTemp,
   }) {
     final p = panelIndex;
     final pMinX =
@@ -937,7 +958,8 @@ class _ModuleMeasurementsScreenState
       }
     }
     final bTemp = pRes?.baselineTemperatureC ??
-        latestInspection?.inspection.baselineTemperatureC;
+        latestInspection?.inspection.baselineTemperatureC ??
+        baselineTemp;
     final baselineStr = bTemp != null
         ? ' • Baseline: ${bTemp.toStringAsFixed(1)}°C'
         : ' • Baseline: N/A';
@@ -961,11 +983,10 @@ class _ModuleMeasurementsScreenState
         ? ' • Output: ${elecMeas.voltageV?.toStringAsFixed(2) ?? "N/A"}V · ${elecMeas.currentA?.toStringAsFixed(2) ?? "N/A"}A · ${elecMeas.powerW?.toStringAsFixed(2) ?? "N/A"}W'
         : '';
 
-    final panelHotspots = latestInspection?.confirmedAnomalies.where((a) {
+    final panelHotspots = inspAnomalies.where((a) {
           if (a.panelIndex != null) return a.panelIndex == p;
           return a.xPositionCm >= pb.startCm && a.xPositionCm <= pb.endCm;
-        }).length ??
-        0;
+        }).length;
     final hotspotSummaryStr =
         panelHotspots > 0 ? ' • Hotspots: $panelHotspots' : '';
 
@@ -1153,15 +1174,14 @@ class _ModuleMeasurementsScreenState
                     ),
                   ),
                 ...displayedItems.map((m) {
-                  final isConfirmed = latestInspection != null &&
-                      latestInspection.confirmedAnomalies.any(
-                        (a) =>
-                            a.originMeasurementId == m.id ||
-                            a.confirmingMeasurementIds.contains(m.id) ||
-                            (a.originMeasurementId.isEmpty &&
-                                a.confirmingMeasurementIds.isEmpty &&
-                                (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
-                      );
+                  final isConfirmed = inspAnomalies.any(
+                    (a) =>
+                        a.originMeasurementId == m.id ||
+                        a.confirmingMeasurementIds.contains(m.id) ||
+                        (a.originMeasurementId.isEmpty &&
+                            a.confirmingMeasurementIds.isEmpty &&
+                            (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
+                  );
                   final coordKey = (m.xPositionCm * 2).round();
                   final isSuperseded = latestIdByCoord[coordKey] != m.id;
 
@@ -1472,7 +1492,7 @@ class _ModuleMeasurementsScreenState
                       border: Border.all(color: AppColors.errorBorder),
                     ),
                     child: Text(
-                      'HOTSPOT',
+                      'HOTSPOT (CONFIRMED)',
                       style: AppTypography.caption.copyWith(
                         color: AppColors.error,
                         fontWeight: FontWeight.w800,

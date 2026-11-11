@@ -741,6 +741,7 @@ class ModuleInspection {
     this.verificationResult,
     required this.createdAt,
     required this.updatedAt,
+    this.confirmedAnomalies = const [],
   });
 
   final String id;
@@ -756,8 +757,49 @@ class ModuleInspection {
   final String? verificationResult;
   final String createdAt;
   final String updatedAt;
+  final List<ConfirmedAnomaly> confirmedAnomalies;
+
+  ModuleInspection copyWith({
+    String? id,
+    String? moduleId,
+    String? sourceEventId,
+    String? type,
+    String? cleaningOperationId,
+    double? baselineTemperatureC,
+    String? scheduledFor,
+    String? startedAt,
+    String? finishedAt,
+    String? status,
+    String? verificationResult,
+    String? createdAt,
+    String? updatedAt,
+    List<ConfirmedAnomaly>? confirmedAnomalies,
+  }) {
+    return ModuleInspection(
+      id: id ?? this.id,
+      moduleId: moduleId ?? this.moduleId,
+      sourceEventId: sourceEventId ?? this.sourceEventId,
+      type: type ?? this.type,
+      cleaningOperationId: cleaningOperationId ?? this.cleaningOperationId,
+      baselineTemperatureC: baselineTemperatureC ?? this.baselineTemperatureC,
+      scheduledFor: scheduledFor ?? this.scheduledFor,
+      startedAt: startedAt ?? this.startedAt,
+      finishedAt: finishedAt ?? this.finishedAt,
+      status: status ?? this.status,
+      verificationResult: verificationResult ?? this.verificationResult,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      confirmedAnomalies: confirmedAnomalies ?? this.confirmedAnomalies,
+    );
+  }
 
   factory ModuleInspection.fromJson(Map<String, dynamic> json) {
+    final rawConfirmed = json['confirmed_anomalies'] as List<dynamic>? ?? const [];
+    final confirmed = rawConfirmed
+        .map((a) => a is Map ? ConfirmedAnomaly.fromJson(Map<String, dynamic>.from(a)) : null)
+        .whereType<ConfirmedAnomaly>()
+        .toList();
+
     return ModuleInspection(
       id: json['id'] as String? ?? '',
       moduleId: json['module_id'] as String? ?? '',
@@ -772,6 +814,7 @@ class ModuleInspection {
       verificationResult: json['verification_result'] as String?,
       createdAt: json['created_at'] as String? ?? '',
       updatedAt: json['updated_at'] as String? ?? '',
+      confirmedAnomalies: confirmed,
     );
   }
 }

@@ -344,11 +344,16 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         ? (peakTemp - baselineTemp)
         : null;
 
+    final bool isElevated =
+        !hasConfirmedHotspots && delta != null && delta >= 10.0;
+
     final String deltaText;
     if (hasConfirmedHotspots) {
       deltaText = delta != null
           ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
           : 'Hotspot Confirmed';
+    } else if (isElevated) {
+      deltaText = '+${delta.toStringAsFixed(1)}°C (Elevated - Unconfirmed)';
     } else {
       deltaText = delta != null
           ? '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
@@ -411,23 +416,42 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 decoration: BoxDecoration(
                   color: hasConfirmedHotspots
                       ? AppColors.errorBackground
-                      : AppColors.successBackground,
+                      : (isElevated
+                          ? AppColors.warningBackground
+                          : AppColors.successBackground),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: hasConfirmedHotspots
                         ? AppColors.errorBorder
-                        : AppColors.successBorder,
+                        : (isElevated
+                            ? AppColors.warningBorder
+                            : AppColors.successBorder),
                   ),
                 ),
-                child: Text(
-                  deltaText,
-                  style: AppTypography.caption.copyWith(
-                    color: hasConfirmedHotspots
-                        ? AppColors.error
-                        : AppColors.success,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 10,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isElevated) ...[
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 13,
+                        color: AppColors.warning,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(
+                      deltaText,
+                      style: AppTypography.caption.copyWith(
+                        color: hasConfirmedHotspots
+                            ? AppColors.error
+                            : (isElevated
+                                ? AppColors.warning
+                                : AppColors.success),
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

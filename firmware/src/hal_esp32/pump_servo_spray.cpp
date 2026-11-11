@@ -30,7 +30,7 @@ bool PumpServoSpray::init() {
     ESP32PWM::allocateTimer(1);
     servo_.setPeriodHertz(50);
     servo_.attach(servo_pin_, 500, 2500);
-    servo_.write(90); // Default centered 90 degrees
+    servo_.write(static_cast<int>(NOZZLE_DEFAULT_ANGLE)); // Default configured nozzle angle
 
     initialized_ = true;
     return true;

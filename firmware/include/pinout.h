@@ -200,7 +200,11 @@ constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;
 #endif
 
 #ifndef CAMERA_SERVO_DEFAULT_ANGLE_DEG
-#define CAMERA_SERVO_DEFAULT_ANGLE_DEG 45.0f // Configurable fixed angle for camera servo
+#define CAMERA_SERVO_DEFAULT_ANGLE_DEG 110.0f // Configurable fixed angle for camera servo
+#endif
+
+#ifndef NOZZLE_SERVO_DEFAULT_ANGLE_DEG
+#define NOZZLE_SERVO_DEFAULT_ANGLE_DEG 70.0f // Configurable fixed angle for spray nozzle servo
 #endif
 
 #ifndef PIN_STATUS_LED
@@ -211,6 +215,7 @@ constexpr uint8_t PUMP_MOSFET_PIN         = PIN_PUMP_MOSFET;
 constexpr uint8_t SERVO_PWM_PIN           = PIN_SERVO_PWM;
 constexpr uint8_t CAMERA_SERVO_PWM_PIN    = PIN_CAMERA_SERVO_PWM;
 constexpr float   CAMERA_DEFAULT_ANGLE    = CAMERA_SERVO_DEFAULT_ANGLE_DEG;
+constexpr float   NOZZLE_DEFAULT_ANGLE    = NOZZLE_SERVO_DEFAULT_ANGLE_DEG;
 constexpr uint8_t STATUS_LED_PIN          = PIN_STATUS_LED;
 
 // ============================================================================
@@ -229,7 +234,7 @@ constexpr float FOV_OPTICAL_CM                = CALIBRATED_FOV_WIDTH_CM;
 
 constexpr float OVERLAP_PERCENT               = 60.0f;    // Overlap percentage between consecutive captures (%)
 constexpr float MAX_BASE_TEMP_C               = 60.0f;    // Maximum acceptable baseline operating temperature (°C)
-constexpr float HOTSPOT_THRESHOLD_DELTA_C     = 10.0f;    // Thermal delta over baseline indicating hotspot (°C)
+constexpr float HOTSPOT_THRESHOLD_DELTA_C     = 8.0f;    // Thermal delta over baseline indicating hotspot (°C)
 constexpr uint32_t MAX_CLEANING_ATTEMPTS      = 3;        // Maximum consecutive spray cleaning attempts per anomaly
 constexpr uint32_t POST_CLEANING_WAIT_SECONDS = 1800;     // Cooldown / dry wait time before post-cleaning verification (30 min)
 

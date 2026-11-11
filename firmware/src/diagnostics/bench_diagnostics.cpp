@@ -82,13 +82,14 @@ void BenchDiagnostics::printList() {
     console_->println("  diag backend      - Executa ping HTTP e re-claim se 401");
     console_->println("  diag mlx          - Captura frame MLX90640 e valida 768 pixels");
     console_->println("  diag mlx watch    - Monitoramento continuo de temperatura em tempo real");
+    console_->println("  diag mlx stream   - Transmissao continua de frames (FRAME,...) para o viewMap.py");
     console_->println("  diag ina          - Le tensao (V), corrente (A) e potencia (W) do sensor INA228/INA");
     console_->println("  diag water        - Avalia estabilidade do sensor capacitivo de agua");
     console_->println("  diag motor        - Movimenta carro +2cm/-2cm (requer confirmacao)");
     console_->println("  diag homing       - Referencia carro ate batente NC (requer confirmacao)");
     console_->println("  diag pump         - Aciona bomba por 500ms (requer confirmacao)");
-    console_->println("  diag camera-servo - Articula servo da camera para teste de angulo");
-    console_->println("  diag nozzle-servo - Articula servo da mangueira/bico (45, 135 e 90 graus)");
+    console_->println("  diag camera-servo [ang] - Articula servo da camera (ou define angulo 0-180)");
+    console_->println("  diag nozzle-servo [ang] - Articula servo do bico (ou define angulo 0-180)");
     console_->println("  diag scan         - Executa ciclo completo de varredura (motor, MLX90640 e INA228)");
     console_->println("  diag safety       - Testa intertravamentos e parada de emergencia");
     console_->println("==================================================");
@@ -129,6 +130,24 @@ bool BenchDiagnostics::handleCommand(const std::string& cmd_line) {
         return true;
     }
 
+    auto extract_float_arg = [](const std::string& s) -> float {
+        size_t sp = s.find_first_of(" \t=");
+        if (sp != std::string::npos) {
+            std::string num_str = s.substr(sp + 1);
+            while (!num_str.empty() && (num_str.front() == ' ' || num_str.front() == '\t')) {
+                num_str.erase(num_str.begin());
+            }
+            if (!num_str.empty()) {
+                char* end = nullptr;
+                float val = strtof(num_str.c_str(), &end);
+                if (end != num_str.c_str()) {
+                    return val;
+                }
+            }
+        }
+        return -1.0f;
+    };
+
     if (arg == "nvs") {
         printTestResult(testNvs());
     } else if (arg == "clock") {
@@ -137,10 +156,12 @@ bool BenchDiagnostics::handleCommand(const std::string& cmd_line) {
         printTestResult(testWifi());
     } else if (arg == "backend") {
         printTestResult(testBackend());
+    } else if (arg == "mlx stream" || arg == "stream" || arg == "mlx raw") {
+        testMlx(false, true);
     } else if (arg == "mlx watch") {
-        testMlx(true);
+        testMlx(true, false);
     } else if (arg == "mlx") {
-        printTestResult(testMlx(false));
+        printTestResult(testMlx(false, false));
     } else if (arg == "ina") {
         printTestResult(testIna());
     } else if (arg == "water") {
@@ -151,10 +172,16 @@ bool BenchDiagnostics::handleCommand(const std::string& cmd_line) {
         printTestResult(testHoming());
     } else if (arg == "pump") {
         printTestResult(testPump(true));
-    } else if (arg == "camera-servo" || arg == "cam-servo") {
-        printTestResult(testCameraServo());
-    } else if (arg == "nozzle-servo" || arg == "nozzle") {
-        printTestResult(testNozzleServo());
+    } else if (arg.rfind("camera-servo", 0) == 0 || arg.rfind("cam-servo", 0) == 0 || arg.rfind("servo camera", 0) == 0 || arg.rfind("cam", 0) == 0) {
+        float angle = extract_float_arg(arg);
+        printTestResult(testCameraServo(angle));
+    } else if (arg.rfind("nozzle-servo", 0) == 0 || arg.rfind("nozzle", 0) == 0 || arg.rfind("servo nozzle", 0) == 0) {
+        float angle = extract_float_arg(arg);
+        printTestResult(testNozzleServo(angle));
+    } else if (arg.rfind("servo", 0) == 0) {
+        // generic diag servo <ang> -> adjusts camera servo by default
+        float angle = extract_float_arg(arg);
+        printTestResult(testCameraServo(angle));
     } else if (arg == "scan") {
         printTestResult(testScan());
     } else if (arg == "safety") {
@@ -343,7 +370,7 @@ TestResult BenchDiagnostics::testBackend() {
 }
 
 // 5. diag mlx
-TestResult BenchDiagnostics::testMlx(bool watch) {
+TestResult BenchDiagnostics::testMlx(bool watch, bool stream) {
     uint32_t t0 = nowMs();
     TestResult r;
     r.name = "mlx";
@@ -360,6 +387,29 @@ TestResult BenchDiagnostics::testMlx(bool watch) {
         r.status = TestStatus::FAIL;
         r.details = "Falha na inicializacao I2C do MLX90640.";
         r.failure_cause = "camera_->init() retornou falso.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    if (stream) {
+        static ThermalFrame frame;
+        char num_buf[16];
+        while (console_ && !console_->available()) {
+            if (camera_->captureFrame(frame) && frame.valid) {
+                console_->print("FRAME");
+                for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+                    snprintf(num_buf, sizeof(num_buf), ",%.2f", frame.pixels[i]);
+                    console_->print(num_buf);
+                }
+                console_->println();
+            }
+            delayMs(20);
+        }
+        if (console_) {
+            while (console_->available()) console_->read(); // consume key
+        }
+        r.status = TestStatus::PASS;
+        r.details = "Modo interativo stream executado.";
         r.duration_ms = getElapsedMs(t0);
         return r;
     }
@@ -733,7 +783,7 @@ TestResult BenchDiagnostics::testPump(bool require_confirmation) {
 }
 
 // 11. diag camera-servo
-TestResult BenchDiagnostics::testCameraServo() {
+TestResult BenchDiagnostics::testCameraServo(float target_angle) {
     uint32_t t0 = nowMs();
     TestResult r;
     r.name = "camera-servo";
@@ -742,6 +792,18 @@ TestResult BenchDiagnostics::testCameraServo() {
         r.status = TestStatus::FAIL;
         r.details = "Driver de camera nulo.";
         r.failure_cause = "Ponteiro IThermalCamera invalido.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    if (target_angle >= 0.0f) {
+        if (target_angle > 180.0f) target_angle = 180.0f;
+        camera_->setTiltAngle(target_angle);
+        if (console_) {
+            console_->printf("[CAM SERVO] Angulo ajustado para: %.1f graus.\n", target_angle);
+        }
+        r.status = TestStatus::PASS;
+        r.details = "Servo da camera ajustado para " + std::to_string(static_cast<int>(target_angle)) + " graus.";
         r.duration_ms = getElapsedMs(t0);
         return r;
     }
@@ -766,7 +828,7 @@ TestResult BenchDiagnostics::testCameraServo() {
     return r;
 }
 
-TestResult BenchDiagnostics::testNozzleServo() {
+TestResult BenchDiagnostics::testNozzleServo(float target_angle) {
     uint32_t t0 = nowMs();
     TestResult r;
     r.name = "nozzle-servo";
@@ -775,6 +837,18 @@ TestResult BenchDiagnostics::testNozzleServo() {
         r.status = TestStatus::FAIL;
         r.details = "Driver de atuador de spray/nozzle nulo.";
         r.failure_cause = "Ponteiro ISprayActuator invalido.";
+        r.duration_ms = getElapsedMs(t0);
+        return r;
+    }
+
+    if (target_angle >= 0.0f) {
+        if (target_angle > 180.0f) target_angle = 180.0f;
+        spray_->setNozzleAngle(target_angle);
+        if (console_) {
+            console_->printf("[NOZZLE SERVO] Angulo ajustado para: %.1f graus.\n", target_angle);
+        }
+        r.status = TestStatus::PASS;
+        r.details = "Servo do bico ajustado para " + std::to_string(static_cast<int>(target_angle)) + " graus.";
         r.duration_ms = getElapsedMs(t0);
         return r;
     }
@@ -792,13 +866,14 @@ TestResult BenchDiagnostics::testNozzleServo() {
     delayMs(350);
 
     if (console_) {
-        console_->println("[NOZZLE SERVO] Centralizando servo do bico: 90 graus...");
+        console_->printf("[NOZZLE SERVO] Retornando servo do bico para angulo padrao: %.1f graus...\n", NOZZLE_DEFAULT_ANGLE);
     }
-    spray_->setNozzleAngle(90.0f);
+    spray_->setNozzleAngle(NOZZLE_DEFAULT_ANGLE);
     delayMs(200);
 
     r.status = TestStatus::PASS;
-    r.details = "Servo do bico da mangueira articulado com sucesso (45, 135 e 90 graus). Retornado ao centro (90 graus).";
+    r.details = "Servo do bico da mangueira articulado com sucesso. Retornado ao angulo padrao (" +
+                std::to_string(static_cast<int>(NOZZLE_DEFAULT_ANGLE)) + " graus).";
     r.duration_ms = getElapsedMs(t0);
     return r;
 }

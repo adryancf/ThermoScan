@@ -989,14 +989,14 @@ void ThermoscanApp::handleCleaning() {
             break;
         }
 
-        Serial.printf("[CLEANING] Moving to X = %.1f cm and aligning nozzle to 90 deg...\n", qh.target_x_cm);
+        Serial.printf("[CLEANING] Moving to X = %.1f cm and aligning nozzle to %.1f deg...\n", qh.target_x_cm, NOZZLE_DEFAULT_ANGLE);
 
         // Position carriage at target X and align nozzle
         if (motion_ != nullptr) {
             motion_->moveToXCm(qh.target_x_cm);
         }
         if (spray_ != nullptr) {
-            spray_->setNozzleAngle(90.0f);
+            spray_->setNozzleAngle(NOZZLE_DEFAULT_ANGLE);
 #if defined(ARDUINO) || defined(ESP32)
             delay(SERVO_SETTLE_DELAY_MS);
 #endif

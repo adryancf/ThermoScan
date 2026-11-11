@@ -133,14 +133,14 @@ public:
     TestResult testClock();
     TestResult testWifi();
     TestResult testBackend();
-    TestResult testMlx(bool watch = false);
+    TestResult testMlx(bool watch = false, bool stream = false);
     TestResult testIna();
     TestResult testWater();
     TestResult testMotor(bool require_confirmation = true);
     TestResult testHoming();
     TestResult testPump(bool require_confirmation = true);
-    TestResult testNozzleServo();
-    TestResult testCameraServo();
+    TestResult testNozzleServo(float target_angle = -1.0f);
+    TestResult testCameraServo(float target_angle = -1.0f);
     TestResult testScan();
     TestResult testSafety();
 

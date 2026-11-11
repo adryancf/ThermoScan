@@ -1,11 +1,18 @@
 import sys
+import time
 import serial
 import numpy as np
 import matplotlib.pyplot as plt
 
 porta = sys.argv[1] if len(sys.argv) > 1 else "/dev/ttyUSB0"
 
-with serial.Serial(porta, 115200, timeout=3) as esp:
+with serial.Serial(porta, 115200, timeout=1) as esp:
+    print(f"Conectado a {porta}. Aguardando inicialização da ESP32...")
+    time.sleep(2.0)
+    esp.reset_input_buffer()
+    esp.write(b"diag mlx stream\n")
+    print("Comando 'diag mlx stream' enviado. Abrindo mapa de calor...")
+
     fig, ax = plt.subplots()
     imagem = ax.imshow(
         np.zeros((32, 24)),
@@ -18,11 +25,16 @@ with serial.Serial(porta, 115200, timeout=3) as esp:
     ax.set_title("MLX90640 — aguardando quadro")
     plt.show(block=False)
 
+    last_retry = time.time()
     while plt.fignum_exists(fig.number):
         linha = esp.readline().decode("utf-8", errors="ignore").strip()
         if not linha.startswith("FRAME,"):
+            if time.time() - last_retry > 2.5:
+                esp.write(b"diag mlx stream\n")
+                last_retry = time.time()
             continue
 
+        last_retry = time.time()
         try:
             valores = np.array(
                 [float(x) for x in linha.split(",")[1:]],
@@ -41,3 +53,8 @@ with serial.Serial(porta, 115200, timeout=3) as esp:
         )
         fig.canvas.draw_idle()
         plt.pause(0.01)
+
+    try:
+        esp.write(b"q\n")
+    except Exception:
+        pass

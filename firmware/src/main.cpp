@@ -164,10 +164,13 @@ void loop() {
         String line = Serial.readStringUntil('\n');
         line.trim();
         if (line.length() > 0) {
+            std::string cmd = line.c_str();
             if (line.startsWith("diag")) {
-                g_diagnostics.handleCommand(line.c_str());
+                g_diagnostics.handleCommand(cmd);
             } else {
-                Serial.printf("[CMD] Unknown command: '%s'. Type 'diag list' for available tests.\n", line.c_str());
+                if (!g_diagnostics.handleCommand("diag " + cmd)) {
+                    Serial.printf("[CMD] Unknown command: '%s'. Type 'diag list' for available tests.\n", line.c_str());
+                }
             }
         }
     }

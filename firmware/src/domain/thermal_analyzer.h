@@ -18,6 +18,7 @@ struct ScanAcquisition {
     float x_position_cm{0.0f};
     ThermalFrame frame{};
     bool valid{false};
+    std::string source_event_id{};
 };
 
 /**

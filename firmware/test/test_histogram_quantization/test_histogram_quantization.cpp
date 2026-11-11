@@ -82,9 +82,9 @@ void test_quantized_scan_spatial_confirmation_and_multiple_hotspots() {
     // X_global = 10.0 + (20/32.0)*5.0 = 10.0 + 3.125 = 13.125 cm
     f0.pixels[5 * 32 + 20] = QuantizedThermalFrame::fromFloat(50.0f);
 
-    // Hotspot B at row 12, col 10
+    // Hotspot B at row 12, col 10 (non-critical: 45.0 C - 30.0 C = 15.0 C < 20.0 C critical delta)
     // X_global = 10.0 + (10/32.0)*5.0 = 10.0 + 1.5625 = 11.5625 cm
-    f0.pixels[12 * 32 + 10] = QuantizedThermalFrame::fromFloat(55.0f);
+    f0.pixels[12 * 32 + 10] = QuantizedThermalFrame::fromFloat(45.0f);
 
     // Frame 1 at X = 12.0 cm (step = 2.0 cm, ~60% overlap)
     QuantizedThermalFrame f1;

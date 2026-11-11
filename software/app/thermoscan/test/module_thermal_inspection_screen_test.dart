@@ -209,6 +209,22 @@ void main() {
       updatedAt: '2026-02-20T09:10:00Z',
       finishedAt: '2026-02-20T09:10:00Z',
       baselineTemperatureC: 26.0,
+      confirmedAnomalies: [
+        ConfirmedAnomaly(
+          id: 'anom-older-1',
+          moduleId: testModuleId,
+          originMeasurementId: 'meas-older-1',
+          confirmingMeasurementIds: ['meas-older-1'],
+          sourceEventId: 'evt-0',
+          panelIndex: 1,
+          localXPositionCm: 20.0,
+          xPositionCm: 20.0,
+          detectedAt: '2026-02-20T09:05:00Z',
+          status: 'open',
+          actuatedAttemptsCount: 0,
+          retryPending: false,
+        ),
+      ],
     );
 
     const olderMeasurements = PagedMeasurements(
@@ -286,6 +302,7 @@ void main() {
     expect(find.byKey(const Key('historical_scan_badge')), findsOneWidget);
     expect(find.byKey(const Key('historical_scan_banner')), findsOneWidget);
     expect(find.byKey(const Key('back_to_latest_scan_button')), findsOneWidget);
+    expect(find.byKey(const Key('rail_hotspot_marker_1')), findsOneWidget);
 
     // Return to Latest Scan
     await tester.tap(find.byKey(const Key('back_to_latest_scan_button')));

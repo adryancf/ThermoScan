@@ -205,7 +205,7 @@ class _ModuleThermalInspectionScreenState
             activeInspection = LatestInspection(
               inspection: _selectedHistoricalInspection!,
               totalMeasurements: histMeasurements.length,
-              confirmedAnomalies: const [],
+              confirmedAnomalies: _selectedHistoricalInspection!.confirmedAnomalies,
             );
             activeLatestMeasurement =
                 histMeasurements.isNotEmpty ? histMeasurements.first : null;

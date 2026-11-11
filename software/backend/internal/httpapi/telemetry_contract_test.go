@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -656,6 +657,79 @@ func TestTelemetryContractValidations(t *testing.T) {
 		expectedTimeStr := tLate.Format(time.RFC3339)
 		if finResp.LatestInspection.ConfirmedAnomalies[0].DetectedAt != expectedTimeStr {
 			t.Fatalf("expected detected_at %q (from max confirming measurement), got %q", expectedTimeStr, finResp.LatestInspection.ConfirmedAnomalies[0].DetectedAt)
+		}
+	})
+
+	// 13b. Listar inspeções retorna confirmed_anomalies preenchidos para inspeções históricas
+	t.Run("ListInspectionsReturnsConfirmedAnomaliesForHistoricalInspections", func(t *testing.T) {
+		rec := doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/inspections", techAuth.AccessToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 listing inspections, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// Ensure raw JSON contains empty array "confirmed_anomalies":[] and not null
+		if strings.Contains(rec.Body.String(), `"confirmed_anomalies":null`) {
+			t.Fatalf("expected confirmed_anomalies never to be null in JSON response: %s", rec.Body.String())
+		}
+
+		var listResp struct {
+			Inspections []struct {
+				ID                 string `json:"id"`
+				SourceEventID      string `json:"source_event_id"`
+				Status             string `json:"status"`
+				ConfirmedAnomalies []struct {
+					ID               string   `json:"id"`
+					SourceEventID    string   `json:"source_event_id"`
+					XPositionCM      float64  `json:"x_position_cm"`
+					LocalXPositionCM *float64 `json:"local_x_position_cm"`
+					Status           string   `json:"status"`
+				} `json:"confirmed_anomalies"`
+			} `json:"inspections"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &listResp); err != nil {
+			t.Fatalf("failed to decode list inspections response: %v", err)
+		}
+
+		if len(listResp.Inspections) == 0 {
+			t.Fatalf("expected inspections to be returned")
+		}
+
+		var foundHistoricalWith2Anomalies bool
+		var foundHistoricalWithNoAnomalies bool
+		for _, insp := range listResp.Inspections {
+			if insp.ConfirmedAnomalies == nil {
+				t.Fatalf("expected confirmed_anomalies slice not to be nil for inspection %s", insp.ID)
+			}
+			if insp.SourceEventID == "52000000-0000-0000-0000-000000000001" {
+				foundHistoricalWith2Anomalies = true
+				if len(insp.ConfirmedAnomalies) != 2 {
+					t.Fatalf("expected 2 confirmed anomalies for historical inspection, got %d", len(insp.ConfirmedAnomalies))
+				}
+				for _, anom := range insp.ConfirmedAnomalies {
+					if anom.ID == "" || anom.SourceEventID == "" {
+						t.Fatalf("expected anomaly to have ID and SourceEventID, got %+v", anom)
+					}
+					if anom.LocalXPositionCM == nil {
+						t.Fatalf("expected local_x_position_cm to be calculated, got nil")
+					}
+					if anom.Status != "open" {
+						t.Fatalf("expected anomaly status 'open', got %s", anom.Status)
+					}
+				}
+			}
+			if insp.SourceEventID == "51000000-0000-0000-0000-000000000001" {
+				foundHistoricalWithNoAnomalies = true
+				if len(insp.ConfirmedAnomalies) != 0 {
+					t.Fatalf("expected 0 confirmed anomalies for inspection without hotspots, got %d", len(insp.ConfirmedAnomalies))
+				}
+			}
+		}
+
+		if !foundHistoricalWith2Anomalies {
+			t.Fatalf("expected to find historical inspection 52000000-0000-0000-0000-000000000001 with confirmed anomalies")
+		}
+		if !foundHistoricalWithNoAnomalies {
+			t.Fatalf("expected to find historical inspection 51000000-0000-0000-0000-000000000001 without hotspots")
 		}
 	})
 

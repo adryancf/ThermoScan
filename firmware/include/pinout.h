@@ -234,14 +234,17 @@ constexpr float FOV_OPTICAL_CM                = CALIBRATED_FOV_WIDTH_CM;
 
 constexpr float OVERLAP_PERCENT               = 60.0f;    // Overlap percentage between consecutive captures (%)
 constexpr float MAX_BASE_TEMP_C               = 60.0f;    // Maximum acceptable baseline operating temperature (°C)
-constexpr float HOTSPOT_THRESHOLD_DELTA_C     = 8.0f;    // Thermal delta over baseline indicating hotspot (°C)
+constexpr float HOTSPOT_THRESHOLD_DELTA_C     = 10.0f;   // Thermal delta over baseline indicating hotspot (°C)
+constexpr float CRITICAL_HOTSPOT_DELTA_C      = 20.0f;   // Critical hotspot delta over baseline (°C)
+constexpr float CRITICAL_HOTSPOT_MAX_TEMP_C   = 65.0f;   // Critical hotspot absolute maximum temperature (°C)
 constexpr uint32_t MAX_CLEANING_ATTEMPTS      = 3;        // Maximum consecutive spray cleaning attempts per anomaly
 constexpr uint32_t POST_CLEANING_WAIT_SECONDS = 1800;     // Cooldown / dry wait time before post-cleaning verification (30 min)
 
 // Spatial tolerance for consecutive acquisition hotspot matching (cm):
-#ifndef SPATIAL_TOLERANCE_DEFAULT_CM
-#define SPATIAL_TOLERANCE_DEFAULT_CM 0.5f
+#ifdef SPATIAL_TOLERANCE_DEFAULT_CM
+#undef SPATIAL_TOLERANCE_DEFAULT_CM
 #endif
+constexpr float SPATIAL_TOLERANCE_DEFAULT_CM  = 0.8f;
 constexpr float SPATIAL_TOLERANCE_CM          = SPATIAL_TOLERANCE_DEFAULT_CM;
 
 // ----------------------------------------------------------------------------

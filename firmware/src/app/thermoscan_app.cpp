@@ -395,6 +395,24 @@ void ThermoscanApp::handleIdle() {
         }
     }
 
+    // Check for authorization error (HTTP 401): device token revoked or unregistered on backend
+    if (cloud_ != nullptr && cloud_->hadAuthError()) {
+        const uint32_t reclaim_interval = 10; // retry claim every 10 seconds
+        if (last_reclaim_attempt_time_ == 0 || (now > 0 && (now - last_reclaim_attempt_time_) >= reclaim_interval)) {
+            last_reclaim_attempt_time_ = (now > 0) ? now : 1;
+            Serial.println(F("[APP] HTTP 401 detected: Device token revoked or invalid. Initiating automatic re-claim..."));
+            if (cloud_->claimDevice()) {
+                Serial.println(F("[APP] Automatic hardware re-claim succeeded! Syncing new configuration..."));
+                cloud_->clearAuthError();
+                config_update_pending_ = true;
+                config_sync_failed_waiting_ping_ = false;
+                last_reclaim_attempt_time_ = 0;
+            } else {
+                Serial.println(F("[APP] Automatic re-claim attempt deferred/failed. Will retry on next interval."));
+            }
+        }
+    }
+
     // 1. Manual commands have highest priority
     if (manual_inspection_requested_) {
         manual_inspection_requested_ = false;

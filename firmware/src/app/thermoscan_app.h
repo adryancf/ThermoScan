@@ -142,6 +142,7 @@ private:
     size_t active_queue_index_{0};
 
     uint32_t last_ping_time_{0};
+    uint32_t last_reclaim_attempt_time_{0};
     uint32_t next_inspection_time_{0};
     bool manual_inspection_requested_{false};
     bool manual_cleaning_requested_{false};

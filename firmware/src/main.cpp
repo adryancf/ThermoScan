@@ -141,7 +141,14 @@ void setup() {
     } else {
         Serial.printf("[CLOUD] Module ID registered in NVS: %s\n", mod_id.c_str());
         Serial.println(F("[CLOUD] Sending startup ping to announce online presence..."));
-        g_cloud.sendPing();
+        if (!g_cloud.sendPing() && g_cloud.hadAuthError()) {
+            Serial.println(F("[CLOUD] Startup ping returned HTTP 401! Token invalid or revoked. Attempting immediate hardware re-claim..."));
+            if (g_cloud.claimDevice()) {
+                Serial.printf("[CLOUD] Device re-claimed successfully! New Module ID: %s\n", g_cloud.getModuleId().c_str());
+            } else {
+                Serial.println(F("[CLOUD] Hardware re-claim deferred (backend offline or pending registration)."));
+            }
+        }
     }
 
     digitalWrite(STATUS_LED_PIN, LOW);

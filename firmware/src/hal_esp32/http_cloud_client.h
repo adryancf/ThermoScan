@@ -55,8 +55,8 @@ public:
     bool isManualInspectionPending() const override { return manual_inspection_pending_; }
     void clearManualInspectionPending() override { manual_inspection_pending_ = false; }
 
-    bool hadAuthError() const { return auth_error_; }
-    void clearAuthError() { auth_error_ = false; }
+    bool hadAuthError() const override { return auth_error_; }
+    void clearAuthError() override { auth_error_ = false; }
     bool hadConflictError() const { return conflict_error_; }
     void clearConflictError() { conflict_error_ = false; }
 

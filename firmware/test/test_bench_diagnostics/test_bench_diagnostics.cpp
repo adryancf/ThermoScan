@@ -78,6 +78,7 @@ public:
     bool ingestCleaningReport(const CleaningReportInput&, std::string&) override { return true; }
     bool isConnected() const override { return true; }
     bool hadAuthError() const override { return auth_error; }
+    void clearAuthError() override { auth_error = false; }
 
     bool ingestTelemetry(const TelemetryPayload&) override { return true; }
     bool ingestCleaning(const CleaningPayload&) override { return true; }

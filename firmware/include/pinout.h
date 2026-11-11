@@ -200,7 +200,7 @@ constexpr uint8_t WATER_SENSOR_PIN = PIN_WATER_SENSOR;
 #endif
 
 #ifndef CAMERA_SERVO_DEFAULT_ANGLE_DEG
-#define CAMERA_SERVO_DEFAULT_ANGLE_DEG 90.0f // Configurable fixed angle for camera servo
+#define CAMERA_SERVO_DEFAULT_ANGLE_DEG 45.0f // Configurable fixed angle for camera servo
 #endif
 
 #ifndef PIN_STATUS_LED

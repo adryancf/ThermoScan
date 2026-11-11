@@ -122,6 +122,7 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
     if (strlen(mod_id) > 0 && strlen(dev_tok) > 0) {
         module_id_ = mod_id;
         device_token_ = dev_tok;
+        auth_error_ = false;
         Serial.printf("[CLAIM] Success! Module ID: %s | Device Token saved | Ping: %d s\n", mod_id, ping_int);
         if (storage_ != nullptr) {
             storage_->saveModuleId(module_id_);
@@ -243,6 +244,10 @@ bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
 
     int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
+        if (httpCode == 401) {
+            Serial.println(F("[CONFIG] FAILED HTTP 401: Invalid or revoked device token!"));
+            auth_error_ = true;
+        }
         Serial.printf("[CONFIG] Failed to get configuration! HTTP code: %d\n", httpCode);
         http.end();
         return false;

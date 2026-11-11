@@ -131,6 +131,7 @@ public:
     virtual std::string getLastConfirmedAnomalyId() const { return ""; }
     virtual std::vector<ConfirmedAnomalyRecord> getLastConfirmedAnomalies() const { return {}; }
     virtual bool hadAuthError() const { return false; }
+    virtual void clearAuthError() {}
     virtual bool isConnected() const = 0;
 
     // Configuration sync query and reset

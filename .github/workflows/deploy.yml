@@ -22,7 +22,6 @@ jobs:
       - name: Build and Start Containers
         run: |
           docker compose up -d --build --remove-orphans
-          docker exec -i thermoscan-db psql -U ${POSTGRES_USER:-thermoscan} -d ${POSTGRES_DB:-thermoscan} < ./software/backend/db/clean.sql
 
       - name: Remove old images
         run: |

@@ -17,6 +17,7 @@ class RadiometricScanCard extends StatefulWidget {
     this.measurements,
     this.initiallyExpanded,
     this.showDetailedSections = false,
+    this.deduplicateSpatially = true,
   });
 
   final PvModule module;
@@ -25,6 +26,7 @@ class RadiometricScanCard extends StatefulWidget {
   final List<ModuleMeasurement>? measurements;
   final bool? initiallyExpanded;
   final bool showDetailedSections;
+  final bool deduplicateSpatially;
 
   @override
   State<RadiometricScanCard> createState() => _RadiometricScanCardState();
@@ -253,6 +255,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           ? insp?.totalMeasurements
           : null,
       fitToScannedRange: _fitToScan,
+      deduplicateSpatially: widget.deduplicateSpatially,
     );
     final displayedMeasurements = panorama.sortedMeasurements;
 

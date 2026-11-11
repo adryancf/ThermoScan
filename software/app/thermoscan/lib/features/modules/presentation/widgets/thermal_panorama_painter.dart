@@ -29,6 +29,61 @@ List<ModuleMeasurement> sortMeasurementsSpatially(
   return copy;
 }
 
+/// Deduplicates measurements spatially so that for each physical rail coordinate [xPositionCm]
+/// (within [toleranceCm], default 0.5 cm), strictly the latest measurement by [measuredAt]
+/// (tie-breaker by [id]) is retained.
+/// The resulting list is sorted strictly by [xPositionCm] ascending.
+List<ModuleMeasurement> deduplicateMeasurementsSpatially(
+  List<ModuleMeasurement> measurements, {
+  double toleranceCm = 0.5,
+}) {
+  if (measurements.isEmpty) return const [];
+  if (measurements.length == 1) {
+    return List<ModuleMeasurement>.from(measurements);
+  }
+
+  // First sort spatially (ascending by X, then ascending by measuredAt)
+  final sorted = sortMeasurementsSpatially(measurements);
+
+  final List<ModuleMeasurement> deduplicated = [];
+
+  for (final m in sorted) {
+    if (deduplicated.isEmpty) {
+      deduplicated.add(m);
+      continue;
+    }
+
+    final last = deduplicated.last;
+    // Check if within tolerance of the same physical position
+    if ((m.xPositionCm - last.xPositionCm).abs() <= toleranceCm) {
+      // Determine which one is more recent
+      final dtM = DateTime.tryParse(m.measuredAt);
+      final dtLast = DateTime.tryParse(last.measuredAt);
+      bool useCurrent = false;
+
+      if (dtM != null && dtLast != null) {
+        if (dtM.isAfter(dtLast) ||
+            (dtM.isAtSameMomentAs(dtLast) && m.id.compareTo(last.id) > 0)) {
+          useCurrent = true;
+        }
+      } else {
+        final cmp = m.measuredAt.compareTo(last.measuredAt);
+        if (cmp > 0 || (cmp == 0 && m.id.compareTo(last.id) > 0)) {
+          useCurrent = true;
+        }
+      }
+
+      if (useCurrent) {
+        deduplicated[deduplicated.length - 1] = m;
+      }
+    } else {
+      deduplicated.add(m);
+    }
+  }
+
+  return deduplicated;
+}
+
 /// Filters [measurements] to strictly contain only the frames belonging to the
 /// current/latest inspection.
 ///
@@ -357,8 +412,11 @@ class ThermalPanoramaData {
     int? focusedPanelIndex,
     int? totalInspectionMeasurements,
     bool fitToScannedRange = false,
+    bool deduplicateSpatially = true,
   }) {
-    final sorted = sortMeasurementsSpatially(measurements);
+    final sorted = deduplicateSpatially
+        ? deduplicateMeasurementsSpatially(measurements)
+        : sortMeasurementsSpatially(measurements);
 
     final effectivePanelLength =
         (panelLengthCm != null && panelLengthCm > 0) ? panelLengthCm : 20.0;

@@ -841,6 +841,7 @@ void main() {
                   module: mod,
                   measurements: [mDesc1, mDesc2, mDesc3, mDesc4],
                   showDetailedSections: true,
+                  deduplicateSpatially: false,
                 ),
               ),
             ),
@@ -855,6 +856,91 @@ void main() {
         expect(find.text('F4 (X=6.0 cm)'), findsOneWidget);
         // Verify centered FOV span [X-2.5, X+2.5]
         expect(find.textContaining('Span: -2.5-2.5 cm'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      '1b. Spatial deduplication retains only latest frame per physical X coordinate in Studio',
+      (tester) async {
+        const mod = PvModule(
+          id: 'mod-dedup',
+          companyId: 'c1',
+          installerTechnicianId: 'u1',
+          installerName: 'Marco Silva',
+          installerEmail: 'marco@soltech.io',
+          name: 'PV Array Dedup',
+          macAddress: 'AA:BB:CC:11:22:44',
+          isActive: true,
+          monitoringStatus: 'active',
+          panelLengthCm: 20.0,
+          inspectionIntervalDays: 7,
+          createdAt: '2026-11-01T10:00:00Z',
+          updatedAt: '2026-11-01T10:00:00Z',
+          userRelationship: 'installer_technician',
+          permissions: ModulePermissions(
+            canEditGeometryAndLocation: true,
+            canEditSolarAngle: true,
+            canEditInterval: true,
+            canManageAccess: true,
+          ),
+        );
+
+        const mEarlier = ModuleMeasurement(
+          id: 'm-early',
+          moduleId: 'mod-dedup',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-1',
+          measuredAt: '2026-11-03T12:00:10Z',
+          xPositionCm: 4.0,
+          maxTemperatureC: 38.0,
+          receivedAt: '2026-11-03T12:00:15Z',
+        );
+        const mLater = ModuleMeasurement(
+          id: 'm-late',
+          moduleId: 'mod-dedup',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-2',
+          measuredAt: '2026-11-03T12:00:20Z',
+          xPositionCm: 4.0,
+          maxTemperatureC: 45.0,
+          receivedAt: '2026-11-03T12:00:25Z',
+        );
+        const mOther = ModuleMeasurement(
+          id: 'm-other',
+          moduleId: 'mod-dedup',
+          inspectionId: 'insp-1',
+          sourceEventId: 'evt-3',
+          measuredAt: '2026-11-03T12:00:30Z',
+          xPositionCm: 8.0,
+          maxTemperatureC: 42.0,
+          receivedAt: '2026-11-03T12:00:35Z',
+        );
+
+        final dedup = deduplicateMeasurementsSpatially([mEarlier, mLater, mOther]);
+        expect(dedup.length, 2);
+        expect(dedup.first.id, 'm-late'); // Later reading at X=4.0 kept
+        expect(dedup.last.id, 'm-other');
+
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: SingleChildScrollView(
+                child: RadiometricScanCard(
+                  module: mod,
+                  measurements: [mEarlier, mLater, mOther],
+                  showDetailedSections: true,
+                  deduplicateSpatially: true,
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Exactly one frame at X=4.0 cm (F1) and one at X=8.0 cm (F2)
+        expect(find.text('F1 (X=4.0 cm)'), findsOneWidget);
+        expect(find.text('F2 (X=8.0 cm)'), findsOneWidget);
+        expect(find.text('F3 (X=8.0 cm)'), findsNothing);
       },
     );
 
@@ -959,6 +1045,7 @@ void main() {
                   measurements: [f1, f2, f3],
                   latestInspection: insp,
                   showDetailedSections: true,
+                  deduplicateSpatially: false,
                 ),
               ),
             ),
@@ -2525,6 +2612,73 @@ void main() {
       // Cool-down card must NOT be rendered on a healthy resolved module.
       expect(find.text('COOL-DOWN (30M)'), findsNothing);
     });
+
+    testWidgets(
+      'ModuleMeasurementsScreen renders PARTIAL status badge and banner for incomplete scan',
+      (tester) async {
+        final mockRepo = _MockModuleRepo();
+        mockRepo.mockLatestInspection = const LatestInspection(
+          inspection: ModuleInspection(
+            id: 'insp-partial-1',
+            moduleId: 'mod-1',
+            sourceEventId: 'evt-partial-1',
+            type: 'scheduled',
+            scheduledFor: '2026-11-03T14:00:00Z',
+            status: 'in_progress',
+            baselineTemperatureC: 35.0,
+            createdAt: '2026-11-03T14:00:00Z',
+            updatedAt: '2026-11-03T14:00:00Z',
+          ),
+          totalMeasurements: 5,
+          confirmedAnomalies: [],
+        );
+
+        mockRepo.mockAllMeasurements = [
+          const ModuleMeasurement(
+            id: 'm-retry-1',
+            moduleId: 'mod-1',
+            inspectionId: 'insp-partial-1',
+            sourceEventId: 'evt-r1',
+            measuredAt: '2026-11-03T14:01:00Z',
+            xPositionCm: 2.0,
+            maxTemperatureC: 32.0,
+            receivedAt: '2026-11-03T14:01:05Z',
+          ),
+          const ModuleMeasurement(
+            id: 'm-retry-2',
+            moduleId: 'mod-1',
+            inspectionId: 'insp-partial-1',
+            sourceEventId: 'evt-r2',
+            measuredAt: '2026-11-03T14:01:30Z',
+            xPositionCm: 2.0,
+            maxTemperatureC: 33.5,
+            receivedAt: '2026-11-03T14:01:35Z',
+          ),
+        ];
+
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+              authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+              authControllerProvider
+                  .overrideWith((ref) => _FakeAuthController(techUser)),
+              moduleRepositoryProvider.overrideWithValue(mockRepo),
+            ],
+            child: const MaterialApp(
+              home: ModuleMeasurementsScreen(moduleId: 'mod-1'),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Status badge indicates IN PROGRESS or PARTIAL
+        expect(find.textContaining('IN PROGRESS'), findsOneWidget);
+        // Warning banner is displayed in English
+        expect(find.textContaining('This scan was interrupted before completion'),
+            findsOneWidget);
+      },
+    );
   });
 }
 

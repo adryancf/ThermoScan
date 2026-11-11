@@ -46,6 +46,7 @@ class _ModuleMeasurementsScreenState
     extends ConsumerState<ModuleMeasurementsScreen> {
   int _currentPage = 1;
   int? _selectedPanelFilter;
+  bool _showOnlyValid = true;
 
   @override
   Widget build(BuildContext context) {
@@ -386,6 +387,60 @@ class _ModuleMeasurementsScreenState
             : 'completed')
         .toUpperCase();
 
+    final int effectivePanelCount =
+        (mod?.panelCount != null && mod!.panelCount! > 0)
+            ? mod.panelCount!
+            : 1;
+    final int? expectedSteps = (mod != null &&
+            mod.panelLengthCm != null &&
+            mod.panelLengthCm! > 0)
+        ? ((mod.panelLengthCm! / 2.0).ceil() + 1) * effectivePanelCount
+        : null;
+
+    final int totalStepsRecorded = measurements.isNotEmpty
+        ? measurements.length
+        : (isLatest && latestInspection != null
+            ? latestInspection.totalMeasurements
+            : 0);
+
+    final bool isInterruptedOrFailed = statusStr == 'FAILED' ||
+        statusStr == 'CANCELLED' ||
+        statusStr == 'IN_PROGRESS';
+    final bool isCoverageIncomplete = expectedSteps != null &&
+        totalStepsRecorded > 0 &&
+        totalStepsRecorded < expectedSteps;
+    final bool isPartial = isInterruptedOrFailed || isCoverageIncomplete;
+
+    final String statusBadgeLabel;
+    final Color statusBadgeBg;
+    final Color statusBadgeText;
+
+    if (statusStr == 'COMPLETED' && !isCoverageIncomplete) {
+      statusBadgeLabel = expectedSteps != null
+          ? 'COMPLETED ($totalStepsRecorded/$expectedSteps STEPS)'
+          : 'COMPLETED';
+      statusBadgeBg = AppColors.successBackground;
+      statusBadgeText = AppColors.success;
+    } else if (statusStr == 'IN_PROGRESS') {
+      statusBadgeLabel = expectedSteps != null
+          ? 'IN PROGRESS ($totalStepsRecorded/$expectedSteps STEPS)'
+          : 'IN PROGRESS';
+      statusBadgeBg = AppColors.primarySoft;
+      statusBadgeText = AppColors.primary;
+    } else if (statusStr == 'FAILED') {
+      statusBadgeLabel = expectedSteps != null
+          ? 'FAILED ($totalStepsRecorded/$expectedSteps STEPS)'
+          : 'FAILED';
+      statusBadgeBg = AppColors.errorBackground;
+      statusBadgeText = AppColors.error;
+    } else {
+      statusBadgeLabel = expectedSteps != null
+          ? 'PARTIAL ($totalStepsRecorded/$expectedSteps STEPS)'
+          : 'PARTIAL';
+      statusBadgeBg = AppColors.warningBackground;
+      statusBadgeText = AppColors.warning;
+    }
+
     final scanType = (isLatest &&
             latestInspection != null &&
             latestInspection.inspection.type.isNotEmpty)
@@ -621,17 +676,13 @@ class _ModuleMeasurementsScreenState
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: statusStr == 'COMPLETED'
-                      ? AppColors.successBackground
-                      : AppColors.primarySoft,
+                  color: statusBadgeBg,
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  statusStr,
+                  statusBadgeLabel,
                   style: AppTypography.caption.copyWith(
-                    color: statusStr == 'COMPLETED'
-                        ? AppColors.success
-                        : AppColors.primary,
+                    color: statusBadgeText,
                     fontWeight: FontWeight.w800,
                     fontSize: 10,
                   ),
@@ -639,6 +690,39 @@ class _ModuleMeasurementsScreenState
               ),
             ],
           ),
+
+          // Interrupted / Partial Telemetry Notice Banner
+          if (isPartial && totalStepsRecorded > 0) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: AppColors.warningBackground,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.warningBorder),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline_rounded,
+                    size: 15,
+                    color: AppColors.warning,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This scan was interrupted before completion. The recorded readings below represent partial telemetry ($totalStepsRecorded${expectedSteps != null ? " of $expectedSteps" : ""} steps).',
+                      style: AppTypography.caption.copyWith(
+                        fontSize: 10.5,
+                        color: AppColors.warning,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           // Executive Metrics Strip (when telemetry is recorded)
           if (measurements.isNotEmpty || (displayPower != null || peakTemp != null)) ...[
@@ -885,6 +969,38 @@ class _ModuleMeasurementsScreenState
     final hotspotSummaryStr =
         panelHotspots > 0 ? ' • Hotspots: $panelHotspots' : '';
 
+    // Map each physical coordinate to its latest measurement ID
+    final Map<int, String> latestIdByCoord = {};
+    for (final m in panelMeasurements) {
+      final coordKey = (m.xPositionCm * 2).round();
+      if (!latestIdByCoord.containsKey(coordKey)) {
+        latestIdByCoord[coordKey] = m.id;
+      } else {
+        final existingId = latestIdByCoord[coordKey]!;
+        final existingM =
+            panelMeasurements.firstWhere((item) => item.id == existingId);
+        final dtM = DateTime.tryParse(m.measuredAt);
+        final dtExist = DateTime.tryParse(existingM.measuredAt);
+        if (dtM != null && dtExist != null) {
+          if (dtM.isAfter(dtExist) ||
+              (dtM.isAtSameMomentAs(dtExist) && m.id.compareTo(existingM.id) > 0)) {
+            latestIdByCoord[coordKey] = m.id;
+          }
+        } else if (m.measuredAt.compareTo(existingM.measuredAt) >= 0) {
+          latestIdByCoord[coordKey] = m.id;
+        }
+      }
+    }
+
+    final hasDuplicateRetries =
+        latestIdByCoord.length < panelMeasurements.length;
+    final displayedItems = _showOnlyValid
+        ? panelMeasurements.where((m) {
+            final coordKey = (m.xPositionCm * 2).round();
+            return latestIdByCoord[coordKey] == m.id;
+          }).toList()
+        : panelMeasurements;
+
     return Theme(
       data: Theme.of(context).copyWith(
         dividerColor: Colors.transparent,
@@ -969,27 +1085,97 @@ class _ModuleMeasurementsScreenState
                 ],
               ),
               subtitle: Text(
-                '${panelMeasurements.length} frames • Peak: ${pPeak.toStringAsFixed(1)}°C$baselineStr$elecStr$hotspotSummaryStr',
+                '${displayedItems.length}${hasDuplicateRetries ? " of ${panelMeasurements.length}" : ""} frames • Peak: ${pPeak.toStringAsFixed(1)}°C$baselineStr$elecStr$hotspotSummaryStr',
                 style: AppTypography.caption.copyWith(
                   fontSize: 10,
                   color: AppColors.textSecondary,
                 ),
               ),
-              children: panelMeasurements.map((m) {
-                final isConfirmed = latestInspection != null &&
-                    latestInspection.confirmedAnomalies.any(
-                      (a) =>
-                          a.originMeasurementId == m.id ||
-                          a.confirmingMeasurementIds.contains(m.id) ||
-                          (a.originMeasurementId.isEmpty &&
-                              a.confirmingMeasurementIds.isEmpty &&
-                              (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
-                    );
-                return Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: _buildPaginatedStepTile(m, isConfirmed),
-                );
-              }).toList(),
+              children: [
+                if (hasDuplicateRetries)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        InkWell(
+                          key: Key('toggle_valid_only_${inspectionId}_$p'),
+                          onTap: () {
+                            setState(() {
+                              _showOnlyValid = !_showOnlyValid;
+                            });
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _showOnlyValid
+                                  ? AppColors.primarySoft
+                                  : AppColors.background,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: _showOnlyValid
+                                    ? AppColors.primary
+                                    : AppColors.border,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  _showOnlyValid
+                                      ? Icons.filter_alt_rounded
+                                      : Icons.filter_alt_off_rounded,
+                                  size: 11,
+                                  color: _showOnlyValid
+                                      ? AppColors.primary
+                                      : AppColors.textSecondary,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _showOnlyValid
+                                      ? 'Valid Only'
+                                      : 'All Readings (with Retries)',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: _showOnlyValid
+                                        ? AppColors.primary
+                                        : AppColors.textSecondary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ...displayedItems.map((m) {
+                  final isConfirmed = latestInspection != null &&
+                      latestInspection.confirmedAnomalies.any(
+                        (a) =>
+                            a.originMeasurementId == m.id ||
+                            a.confirmingMeasurementIds.contains(m.id) ||
+                            (a.originMeasurementId.isEmpty &&
+                                a.confirmingMeasurementIds.isEmpty &&
+                                (a.xPositionCm - m.xPositionCm).abs() <= 1.0),
+                      );
+                  final coordKey = (m.xPositionCm * 2).round();
+                  final isSuperseded = latestIdByCoord[coordKey] != m.id;
+
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: _buildPaginatedStepTile(
+                      m,
+                      isConfirmed,
+                      isSuperseded: isSuperseded,
+                      showValidBadge: hasDuplicateRetries && !isSuperseded,
+                    ),
+                  );
+                }),
+              ],
             ),
           ),
         ),
@@ -1180,78 +1366,131 @@ class _ModuleMeasurementsScreenState
     );
   }
 
-  Widget _buildPaginatedStepTile(ModuleMeasurement m, bool isConfirmed) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isConfirmed ? AppColors.errorBorder : AppColors.border,
-          width: isConfirmed ? 1.5 : 1.0,
+  Widget _buildPaginatedStepTile(
+    ModuleMeasurement m,
+    bool isConfirmed, {
+    bool isSuperseded = false,
+    bool showValidBadge = false,
+  }) {
+    return Opacity(
+      opacity: isSuperseded ? 0.55 : 1.0,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isConfirmed
+                ? AppColors.errorBorder
+                : (isSuperseded
+                    ? AppColors.border.withValues(alpha: 0.5)
+                    : AppColors.border),
+            width: isConfirmed ? 1.5 : 1.0,
+          ),
         ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
-                style: AppTypography.caption.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              if (m.panelIndex != null) ...[
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 5, vertical: 1.5),
-                  decoration: BoxDecoration(
-                    color: AppColors.primarySoft,
-                    borderRadius: BorderRadius.circular(4),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
+                  style: AppTypography.caption.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: isSuperseded
+                        ? AppColors.textSecondary
+                        : AppColors.textPrimary,
                   ),
-                  child: Text(
-                    'P${m.panelIndex}${m.localXPositionCm != null ? " • Local: ${m.localXPositionCm!.toStringAsFixed(0)} cm" : ""}',
-                    style: const TextStyle(
-                      color: AppColors.primary,
-                      fontSize: 8.5,
-                      fontWeight: FontWeight.w700,
+                ),
+                if (m.panelIndex != null) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySoft,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      'P${m.panelIndex}${m.localXPositionCm != null ? " • Local: ${m.localXPositionCm!.toStringAsFixed(0)} cm" : ""}',
+                      style: const TextStyle(
+                        color: AppColors.primary,
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-              ],
-              if (isConfirmed) ...[
-                const SizedBox(width: 8),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppColors.errorBackground,
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: AppColors.errorBorder),
-                  ),
-                  child: Text(
-                    'HOTSPOT',
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.error,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 9,
+                ],
+                if (isSuperseded) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: const Text(
+                      'SUPERSEDED',
+                      style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
+                ] else if (showValidBadge) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: AppColors.successBackground,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: AppColors.successBorder),
+                    ),
+                    child: const Text(
+                      'VALID',
+                      style: TextStyle(
+                        color: AppColors.success,
+                        fontSize: 8,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+                if (isConfirmed) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.errorBackground,
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: AppColors.errorBorder),
+                    ),
+                    child: Text(
+                      'HOTSPOT',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.error,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 9,
+                      ),
+                    ),
+                  ),
+                ],
               ],
-            ],
-          ),
-          const SizedBox(width: 8),
-          _buildMetricChip(
-            'Peak',
-            '${m.maxTemperatureC.toStringAsFixed(1)}°C',
-            isConfirmed ? AppColors.error : AppColors.textPrimary,
-          ),
-        ],
+            ),
+            const SizedBox(width: 8),
+            _buildMetricChip(
+              'Peak',
+              '${m.maxTemperatureC.toStringAsFixed(1)}°C',
+              isConfirmed ? AppColors.error : AppColors.textPrimary,
+            ),
+          ],
+        ),
       ),
     );
   }

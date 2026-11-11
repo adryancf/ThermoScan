@@ -429,6 +429,84 @@ class _ModuleMeasurementsScreenState
         ? validAmps.reduce((a, b) => a + b) / validAmps.length
         : null;
 
+    // Stable operational electrical reading per panel (avoids transient 0V drops)
+    final Map<int, ModuleMeasurement> bestElecByPanel = {};
+    for (final entry in byPanel.entries) {
+      ModuleMeasurement? best;
+      for (final m in entry.value) {
+        if (m.voltageV != null || m.currentA != null || m.powerW != null) {
+          if (best == null) {
+            best = m;
+          } else {
+            final currP = m.powerW ?? 0.0;
+            final bestP = best.powerW ?? 0.0;
+            if (currP > bestP ||
+                (currP == bestP && (m.voltageV ?? 0.0) > (best.voltageV ?? 0.0))) {
+              best = m;
+            }
+          }
+        }
+      }
+      if (best != null) {
+        bestElecByPanel[entry.key] = best;
+      }
+    }
+
+    final double? displayPower;
+    final double? displayVolt;
+    final double? displayAmp;
+    final String powerLabel;
+    final String? powerSublabel;
+
+    if (isLatest &&
+        _selectedPanelFilter != null &&
+        bestElecByPanel.containsKey(_selectedPanelFilter)) {
+      final best = bestElecByPanel[_selectedPanelFilter]!;
+      displayPower = best.powerW;
+      displayVolt = best.voltageV;
+      displayAmp = best.currentA;
+      powerLabel = 'P$_selectedPanelFilter Power';
+      powerSublabel = (displayVolt != null && displayAmp != null)
+          ? '${displayVolt.toStringAsFixed(2)}V · ${displayAmp.toStringAsFixed(2)}A'
+          : null;
+    } else if (bestElecByPanel.length == 1) {
+      final singleP = bestElecByPanel.keys.first;
+      final best = bestElecByPanel[singleP]!;
+      displayPower = best.powerW;
+      displayVolt = best.voltageV;
+      displayAmp = best.currentA;
+      powerLabel = 'P$singleP Power';
+      powerSublabel = (displayVolt != null && displayAmp != null)
+          ? '${displayVolt.toStringAsFixed(2)}V · ${displayAmp.toStringAsFixed(2)}A'
+          : null;
+    } else if (bestElecByPanel.length > 1) {
+      displayPower = bestElecByPanel.values
+          .map((m) => m.powerW ?? 0.0)
+          .reduce((a, b) => a + b);
+      final validVs = bestElecByPanel.values
+          .map((m) => m.voltageV)
+          .whereType<double>()
+          .toList();
+      final validIs = bestElecByPanel.values
+          .map((m) => m.currentA)
+          .whereType<double>()
+          .toList();
+      displayVolt = validVs.isNotEmpty
+          ? validVs.reduce((a, b) => a + b) / validVs.length
+          : null;
+      displayAmp = validIs.isNotEmpty
+          ? validIs.reduce((a, b) => a + b) / validIs.length
+          : null;
+      powerLabel = 'Total Power';
+      powerSublabel = '${bestElecByPanel.length} panels combined';
+    } else {
+      displayPower = avgPower;
+      displayVolt = avgVolt;
+      displayAmp = avgAmp;
+      powerLabel = 'Power';
+      powerSublabel = null;
+    }
+
     final totalHotspots = (isLatest && latestInspection != null)
         ? latestInspection.confirmedAnomalies.length
         : 0;
@@ -563,16 +641,18 @@ class _ModuleMeasurementsScreenState
           ),
 
           // Executive Metrics Strip (when telemetry is recorded)
-          if (measurements.isNotEmpty || (avgPower != null || peakTemp != null)) ...[
+          if (measurements.isNotEmpty || (displayPower != null || peakTemp != null)) ...[
             const SizedBox(height: 12),
             _buildExecutiveMetricsStrip(
-              avgPower: avgPower,
-              avgVolt: avgVolt,
-              avgAmp: avgAmp,
+              avgPower: displayPower,
+              avgVolt: displayVolt,
+              avgAmp: displayAmp,
               peakTemp: peakTemp,
               deltaT: deltaT,
               totalFrames: totalFramesCount,
               hotspotCount: totalHotspots,
+              powerLabel: powerLabel,
+              powerSublabel: powerSublabel,
             ),
           ],
 
@@ -606,13 +686,16 @@ class _ModuleMeasurementsScreenState
     required double? deltaT,
     required int totalFrames,
     required int hotspotCount,
+    String powerLabel = 'Power',
+    String? powerSublabel,
   }) {
     final hasElec = avgPower != null || avgVolt != null || avgAmp != null;
     final powerText =
-        avgPower != null ? '${avgPower.toStringAsFixed(3)} W' : 'N/A';
-    final voltAmpText = (avgVolt != null && avgAmp != null)
-        ? '${avgVolt.toStringAsFixed(3)}V · ${avgAmp.toStringAsFixed(3)}A'
-        : (hasElec ? 'Partial' : 'No Elec');
+        avgPower != null ? '${avgPower.toStringAsFixed(2)} W' : 'N/A';
+    final voltAmpText = powerSublabel ??
+        ((avgVolt != null && avgAmp != null)
+            ? '${avgVolt.toStringAsFixed(2)}V · ${avgAmp.toStringAsFixed(2)}A'
+            : (hasElec ? 'Partial' : 'No Elec'));
 
     final tempText =
         peakTemp != null ? '${peakTemp.toStringAsFixed(1)}°C' : 'N/A';
@@ -636,7 +719,7 @@ class _ModuleMeasurementsScreenState
             child: _buildMetricStripItem(
               icon: Icons.bolt_rounded,
               iconColor: AppColors.primary,
-              label: 'Power',
+              label: powerLabel,
               value: powerText,
               sublabel: voltAmpText,
             ),
@@ -778,12 +861,20 @@ class _ModuleMeasurementsScreenState
     ModuleMeasurement? elecMeas;
     for (final pm in panelMeasurements) {
       if (pm.voltageV != null || pm.currentA != null || pm.powerW != null) {
-        elecMeas = pm;
-        break;
+        if (elecMeas == null) {
+          elecMeas = pm;
+        } else {
+          final currP = pm.powerW ?? 0.0;
+          final bestP = elecMeas.powerW ?? 0.0;
+          if (currP > bestP ||
+              (currP == bestP && (pm.voltageV ?? 0.0) > (elecMeas.voltageV ?? 0.0))) {
+            elecMeas = pm;
+          }
+        }
       }
     }
     final elecStr = elecMeas != null
-        ? ' • Electrical Output: ${elecMeas.voltageV?.toStringAsFixed(3) ?? "N/A"}V · ${elecMeas.currentA?.toStringAsFixed(3) ?? "N/A"}A · ${elecMeas.powerW?.toStringAsFixed(3) ?? "N/A"}W'
+        ? ' • Output: ${elecMeas.voltageV?.toStringAsFixed(2) ?? "N/A"}V · ${elecMeas.currentA?.toStringAsFixed(2) ?? "N/A"}A · ${elecMeas.powerW?.toStringAsFixed(2) ?? "N/A"}W'
         : '';
 
     final panelHotspots = latestInspection?.confirmedAnomalies.where((a) {
@@ -1090,13 +1181,6 @@ class _ModuleMeasurementsScreenState
   }
 
   Widget _buildPaginatedStepTile(ModuleMeasurement m, bool isConfirmed) {
-    final vText =
-        m.voltageV != null ? '${m.voltageV!.toStringAsFixed(3)}V' : 'N/A';
-    final iText =
-        m.currentA != null ? '${m.currentA!.toStringAsFixed(3)}A' : 'N/A';
-    final pText =
-        m.powerW != null ? '${m.powerW!.toStringAsFixed(3)}W' : 'N/A';
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
@@ -1162,37 +1246,10 @@ class _ModuleMeasurementsScreenState
             ],
           ),
           const SizedBox(width: 8),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 4,
-                alignment: WrapAlignment.end,
-                children: [
-                  _buildMetricChip(
-                    'Peak',
-                    '${m.maxTemperatureC.toStringAsFixed(1)}°C',
-                    isConfirmed ? AppColors.error : AppColors.textPrimary,
-                  ),
-                  _buildMetricChip(
-                    'Volt',
-                    vText,
-                    AppColors.textSecondary,
-                  ),
-                  _buildMetricChip(
-                    'Curr',
-                    iText,
-                    AppColors.textSecondary,
-                  ),
-                  _buildMetricChip(
-                    'Power',
-                    pText,
-                    AppColors.primary,
-                  ),
-                ],
-              ),
-            ),
+          _buildMetricChip(
+            'Peak',
+            '${m.maxTemperatureC.toStringAsFixed(1)}°C',
+            isConfirmed ? AppColors.error : AppColors.textPrimary,
           ),
         ],
       ),

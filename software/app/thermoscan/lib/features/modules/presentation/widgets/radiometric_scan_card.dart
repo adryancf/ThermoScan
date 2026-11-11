@@ -309,21 +309,32 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             _selectedFrameIndex! < displayedMeasurements.length)
         ? displayedMeasurements[_selectedFrameIndex!]
         : null;
-    final ModuleMeasurement? refMeas = selectedMeas ??
-        (_focusedPanelIndex != null
-            ? (displayedMeasurements.isNotEmpty
-                ? displayedMeasurements.first
-                : null)
-            : (m ??
-                (displayedMeasurements.isNotEmpty
-                    ? displayedMeasurements.first
-                    : null)));
 
-    final double? voltage = refMeas?.voltageV;
-    final double? current = refMeas?.currentA;
-    final double? power = refMeas?.powerW ??
-        (voltage != null && current != null ? voltage * current : null);
-    final double xPos = refMeas?.xPositionCm ?? 0.0;
+    // Determine the best stable electrical reading across displayed panel frames
+    ModuleMeasurement? bestElecMeas;
+    for (final dm in displayedMeasurements) {
+      if (dm.voltageV != null || dm.currentA != null || dm.powerW != null) {
+        if (bestElecMeas == null) {
+          bestElecMeas = dm;
+        } else {
+          final currP = dm.powerW ?? 0.0;
+          final bestP = bestElecMeas.powerW ?? 0.0;
+          if (currP > bestP ||
+              (currP == bestP && (dm.voltageV ?? 0.0) > (bestElecMeas.voltageV ?? 0.0))) {
+            bestElecMeas = dm;
+          }
+        }
+      }
+    }
+
+    final double? voltage = bestElecMeas?.voltageV ?? m?.voltageV;
+    final double? current = bestElecMeas?.currentA ?? m?.currentA;
+    final double? power = bestElecMeas?.powerW ??
+        (voltage != null && current != null ? voltage * current : m?.powerW);
+    final double xPos = selectedMeas?.xPositionCm ??
+        (displayedMeasurements.isNotEmpty
+            ? displayedMeasurements.first.xPositionCm
+            : (m?.xPositionCm ?? 0.0));
 
     // Relative delta above baseline (strictly relative, never fixed threshold)
     final delta = (peakTemp > 0 && baselineTemp != null && baselineTemp > 0)
@@ -1347,22 +1358,30 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             children: [
               Expanded(
                 child: _buildMetricTile(
-                  label: 'DC Voltage & Current',
+                  label: _focusedPanelIndex != null
+                      ? 'P$_focusedPanelIndex Voltage & Curr'
+                      : 'DC Voltage & Current',
                   value: (voltage == null && current == null)
                       ? 'N/A'
-                      : '${voltage != null ? "${voltage.toStringAsFixed(3)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(3)} A" : "N/A"}',
-                  subtext: 'Array electrical output',
+                      : '${voltage != null ? "${voltage.toStringAsFixed(2)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(2)} A" : "N/A"}',
+                  subtext: _focusedPanelIndex != null
+                      ? 'Panel $_focusedPanelIndex output'
+                      : 'Panel electrical output',
                   isWarning: false,
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: _buildMetricTile(
-                  label: 'Active Power',
-                  value: power != null ? '${power.toStringAsFixed(3)} W' : 'N/A',
-                  subtext: (voltage != null && current != null)
-                      ? 'Calculated (V × I)'
-                      : 'Yield output',
+                  label: _focusedPanelIndex != null
+                      ? 'P$_focusedPanelIndex Power'
+                      : 'Active Power',
+                  value: power != null ? '${power.toStringAsFixed(2)} W' : 'N/A',
+                  subtext: _focusedPanelIndex != null
+                      ? 'Panel $_focusedPanelIndex peak yield'
+                      : ((voltage != null && current != null)
+                          ? 'Operational yield (V × I)'
+                          : 'Operational yield'),
                   isWarning: false,
                   valueColor: AppColors.primary,
                 ),
@@ -1532,16 +1551,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                               );
                               final isConfirmed = anomalyLabels.isNotEmpty;
                               final isSelected = _selectedFrameIndex == idx;
-
-                              final vStr = f.voltageV != null
-                                  ? '${f.voltageV!.toStringAsFixed(3)}V'
-                                  : 'N/A';
-                              final iStr = f.currentA != null
-                                  ? '${f.currentA!.toStringAsFixed(3)}A'
-                                  : 'N/A';
-                              final pStr = f.powerW != null
-                                  ? '${f.powerW!.toStringAsFixed(3)}W'
-                                  : 'N/A';
 
                               final fovStart =
                                   f.xPositionCm - ThermalCoverageInfo.halfFovCm;
@@ -1718,14 +1727,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                         style: AppTypography.caption.copyWith(
                                           fontSize: 9.5,
                                           color: AppColors.textSecondary,
-                                        ),
-                                      ),
-                                      Text(
-                                        '$vStr • $iStr • $pStr',
-                                        style: AppTypography.caption.copyWith(
-                                          fontSize: 9.0,
-                                          color: AppColors.primary,
-                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                     ],
@@ -3253,13 +3254,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                   : AppColors.textPrimary,
                             ),
                           ),
-                          Text(
-                            '${measurement.voltageV?.toStringAsFixed(3) ?? "N/A"}V • ${measurement.currentA?.toStringAsFixed(3) ?? "N/A"}A • ${measurement.powerW?.toStringAsFixed(3) ?? "N/A"}W',
-                            style: AppTypography.caption.copyWith(
-                              fontSize: 10,
-                              color: AppColors.primary,
+                          if ((measurement.voltageV ?? 0.0) > 0.05)
+                            Text(
+                              '${measurement.voltageV!.toStringAsFixed(2)}V • ${measurement.currentA?.toStringAsFixed(2) ?? "0.00"}A',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ],

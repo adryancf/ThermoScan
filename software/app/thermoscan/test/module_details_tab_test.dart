@@ -618,8 +618,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Displays N/A in frame and metric tiles
-      expect(find.text('N/A • N/A • N/A'), findsOneWidget);
+      // Displays N/A in electrical metric tiles when no electrical data
       expect(find.text('N/A'), findsWidgets);
 
       // NEVER displays 0.0 V, 0.00 A, 0.0 W
@@ -737,8 +736,7 @@ void main() {
       expect(find.text('Page 1 of 2 (20 items)'), findsOneWidget);
       expect(requestedPage, 1);
 
-      // Verify null electrical reading shows N/A and not 0.0V or 0.0W
-      expect(find.text('N/A'), findsWidgets);
+      // Verify step slices only display peak temperature and no false 0.0V or 0.0W
       expect(find.text('0.0V'), findsNothing);
       expect(find.text('0.0W'), findsNothing);
       // Candidate never shown in item list

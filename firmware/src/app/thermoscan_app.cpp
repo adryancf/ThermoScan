@@ -515,6 +515,10 @@ void ThermoscanApp::handleScanning() {
 
         float current_x = p_start;
 
+        // Maintain panel-level representative electrical snapshot (filter out transient 0V drops)
+        PowerSnapshot best_panel_power;
+        best_panel_power.valid = false;
+
         std::vector<std::vector<float>> batch_frames_data;
         std::vector<PowerSnapshot> batch_power_data;
         const size_t BATCH_CHUNK_SIZE = 3;
@@ -552,6 +556,18 @@ void ThermoscanApp::handleScanning() {
                 power_meter_->readSnapshotForPanel(p, power);
             }
 
+            // Consolidate best operational panel electrical reading:
+            // If the panel has produced voltage/power, retain that peak across steps to prevent transient 0V dips
+            PowerSnapshot effective_power = power;
+            if (power.valid && (power.voltage_v > 0.05f || power.power_w > 0.01f)) {
+                if (!best_panel_power.valid || power.power_w > best_panel_power.power_w || power.voltage_v > best_panel_power.voltage_v) {
+                    best_panel_power = power;
+                }
+                effective_power = best_panel_power;
+            } else if (best_panel_power.valid) {
+                effective_power = best_panel_power;
+            }
+
             if (frame_ok) {
                 histogram_.addFrame(frame);
 
@@ -569,7 +585,7 @@ void ThermoscanApp::handleScanning() {
 
                 std::vector<float> frame_copy(frame.pixels, frame.pixels + ThermalFrame::PIXEL_COUNT);
                 batch_frames_data.push_back(std::move(frame_copy));
-                batch_power_data.push_back(power);
+                batch_power_data.push_back(effective_power);
 
                 TelemetryMeasurementItem item;
                 item.source_event_id = meas_id;

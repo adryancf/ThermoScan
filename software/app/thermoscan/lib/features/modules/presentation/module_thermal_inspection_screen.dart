@@ -7,6 +7,7 @@ import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/status_chips.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
+import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/radiometric_scan_card.dart';
@@ -51,6 +52,7 @@ class _ModuleThermalInspectionScreenState
     ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
     ref.invalidate(latestInspectionProvider(widget.moduleId));
     ref.invalidate(moduleInspectionsProvider(widget.moduleId));
+    ref.invalidate(moduleCleaningsProvider(widget.moduleId));
     if (_selectedHistoricalInspection != null) {
       ref.invalidate(
         inspectionMeasurementsPagedProvider((
@@ -74,6 +76,8 @@ class _ModuleThermalInspectionScreenState
         ref.watch(latestInspectionProvider(widget.moduleId));
     final inspectionsAsync =
         ref.watch(moduleInspectionsProvider(widget.moduleId));
+    final cleaningsAsync =
+        ref.watch(moduleCleaningsProvider(widget.moduleId));
 
     final latestInspection = latestInspectionAsync.valueOrNull;
     final isViewingLatest = _selectedHistoricalInspection == null ||
@@ -173,6 +177,18 @@ class _ModuleThermalInspectionScreenState
           final mod = details.module;
           final rawInspections =
               inspectionsAsync.valueOrNull ?? const <ModuleInspection>[];
+          final allCleanings =
+              cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
+          final allMeasurements =
+              measurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
+
+          final bundles = InspectionRoutineBundle.buildBundles(
+            allInspections: rawInspections,
+            allCleanings: allCleanings,
+            allMeasurements: allMeasurements,
+            latestInspection: latestInspection,
+          );
+
           final inspections = rawInspections.isNotEmpty
               ? rawInspections
               : (latestInspection != null
@@ -182,10 +198,11 @@ class _ModuleThermalInspectionScreenState
           final List<ModuleMeasurement> activeMeasurements;
           final LatestInspection? activeInspection;
           final ModuleMeasurement? activeLatestMeasurement;
+          final List<ModuleMeasurement> activeVerificationMeasurements;
+          final String? activePostCleaningResult;
 
           if (isViewingLatest) {
-            final measurements =
-                measurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
+            final measurements = allMeasurements;
             final rawLatestMeasurement =
                 measurements.isNotEmpty ? measurements.first : null;
             final currentMeasurements = filterMeasurementsForCurrentInspection(
@@ -198,6 +215,34 @@ class _ModuleThermalInspectionScreenState
             activeLatestMeasurement = currentMeasurements.isNotEmpty
                 ? currentMeasurements.first
                 : rawLatestMeasurement;
+
+            final latestRoutineId = latestInspection?.inspection.id ??
+                (bundles.isNotEmpty ? bundles.first.routineInspection.id : '');
+            final currentBundle = bundles.firstWhere(
+              (b) => b.routineInspection.id == latestRoutineId,
+              orElse: () => bundles.isNotEmpty
+                  ? bundles.first
+                  : InspectionRoutineBundle(
+                      routineInspection: latestInspection?.inspection ??
+                          const ModuleInspection(
+                            id: '',
+                            moduleId: '',
+                            sourceEventId: '',
+                            type: 'scheduled',
+                            scheduledFor: '',
+                            status: 'completed',
+                            createdAt: '',
+                            updatedAt: '',
+                          ),
+                      verificationInspections: const [],
+                      routineMeasurements: currentMeasurements,
+                      verificationMeasurements: const [],
+                      restoredMeasurements: currentMeasurements,
+                    ),
+            );
+            activeVerificationMeasurements =
+                currentBundle.verificationMeasurements;
+            activePostCleaningResult = currentBundle.verificationResult;
           } else {
             final histMeasurements = historicalPagedAsync?.valueOrNull?.measurements ??
                 const <ModuleMeasurement>[];
@@ -209,6 +254,20 @@ class _ModuleThermalInspectionScreenState
             );
             activeLatestMeasurement =
                 histMeasurements.isNotEmpty ? histMeasurements.first : null;
+
+            final histBundle = bundles.firstWhere(
+              (b) => b.routineInspection.id == _selectedHistoricalInspection!.id,
+              orElse: () => InspectionRoutineBundle(
+                routineInspection: _selectedHistoricalInspection!,
+                verificationInspections: const [],
+                routineMeasurements: histMeasurements,
+                verificationMeasurements: const [],
+                restoredMeasurements: histMeasurements,
+              ),
+            );
+            activeVerificationMeasurements =
+                histBundle.verificationMeasurements;
+            activePostCleaningResult = histBundle.verificationResult;
           }
 
           return RefreshIndicator(
@@ -245,6 +304,8 @@ class _ModuleThermalInspectionScreenState
                     measurements: isViewingLatest
                         ? measurementsAsync.valueOrNull
                         : activeMeasurements,
+                    verificationMeasurements: activeVerificationMeasurements,
+                    postCleaningResult: activePostCleaningResult,
                   ),
                 ],
               ),

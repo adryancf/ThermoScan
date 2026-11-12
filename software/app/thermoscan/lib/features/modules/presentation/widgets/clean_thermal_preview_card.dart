@@ -20,12 +20,16 @@ class CleanThermalPreviewCard extends StatelessWidget {
     this.latestMeasurement,
     this.latestInspection,
     this.measurements,
+    this.verificationMeasurements,
+    this.postCleaningResult,
   });
 
   final PvModule module;
   final ModuleMeasurement? latestMeasurement;
   final LatestInspection? latestInspection;
   final List<ModuleMeasurement>? measurements;
+  final List<ModuleMeasurement>? verificationMeasurements;
+  final String? postCleaningResult;
 
   String _formatReadingTimestamp(String? iso) {
     if (iso == null || iso.isEmpty) return 'No inspection recorded';
@@ -73,13 +77,28 @@ class CleanThermalPreviewCard extends StatelessWidget {
       latestMeasurement: m,
     );
 
-    final confirmedAnomalies = insp?.confirmedAnomalies ?? const [];
+    final verifMeas =
+        verificationMeasurements ?? const <ModuleMeasurement>[];
+    final bool hasPostCleaning = verifMeas.isNotEmpty;
+    final bool isHotspotResolved = postCleaningResult == 'resolved';
+
+    final effectiveMeasurements = hasPostCleaning
+        ? deduplicateMeasurementsSpatially([
+            ...rawMeasurements,
+            ...verifMeas,
+          ])
+        : rawMeasurements;
+
+    final rawAnomalies = insp?.confirmedAnomalies ?? const [];
+    final confirmedAnomalies = (hasPostCleaning && isHotspotResolved)
+        ? const <ConfirmedAnomaly>[]
+        : rawAnomalies;
     final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
 
     final double? baselineTemp = insp?.inspection.baselineTemperatureC;
     double? peakTemp;
-    if (rawMeasurements.isNotEmpty) {
-      peakTemp = rawMeasurements
+    if (effectiveMeasurements.isNotEmpty) {
+      peakTemp = effectiveMeasurements
           .map((item) => item.maxTemperatureC)
           .reduce((a, b) => a > b ? a : b);
     } else if (m != null) {
@@ -95,7 +114,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
 
     // Build panorama dataset for rendering
     final panorama = ThermalPanoramaData.fromMeasurements(
-      measurements: rawMeasurements,
+      measurements: effectiveMeasurements,
       confirmedAnomalies: confirmedAnomalies,
       panelLengthCm: module.panelLengthCm,
       panelCount: module.panelCount,
@@ -175,7 +194,9 @@ class CleanThermalPreviewCard extends StatelessWidget {
               _buildStatusBadge(
                 hasHotspots: hasConfirmedHotspots,
                 delta: delta,
-                hasTelemetry: rawMeasurements.isNotEmpty || m != null,
+                hasTelemetry: effectiveMeasurements.isNotEmpty || m != null,
+                hasPostCleaning: hasPostCleaning,
+                isHotspotResolved: isHotspotResolved,
               ),
             ],
           ),
@@ -328,7 +349,39 @@ class CleanThermalPreviewCard extends StatelessWidget {
     required bool hasHotspots,
     required double? delta,
     required bool hasTelemetry,
+    bool hasPostCleaning = false,
+    bool isHotspotResolved = false,
   }) {
+    if (hasPostCleaning && isHotspotResolved) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: AppColors.successBackground,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.successBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.auto_fix_high_rounded,
+              size: 13,
+              color: AppColors.success,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              'Restored View (Resolved)',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.success,
+                fontWeight: FontWeight.w700,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     if (hasHotspots) {
       final deltaText = delta != null && delta > 0
           ? '+${delta.toStringAsFixed(1)}°C above normal'

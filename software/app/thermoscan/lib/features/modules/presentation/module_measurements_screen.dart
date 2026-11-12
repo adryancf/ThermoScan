@@ -5,6 +5,7 @@ import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
+import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/module_sub_nav_bar.dart';
@@ -58,10 +59,14 @@ class _ModuleMeasurementsScreenState
         ref.watch(moduleMeasurementsProvider(widget.moduleId));
     final inspectionsAsync =
         ref.watch(moduleInspectionsProvider(widget.moduleId));
+    final cleaningsAsync =
+        ref.watch(moduleCleaningsProvider(widget.moduleId));
 
     final mod = detailsAsync.valueOrNull?.module;
     final inspectionsList =
         inspectionsAsync.valueOrNull ?? const <ModuleInspection>[];
+    final cleaningsList =
+        cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
     final inspectionsMap = {for (var i in inspectionsList) i.id: i};
 
     final content = RefreshIndicator(
@@ -70,6 +75,7 @@ class _ModuleMeasurementsScreenState
         ref.invalidate(latestInspectionProvider(widget.moduleId));
         ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
         ref.invalidate(moduleInspectionsProvider(widget.moduleId));
+        ref.invalidate(moduleCleaningsProvider(widget.moduleId));
         ref.invalidate(inspectionMeasurementsPagedProvider);
       },
       child: SingleChildScrollView(
@@ -148,6 +154,7 @@ class _ModuleMeasurementsScreenState
                   allMeasurements: allMeasurements,
                   mod: mod,
                   inspectionsMap: inspectionsMap,
+                  cleanings: cleaningsList,
                 );
               },
             ),
@@ -194,6 +201,7 @@ class _ModuleMeasurementsScreenState
     required List<ModuleMeasurement> allMeasurements,
     required PvModule? mod,
     required Map<String, ModuleInspection> inspectionsMap,
+    required List<ModuleCleaning> cleanings,
   }) {
     // 1. Group measurements by inspectionId
     final Map<String, List<ModuleMeasurement>> grouped = {};
@@ -211,7 +219,29 @@ class _ModuleMeasurementsScreenState
       grouped.putIfAbsent(latestId, () => []);
     }
 
-    // 3. Sort entries: latest inspection first, then descending by most recent measurement timestamp
+    // 3. Build routine bundles for hierarchical post-cleaning nesting
+    final bundles = InspectionRoutineBundle.buildBundles(
+      allInspections: inspectionsMap.values.toList(),
+      allCleanings: cleanings,
+      allMeasurements: allMeasurements,
+      latestInspection: latestInspection,
+    );
+
+    final sortedBundles = List<InspectionRoutineBundle>.from(bundles)
+      ..sort((a, b) {
+        if (latestId != null) {
+          if (a.routineInspection.id == latestId) return -1;
+          if (b.routineInspection.id == latestId) return 1;
+        }
+        final maxA = _maxMeasuredAt(a.routineMeasurements);
+        final maxB = _maxMeasuredAt(b.routineMeasurements);
+        if (maxA != null && maxB != null) {
+          return maxB.compareTo(maxA);
+        }
+        return b.routineInspection.id.compareTo(a.routineInspection.id);
+      });
+
+    // 4. Sort entries: latest inspection first, then descending by most recent measurement timestamp
     final entries = grouped.entries.toList()
       ..sort((a, b) {
         if (latestId != null) {
@@ -314,9 +344,31 @@ class _ModuleMeasurementsScreenState
         ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: entries.length,
+          itemCount:
+              sortedBundles.isNotEmpty ? sortedBundles.length : entries.length,
           separatorBuilder: (_, _) => const SizedBox(height: 14),
           itemBuilder: (context, index) {
+            if (sortedBundles.isNotEmpty) {
+              final bundle = sortedBundles[index];
+              final inspectionId = bundle.routineInspection.id;
+              final isLatest = latestId != null && inspectionId == latestId;
+              final groupMeasurements = bundle.routineMeasurements.isNotEmpty
+                  ? bundle.routineMeasurements
+                  : (bundle.restoredMeasurements.isNotEmpty
+                      ? bundle.restoredMeasurements
+                      : (grouped[inspectionId] ?? const <ModuleMeasurement>[]));
+
+              return _buildInspectionHistoryGroupCard(
+                inspectionId: inspectionId,
+                measurements: groupMeasurements,
+                isLatest: isLatest,
+                latestInspection: isLatest ? latestInspection : null,
+                mod: mod,
+                inspectionsMap: inspectionsMap,
+                bundle: bundle,
+              );
+            }
+
             final entry = entries[index];
             final inspectionId = entry.key;
             final isLatest = latestId != null && inspectionId == latestId;
@@ -376,6 +428,7 @@ class _ModuleMeasurementsScreenState
     required LatestInspection? latestInspection,
     required PvModule? mod,
     required Map<String, ModuleInspection> inspectionsMap,
+    InspectionRoutineBundle? bundle,
   }) {
     final inspModel = inspectionsMap[inspectionId];
     final inspAnomalies = isLatest
@@ -702,6 +755,53 @@ class _ModuleMeasurementsScreenState
                                   ),
                                 ),
                               ],
+                              if (bundle != null && bundle.hasPostCleaning) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: bundle.isHotspotResolved
+                                        ? AppColors.successBackground
+                                        : AppColors.warningBackground,
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: bundle.isHotspotResolved
+                                          ? AppColors.successBorder
+                                          : AppColors.warningBorder,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        bundle.isHotspotResolved
+                                            ? Icons.check_circle_outline_rounded
+                                            : Icons.warning_amber_rounded,
+                                        size: 10,
+                                        color: bundle.isHotspotResolved
+                                            ? AppColors.success
+                                            : AppColors.warning,
+                                      ),
+                                      const SizedBox(width: 3),
+                                      Text(
+                                        bundle.isHotspotResolved
+                                            ? 'VERIFIED RESOLVED'
+                                            : 'VERIFIED UNRESOLVED',
+                                        style: AppTypography.caption.copyWith(
+                                          color: bundle.isHotspotResolved
+                                              ? AppColors.success
+                                              : AppColors.warning,
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 9,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 2),
@@ -803,10 +903,112 @@ class _ModuleMeasurementsScreenState
                 )),
           ],
 
+          // Level 2.5: Nested Post-Cleaning Verification (Traceability)
+          if (bundle != null && bundle.hasPostCleaning) ...[
+            _buildNestedPostCleaningSection(bundle),
+          ],
+
           // Level 3: Paginated frames (when byPanel is empty, e.g. test 630)
           if (isLatest && latestInspection != null && byPanel.isEmpty) ...[
             const SizedBox(height: 8),
             _buildPaginatedInspectionBody(latestInspection, mod),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNestedPostCleaningSection(InspectionRoutineBundle bundle) {
+    final isResolved = bundle.isHotspotResolved;
+    final verifs = bundle.verificationInspections;
+    final verifMeas = bundle.verificationMeasurements;
+    final firstVerif = verifs.isNotEmpty ? verifs.first : null;
+    final outcomeLabel = isResolved ? 'Resolved' : 'Unresolved';
+    final outcomeColor = isResolved ? AppColors.success : AppColors.warning;
+    final outcomeBg =
+        isResolved ? AppColors.successBackground : AppColors.warningBackground;
+    final outcomeBorder =
+        isResolved ? AppColors.successBorder : AppColors.warningBorder;
+
+    return Container(
+      key: Key('nested_post_cleaning_${bundle.routineInspection.id}'),
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: outcomeBorder.withValues(alpha: 0.6)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: outcomeBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  isResolved
+                      ? Icons.auto_fix_high_rounded
+                      : Icons.warning_amber_rounded,
+                  size: 16,
+                  color: outcomeColor,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Post-Cleaning Verification',
+                      style: AppTypography.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    Text(
+                      '${verifMeas.length} verification frame(s) recorded · Settling window satisfied',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: outcomeBg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: outcomeBorder),
+                ),
+                child: Text(
+                  outcomeLabel.toUpperCase(),
+                  style: AppTypography.caption.copyWith(
+                    color: outcomeColor,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 10,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (firstVerif != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Verification ID: ${firstVerif.id.length > 8 ? "${firstVerif.id.substring(0, 8)}..." : firstVerif.id} · Scheduled: ${_formatReadableTimestamp(firstVerif.scheduledFor)}',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 10,
+              ),
+            ),
           ],
         ],
       ),

@@ -9,6 +9,7 @@ import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
+import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/module_cleanings_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_configuration_screen.dart';
@@ -571,6 +572,25 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         measurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
     final latestInspectionAsync = ref.watch(latestInspectionProvider(mod.id));
     final latestInspection = latestInspectionAsync.valueOrNull;
+    final inspectionsAsync = ref.watch(moduleInspectionsProvider(mod.id));
+    final cleaningsAsync = ref.watch(moduleCleaningsProvider(mod.id));
+    final inspectionsList =
+        inspectionsAsync.valueOrNull ?? const <ModuleInspection>[];
+    final cleaningsList =
+        cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
+
+    final bundles = InspectionRoutineBundle.buildBundles(
+      allInspections: inspectionsList,
+      allCleanings: cleaningsList,
+      allMeasurements: measurements,
+      latestInspection: latestInspection,
+    );
+
+    final latestBundle = bundles.isNotEmpty ? bundles.first : null;
+    final verifMeasurements =
+        latestBundle?.verificationMeasurements ?? const <ModuleMeasurement>[];
+    final postCleaningResult = latestBundle?.verificationResult;
+
     final rawLatestMeasurement =
         measurements.isNotEmpty ? measurements.first : null;
     final currentMeasurements = filterMeasurementsForCurrentInspection(
@@ -664,6 +684,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               latestInspection: latestInspection,
               latestMeasurement: latestMeasurement,
               measurements: currentMeasurements,
+              hasPostCleaning: latestBundle?.hasPostCleaning ?? false,
+              isHotspotResolved: latestBundle?.isHotspotResolved ?? false,
             ),
             const SizedBox(height: 16),
 
@@ -674,6 +696,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 latestMeasurement: latestMeasurement,
                 latestInspection: latestInspection,
                 measurements: measurementsAsync.valueOrNull,
+                verificationMeasurements: verifMeasurements,
+                postCleaningResult: postCleaningResult,
               ),
               const SizedBox(height: 16),
               _buildKeyTelemetryGrid(
@@ -745,6 +769,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     required LatestInspection? latestInspection,
     required ModuleMeasurement? latestMeasurement,
     required List<ModuleMeasurement> measurements,
+    bool hasPostCleaning = false,
+    bool isHotspotResolved = false,
   }) {
     final confirmedAnomalies = latestInspection?.confirmedAnomalies ?? const [];
     final hasHotspot = confirmedAnomalies.isNotEmpty;
@@ -774,7 +800,21 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     final Color badgeBorder;
     final IconData heroIcon;
 
-    if (hasHotspot) {
+    if (hasPostCleaning && isHotspotResolved) {
+      title = 'Hotspot Resolved via Cleaning';
+      if (baseline != null) {
+        subtitle =
+            'Thermal anomaly was successfully cleaned and verified normal (${baseline.toStringAsFixed(1)}°C). Array operating normally.';
+      } else {
+        subtitle =
+            'Thermal anomaly was successfully cleaned and verified. Array operating normally.';
+      }
+      badgeText = 'CLEANED & RESOLVED';
+      statusColor = AppColors.success;
+      badgeBg = AppColors.successBackground;
+      badgeBorder = AppColors.successBorder;
+      heroIcon = Icons.task_alt_rounded;
+    } else if (hasHotspot) {
       if (confirmedAnomalies.length == 1) {
         final anom = confirmedAnomalies.first;
         final pIdx = anom.panelIndex ??

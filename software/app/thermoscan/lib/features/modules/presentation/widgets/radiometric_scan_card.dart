@@ -15,6 +15,8 @@ class RadiometricScanCard extends StatefulWidget {
     this.latestMeasurement,
     this.latestInspection,
     this.measurements,
+    this.verificationMeasurements,
+    this.postCleaningResult,
     this.initiallyExpanded,
     this.showDetailedSections = false,
     this.deduplicateSpatially = true,
@@ -24,6 +26,8 @@ class RadiometricScanCard extends StatefulWidget {
   final ModuleMeasurement? latestMeasurement;
   final LatestInspection? latestInspection;
   final List<ModuleMeasurement>? measurements;
+  final List<ModuleMeasurement>? verificationMeasurements;
+  final String? postCleaningResult;
   final bool? initiallyExpanded;
   final bool showDetailedSections;
   final bool deduplicateSpatially;
@@ -34,6 +38,7 @@ class RadiometricScanCard extends StatefulWidget {
 
 class _RadiometricScanCardState extends State<RadiometricScanCard> {
   final bool _fitToScan = true;
+  bool _showRestoredView = true;
   int? _selectedFrameIndex;
   int? _focusedPanelIndex;
   int? _selectedHotspotIndex;
@@ -143,7 +148,19 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       latestMeasurement: m,
     );
 
-    if (m == null && insp == null && rawMeasurements.isEmpty) {
+    final verifMeas =
+        widget.verificationMeasurements ?? const <ModuleMeasurement>[];
+    final bool hasPostCleaning = verifMeas.isNotEmpty;
+    final bool isHotspotResolved = widget.postCleaningResult == 'resolved';
+
+    final effectiveMeasurements = (hasPostCleaning && _showRestoredView)
+        ? deduplicateMeasurementsSpatially([
+            ...rawMeasurements,
+            ...verifMeas,
+          ])
+        : rawMeasurements;
+
+    if (m == null && insp == null && effectiveMeasurements.isEmpty) {
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -186,7 +203,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       );
     }
 
-    final confirmedAnomalies = insp?.confirmedAnomalies ?? const [];
+    final rawAnomalies = insp?.confirmedAnomalies ?? const [];
+    final confirmedAnomalies =
+        (hasPostCleaning && _showRestoredView && isHotspotResolved)
+            ? const <ConfirmedAnomaly>[]
+            : rawAnomalies;
     final visibleAnomalies = _focusedPanelIndex == null
         ? confirmedAnomalies
         : confirmedAnomalies.where((a) {
@@ -200,7 +221,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           }).toList();
     final hasConfirmedHotspots = visibleAnomalies.isNotEmpty;
 
-    final sortedRaw = sortMeasurementsSpatially(rawMeasurements);
+    final sortedRaw = sortMeasurementsSpatially(effectiveMeasurements);
     final focusedBounds = _focusedPanelIndex != null
         ? widget.module.getPanelBounds(_focusedPanelIndex!)
         : null;
@@ -320,7 +341,23 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         : null;
 
     final String deltaText;
-    if (hasConfirmedHotspots) {
+    final bool isErrorBadge = (hasPostCleaning && !_showRestoredView && rawAnomalies.isNotEmpty) ||
+        hasConfirmedHotspots ||
+        (hasPostCleaning && _showRestoredView && !isHotspotResolved && rawAnomalies.isNotEmpty);
+
+    if (hasPostCleaning && _showRestoredView) {
+      if (isHotspotResolved) {
+        deltaText = 'Restored View · Hotspot Healed';
+      } else {
+        deltaText = delta != null
+            ? 'Restored View · Persistent (+${delta.toStringAsFixed(1)}°C)'
+            : 'Restored View · Hotspot Persistent';
+      }
+    } else if (hasPostCleaning && !_showRestoredView) {
+      deltaText = delta != null
+          ? 'Original Scan · +${delta.toStringAsFixed(1)}°C Hotspot'
+          : 'Original Scan (Pre-Cleaning)';
+    } else if (hasConfirmedHotspots) {
       deltaText = delta != null
           ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
           : 'Hotspot Confirmed';
@@ -368,7 +405,9 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            'Full temperature scan across your solar panels',
+                            hasPostCleaning && _showRestoredView
+                                ? 'Restored view fusing routine scan with post-cleaning frames'
+                                : 'Full temperature scan across your solar panels',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.textSecondary,
                               fontSize: 10,
@@ -384,12 +423,12 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: hasConfirmedHotspots
+                  color: isErrorBadge
                       ? AppColors.errorBackground
                       : AppColors.successBackground,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: hasConfirmedHotspots
+                    color: isErrorBadge
                         ? AppColors.errorBorder
                         : AppColors.successBorder,
                   ),
@@ -400,7 +439,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                     Text(
                       deltaText,
                       style: AppTypography.caption.copyWith(
-                        color: hasConfirmedHotspots
+                        color: isErrorBadge
                             ? AppColors.error
                             : AppColors.success,
                         fontWeight: FontWeight.w800,
@@ -413,6 +452,110 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             ],
           ),
           const SizedBox(height: 8),
+
+          // Post-Cleaning Restoration Toggle (STRICTLY rendered when post-cleaning verification exists)
+          if (hasPostCleaning) ...[
+            Container(
+              key: const Key('post_cleaning_toggle_bar'),
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      key: const Key('toggle_restored_view'),
+                      onTap: () => setState(() => _showRestoredView = true),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        decoration: BoxDecoration(
+                          color: _showRestoredView
+                              ? AppColors.primary
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.auto_fix_high_rounded,
+                              size: 14,
+                              color: _showRestoredView
+                                  ? Colors.white
+                                  : AppColors.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Restored View',
+                              style: AppTypography.caption.copyWith(
+                                color: _showRestoredView
+                                    ? Colors.white
+                                    : AppColors.textSecondary,
+                                fontWeight: _showRestoredView
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: InkWell(
+                      key: const Key('toggle_original_scan'),
+                      onTap: () => setState(() => _showRestoredView = false),
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                        decoration: BoxDecoration(
+                          color: !_showRestoredView
+                              ? AppColors.surface
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                          border: !_showRestoredView
+                              ? Border.all(color: AppColors.border)
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.history_rounded,
+                              size: 14,
+                              color: !_showRestoredView
+                                  ? AppColors.textPrimary
+                                  : AppColors.textSecondary,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Original Scan',
+                              style: AppTypography.caption.copyWith(
+                                color: !_showRestoredView
+                                    ? AppColors.textPrimary
+                                    : AppColors.textSecondary,
+                                fontWeight: !_showRestoredView
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
 
           // Multi-Panel String Selector Chips
           if (widget.module.panelCount != null &&

@@ -43,12 +43,14 @@ class _AuditMockRepo extends ModuleRepository {
     this.latestInspection,
     this.mockMeasurements = const [],
     this.mockCleanings = const [],
+    this.mockInspections = const [],
   }) : super(dio: Dio());
 
   final PvModule module;
   final LatestInspection? latestInspection;
   final List<ModuleMeasurement> mockMeasurements;
   final List<ModuleCleaning> mockCleanings;
+  final List<ModuleInspection> mockInspections;
 
   @override
   Future<ModuleDetails> getModuleDetails(String moduleId) async {
@@ -97,6 +99,14 @@ class _AuditMockRepo extends ModuleRepository {
     int offset = 0,
   }) async =>
       mockCleanings;
+
+  @override
+  Future<List<ModuleInspection>> listInspections({
+    required String moduleId,
+    int limit = 20,
+    int offset = 0,
+  }) async =>
+      mockInspections;
 
   @override
   Future<PagedMeasurements> listInspectionMeasurements({
@@ -783,6 +793,227 @@ void main() {
       // Scale bar colors contain the isotherm alarm spectrum
       expect(panorama.scaleGradientColors.length, equals(6));
       expect(panorama.scaleGradientColors.last, equals(const Color(0xFFFFFFFF)));
+    });
+
+    testWidgets('11. Restored View toggle is strictly conditional on post-cleaning verifications', (tester) async {
+      const routineMeas = ModuleMeasurement(
+        id: 'm-routine-1',
+        moduleId: 'mod-audit',
+        inspectionId: 'insp-routine-1',
+        sourceEventId: 'evt-r1',
+        xPositionCm: 45.0,
+        maxTemperatureC: 48.0,
+        measuredAt: '2026-11-12T06:00:00Z',
+        receivedAt: '2026-11-12T06:00:05Z',
+      );
+
+      const verifMeas = ModuleMeasurement(
+        id: 'm-verif-1',
+        moduleId: 'mod-audit',
+        inspectionId: 'insp-verif-1',
+        sourceEventId: 'evt-v1',
+        xPositionCm: 45.0,
+        maxTemperatureC: 34.5,
+        measuredAt: '2026-11-12T06:35:00Z',
+        receivedAt: '2026-11-12T06:35:05Z',
+      );
+
+      const routineInsp = LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-routine-1',
+          moduleId: 'mod-audit',
+          sourceEventId: 'evt-insp-r1',
+          type: 'scheduled',
+          scheduledFor: '2026-11-12T06:00:00Z',
+          status: 'completed',
+          baselineTemperatureC: 35.0,
+          createdAt: '2026-11-12T06:00:00Z',
+          updatedAt: '2026-11-12T06:05:00Z',
+        ),
+        totalMeasurements: 1,
+        confirmedAnomalies: [
+          ConfirmedAnomaly(
+            id: 'anom-hotspot-1',
+            moduleId: 'mod-audit',
+            originMeasurementId: 'm-routine-1',
+            confirmingMeasurementIds: ['m-routine-1'],
+            sourceEventId: 'evt-anom-1',
+            panelIndex: 1,
+            xPositionCm: 45.0,
+            detectedAt: '2026-11-12T06:01:00Z',
+            status: 'resolved',
+            actuatedAttemptsCount: 1,
+            retryPending: false,
+          ),
+        ],
+      );
+
+      // Case 1: NO verification measurements -> Toggle bar MUST NOT be rendered
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RadiometricScanCard(
+              module: baseModule,
+              latestInspection: routineInsp,
+              measurements: const [routineMeas],
+              verificationMeasurements: null,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('post_cleaning_toggle_bar')), findsNothing);
+      expect(find.byKey(const Key('toggle_restored_view')), findsNothing);
+      expect(find.byKey(const Key('toggle_original_scan')), findsNothing);
+
+      // Case 2: WITH verification measurements -> Toggle bar MUST be rendered
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RadiometricScanCard(
+              module: baseModule,
+              latestInspection: routineInsp,
+              measurements: const [routineMeas],
+              verificationMeasurements: const [verifMeas],
+              postCleaningResult: 'resolved',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('post_cleaning_toggle_bar')), findsOneWidget);
+      expect(find.byKey(const Key('toggle_restored_view')), findsOneWidget);
+      expect(find.byKey(const Key('toggle_original_scan')), findsOneWidget);
+      expect(find.text('Restored View · Hotspot Healed'), findsOneWidget);
+
+      // Tapping Original Scan switches to pre-cleaning view
+      await tester.tap(find.byKey(const Key('toggle_original_scan')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Original Scan · +13.0°C Hotspot'), findsOneWidget);
+
+      // Tapping Restored View switches back
+      await tester.tap(find.byKey(const Key('toggle_restored_view')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Restored View · Hotspot Healed'), findsOneWidget);
+    });
+
+    testWidgets('12. ModuleMeasurementsScreen nests post-cleaning verifications under parent routine', (tester) async {
+      const routineInsp = ModuleInspection(
+        id: 'insp-routine-main',
+        moduleId: 'mod-audit',
+        sourceEventId: 'evt-r-main',
+        type: 'scheduled',
+        scheduledFor: '2026-11-12T06:00:00Z',
+        status: 'completed',
+        baselineTemperatureC: 35.0,
+        createdAt: '2026-11-12T06:00:00Z',
+        updatedAt: '2026-11-12T06:05:00Z',
+        confirmedAnomalies: [
+          ConfirmedAnomaly(
+            id: 'anom-nest-1',
+            moduleId: 'mod-audit',
+            originMeasurementId: 'm-r1',
+            confirmingMeasurementIds: ['m-r1'],
+            sourceEventId: 'evt-anom-nest-1',
+            panelIndex: 1,
+            xPositionCm: 30.0,
+            detectedAt: '2026-11-12T06:01:00Z',
+            status: 'resolved',
+            actuatedAttemptsCount: 1,
+            retryPending: false,
+          ),
+        ],
+      );
+
+      const verifInsp = ModuleInspection(
+        id: 'insp-verif-child',
+        moduleId: 'mod-audit',
+        sourceEventId: 'evt-v-child',
+        type: 'verification',
+        cleaningOperationId: 'cln-nest-1',
+        scheduledFor: '2026-11-12T06:35:00Z',
+        status: 'completed',
+        verificationResult: 'resolved',
+        createdAt: '2026-11-12T06:35:00Z',
+        updatedAt: '2026-11-12T06:36:00Z',
+      );
+
+      const cleaning = ModuleCleaning(
+        id: 'cln-nest-1',
+        moduleId: 'mod-audit',
+        anomalyEventId: 'anom-nest-1',
+        sourceEventId: 'evt-cln-1',
+        targetXPositionCm: 30.0,
+        pumpActuated: true,
+        attemptNumber: 1,
+        status: 'completed',
+        postCleaningResult: 'resolved',
+        createdAt: '2026-11-12T06:05:00Z',
+      );
+
+      const mRoutine = ModuleMeasurement(
+        id: 'm-r1',
+        moduleId: 'mod-audit',
+        inspectionId: 'insp-routine-main',
+        sourceEventId: 'evt-mr1',
+        xPositionCm: 30.0,
+        maxTemperatureC: 48.0,
+        measuredAt: '2026-11-12T06:00:05Z',
+        receivedAt: '2026-11-12T06:00:10Z',
+      );
+
+      const mVerif = ModuleMeasurement(
+        id: 'm-v1',
+        moduleId: 'mod-audit',
+        inspectionId: 'insp-verif-child',
+        sourceEventId: 'evt-mv1',
+        xPositionCm: 30.0,
+        maxTemperatureC: 34.0,
+        measuredAt: '2026-11-12T06:35:05Z',
+        receivedAt: '2026-11-12T06:35:10Z',
+      );
+
+      final repo = _AuditMockRepo(
+        module: baseModule,
+        latestInspection: const LatestInspection(
+          inspection: routineInsp,
+          totalMeasurements: 1,
+          confirmedAnomalies: [],
+        ),
+        mockInspections: const [routineInsp, verifInsp],
+        mockCleanings: const [cleaning],
+        mockMeasurements: const [mRoutine, mVerif],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider.overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(repo),
+          ],
+          child: const MaterialApp(
+            home: ModuleMeasurementsScreen(moduleId: 'mod-audit'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Parent routine group is rendered
+      expect(find.byKey(const Key('history_group_insp-routine-main')), findsOneWidget);
+
+      // Child verification is nested inside parent, NOT as a separate root group
+      expect(find.byKey(const Key('history_group_insp-verif-child')), findsNothing);
+      expect(find.byKey(const Key('nested_post_cleaning_insp-routine-main')), findsOneWidget);
+
+      // Verified badge in header
+      expect(find.text('VERIFIED RESOLVED'), findsOneWidget);
+      expect(find.text('Post-Cleaning Verification'), findsOneWidget);
     });
   });
 }

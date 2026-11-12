@@ -68,7 +68,7 @@ final latestInspectionProvider = FutureProvider.autoDispose
 final moduleInspectionsProvider = FutureProvider.autoDispose
     .family<List<ModuleInspection>, String>((ref, moduleId) {
   final repo = ref.watch(moduleRepositoryProvider);
-  return repo.listInspections(moduleId: moduleId);
+  return repo.listInspections(moduleId: moduleId, limit: 100);
 });
 
 final moduleDeviceStatusProvider = FutureProvider.autoDispose

@@ -105,7 +105,7 @@ class _AuditMockRepo extends ModuleRepository {
   @override
   Future<List<ModuleInspection>> listInspections({
     required String moduleId,
-    int limit = 20,
+    int limit = 100,
     int offset = 0,
   }) async =>
       mockInspections;

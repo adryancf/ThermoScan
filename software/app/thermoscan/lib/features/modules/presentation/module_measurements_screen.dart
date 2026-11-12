@@ -238,6 +238,15 @@ class _ModuleMeasurementsScreenState
         if (maxA != null && maxB != null) {
           return maxB.compareTo(maxA);
         }
+        final dtA = maxA ??
+            DateTime.tryParse(a.routineInspection.scheduledFor) ??
+            DateTime.tryParse(a.routineInspection.createdAt);
+        final dtB = maxB ??
+            DateTime.tryParse(b.routineInspection.scheduledFor) ??
+            DateTime.tryParse(b.routineInspection.createdAt);
+        if (dtA != null && dtB != null) {
+          return dtB.compareTo(dtA);
+        }
         return b.routineInspection.id.compareTo(a.routineInspection.id);
       });
 

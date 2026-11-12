@@ -313,6 +313,118 @@ void main() {
     expect(find.byKey(const Key('historical_scan_banner')), findsNothing);
   });
 
+  testWidgets('Studio Switch Scan modal groups multiple micro-verifications into routine bundle card', (tester) async {
+    const routineInsp = ModuleInspection(
+      id: 'insp-routine-1',
+      moduleId: testModuleId,
+      sourceEventId: 'evt-r-1',
+      type: 'scheduled',
+      scheduledFor: '2026-11-12T09:00:00Z',
+      status: 'completed',
+      createdAt: '2026-11-12T09:00:00Z',
+      updatedAt: '2026-11-12T09:00:30Z',
+      finishedAt: '2026-11-12T09:00:30Z',
+      baselineTemperatureC: 34.6,
+    );
+
+    const verif1 = ModuleInspection(
+      id: 'insp-verif-1',
+      moduleId: testModuleId,
+      sourceEventId: 'evt-v-1',
+      type: 'verification',
+      cleaningOperationId: 'cln-1',
+      scheduledFor: '2026-11-12T09:01:00Z',
+      status: 'completed',
+      createdAt: '2026-11-12T09:01:00Z',
+      updatedAt: '2026-11-12T09:01:30Z',
+      finishedAt: '2026-11-12T09:01:30Z',
+      verificationResult: 'resolved',
+      baselineTemperatureC: 34.6,
+    );
+
+    const verif2 = ModuleInspection(
+      id: 'insp-verif-2',
+      moduleId: testModuleId,
+      sourceEventId: 'evt-v-2',
+      type: 'verification',
+      cleaningOperationId: 'cln-2',
+      scheduledFor: '2026-11-12T09:02:00Z',
+      status: 'completed',
+      createdAt: '2026-11-12T09:02:00Z',
+      updatedAt: '2026-11-12T09:02:30Z',
+      finishedAt: '2026-11-12T09:02:30Z',
+      verificationResult: 'resolved',
+      baselineTemperatureC: 34.6,
+    );
+
+    const measRoutine = ModuleMeasurement(
+      id: 'meas-r-1',
+      moduleId: testModuleId,
+      inspectionId: 'insp-routine-1',
+      sourceEventId: 'evt-m-1',
+      xPositionCm: 10.0,
+      maxTemperatureC: 34.6,
+      measuredAt: '2026-11-12T09:00:10Z',
+      receivedAt: '2026-11-12T09:00:11Z',
+    );
+
+    const measVerif1 = ModuleMeasurement(
+      id: 'meas-v-1',
+      moduleId: testModuleId,
+      inspectionId: 'insp-verif-1',
+      sourceEventId: 'evt-m-v1',
+      xPositionCm: 10.0,
+      maxTemperatureC: 34.6,
+      measuredAt: '2026-11-12T09:01:10Z',
+      receivedAt: '2026-11-12T09:01:11Z',
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(techUser),
+          ),
+          moduleDetailsProvider(testModuleId).overrideWith(
+            (ref) => Future.value(dummyDetails),
+          ),
+          moduleMeasurementsProvider(testModuleId).overrideWith(
+            (ref) => Future.value([measRoutine, measVerif1]),
+          ),
+          latestInspectionProvider(testModuleId).overrideWith(
+            (ref) => Future.value(const LatestInspection(
+              inspection: routineInsp,
+              totalMeasurements: 1,
+              confirmedAnomalies: [],
+            )),
+          ),
+          moduleInspectionsProvider(testModuleId).overrideWith(
+            (ref) => Future.value([verif2, verif1, routineInsp]),
+          ),
+        ],
+        child: const MaterialApp(
+          home: ModuleThermalInspectionScreen(moduleId: testModuleId),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Open Switch Scan modal
+    await tester.tap(find.byKey(const Key('switch_scan_button')));
+    await tester.pumpAndSettle();
+
+    // Verify exactly ONE routine scan card is rendered (not 3 cards!)
+    expect(find.byKey(const Key('scan_selector_item_insp-routine-1')), findsOneWidget);
+    expect(find.byKey(const Key('scan_selector_item_insp-verif-1')), findsNothing);
+    expect(find.byKey(const Key('scan_selector_item_insp-verif-2')), findsNothing);
+
+    // Verify routine card reflects nested verifications and baseline
+    expect(find.text('Routine Thermal Scan'), findsOneWidget);
+    expect(find.text('RESOLVED (2 verif.)'), findsOneWidget);
+    expect(find.text('Normal: 34.6 °C'), findsOneWidget);
+  });
+
   testWidgets('Quick Frame Selector in Scrubber jumps to section and displays shortened buttons', (tester) async {
     const multiFrames = [
       ModuleMeasurement(

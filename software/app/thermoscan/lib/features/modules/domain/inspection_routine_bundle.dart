@@ -111,7 +111,11 @@ class InspectionRoutineBundle {
     final verifications = <ModuleInspection>[];
 
     for (final insp in inspectionPool.values) {
-      if (insp.type == 'verification' || insp.cleaningOperationId != null) {
+      final isVerif = insp.type == 'verification' ||
+          insp.type == 'post_cleaning' ||
+          insp.type == 'post_cleaning_verification' ||
+          insp.cleaningOperationId != null;
+      if (isVerif) {
         verifications.add(insp);
       } else {
         scheduledRoutines.add(insp);
@@ -139,6 +143,7 @@ class InspectionRoutineBundle {
     }
 
     final bundles = <InspectionRoutineBundle>[];
+    final matchedVerifIds = <String>{};
 
     for (var i = 0; i < scheduledRoutines.length; i++) {
       final routine = scheduledRoutines[i];
@@ -153,12 +158,15 @@ class InspectionRoutineBundle {
       final matchingCleanings = <ModuleCleaning>[];
       for (final aId in anomalyIds) {
         final cln = cleaningsByAnomaly[aId];
-        if (cln != null) matchingCleanings.add(cln);
+        if (cln != null && !matchingCleanings.contains(cln)) {
+          matchingCleanings.add(cln);
+        }
       }
       final matchingCleanIds = matchingCleanings.map((c) => c.id).toSet();
 
-      // Match verification inspections by cleaningOperationId or anomaly association
+      // 1. Match verification inspections by cleaningOperationId or anomaly association
       final matchedVerifications = verifications.where((v) {
+        if (matchedVerifIds.contains(v.id)) return false;
         if (v.cleaningOperationId != null &&
             matchingCleanIds.contains(v.cleaningOperationId)) {
           return true;
@@ -166,25 +174,43 @@ class InspectionRoutineBundle {
         return false;
       }).toList();
 
-      // Fallback: If verification is not linked through cleanings but occurred
-      // immediately after routine before the next scheduled routine:
-      if (matchedVerifications.isEmpty && routine.confirmedAnomalies.isNotEmpty) {
-        final routineDt = DateTime.tryParse(routine.scheduledFor) ??
-            DateTime.tryParse(routine.createdAt);
-        final nextRoutineDt = (i > 0)
-            ? (DateTime.tryParse(scheduledRoutines[i - 1].scheduledFor) ??
-                DateTime.tryParse(scheduledRoutines[i - 1].createdAt))
-            : null;
+      // 2. Chronological window match:
+      // Verification occurred during or after this routine, before the next routine (if any)
+      final routineDt = DateTime.tryParse(routine.finishedAt ?? '') ??
+          DateTime.tryParse(routine.startedAt ?? '') ??
+          DateTime.tryParse(routine.scheduledFor) ??
+          DateTime.tryParse(routine.createdAt);
+      final nextRoutineDt = (i > 0)
+          ? (DateTime.tryParse(scheduledRoutines[i - 1].startedAt ?? '') ??
+              DateTime.tryParse(scheduledRoutines[i - 1].scheduledFor) ??
+              DateTime.tryParse(scheduledRoutines[i - 1].createdAt))
+          : null;
 
-        for (final v in verifications) {
-          final vDt = DateTime.tryParse(v.scheduledFor) ??
-              DateTime.tryParse(v.createdAt);
-          if (routineDt != null && vDt != null && vDt.isAfter(routineDt)) {
+      for (final v in verifications) {
+        if (matchedVerifIds.contains(v.id) || matchedVerifications.contains(v)) {
+          continue;
+        }
+        final vDt = DateTime.tryParse(v.finishedAt ?? '') ??
+            DateTime.tryParse(v.startedAt ?? '') ??
+            DateTime.tryParse(v.scheduledFor) ??
+            DateTime.tryParse(v.createdAt);
+        if (routineDt != null && vDt != null) {
+          final routineBoundary = routineDt.subtract(const Duration(minutes: 10));
+          if (!vDt.isBefore(routineBoundary)) {
             if (nextRoutineDt == null || vDt.isBefore(nextRoutineDt)) {
-              if (!matchedVerifications.contains(v)) {
-                matchedVerifications.add(v);
-              }
+              matchedVerifications.add(v);
             }
+          }
+        }
+      }
+
+      // Mark these verifications as matched and gather their cleaning operations
+      for (final v in matchedVerifications) {
+        matchedVerifIds.add(v.id);
+        if (v.cleaningOperationId != null) {
+          final cln = cleaningsById[v.cleaningOperationId!];
+          if (cln != null && !matchingCleanings.contains(cln)) {
+            matchingCleanings.add(cln);
           }
         }
       }
@@ -224,27 +250,60 @@ class InspectionRoutineBundle {
       );
     }
 
-    // Edge case: If there are verifications without any scheduled routine found,
-    // synthesize a bundle for them so measurements are never hidden.
-    final matchedVerifIds = bundles
-        .expand((b) => b.verificationInspections.map((v) => v.id))
-        .toSet();
+    // Edge case: verifications not matched to any routine (e.g. stand-alone cleaning verification sessions).
+    // Group verifications occurring within 30 minutes of each other into a single session bundle
+    // rather than spamming multiple unnested single-frame cards.
     final orphanVerifications =
-        verifications.where((v) => !matchedVerifIds.contains(v.id)).toList();
+        verifications.where((v) => !matchedVerifIds.contains(v.id)).toList()
+          ..sort((a, b) {
+            final dtA = DateTime.tryParse(a.scheduledFor) ?? DateTime.tryParse(a.createdAt);
+            final dtB = DateTime.tryParse(b.scheduledFor) ?? DateTime.tryParse(b.createdAt);
+            if (dtA != null && dtB != null) return dtB.compareTo(dtA);
+            return b.createdAt.compareTo(a.createdAt);
+          });
 
+    final orphanSessionGroups = <List<ModuleInspection>>[];
     for (final orphan in orphanVerifications) {
-      final meas = List<ModuleMeasurement>.from(
-        measurementsByInsp[orphan.id] ?? const <ModuleMeasurement>[],
-      );
+      final oDt = DateTime.tryParse(orphan.finishedAt ?? '') ??
+          DateTime.tryParse(orphan.startedAt ?? '') ??
+          DateTime.tryParse(orphan.scheduledFor) ??
+          DateTime.tryParse(orphan.createdAt);
+
+      bool placed = false;
+      for (final grp in orphanSessionGroups) {
+        final grpDt = DateTime.tryParse(grp.first.finishedAt ?? '') ??
+            DateTime.tryParse(grp.first.startedAt ?? '') ??
+            DateTime.tryParse(grp.first.scheduledFor) ??
+            DateTime.tryParse(grp.first.createdAt);
+        if (oDt != null &&
+            grpDt != null &&
+            (oDt.difference(grpDt).abs().inMinutes <= 30)) {
+          grp.add(orphan);
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        orphanSessionGroups.add([orphan]);
+      }
+    }
+
+    for (final sessionVerifs in orphanSessionGroups) {
+      final rootInsp = sessionVerifs.first;
+      final sessionMeas = <ModuleMeasurement>[];
+      for (final v in sessionVerifs) {
+        sessionMeas.addAll(measurementsByInsp[v.id] ?? const []);
+      }
+      final sortedMeas = sortMeasurementsSpatially(sessionMeas);
       bundles.add(
         InspectionRoutineBundle(
-          routineInspection: orphan,
-          verificationInspections: [orphan],
-          routineMeasurements: meas,
-          verificationMeasurements: meas,
-          restoredMeasurements: meas,
-          primaryCleaning: orphan.cleaningOperationId != null
-              ? cleaningsById[orphan.cleaningOperationId!]
+          routineInspection: rootInsp,
+          verificationInspections: sessionVerifs,
+          routineMeasurements: sortedMeas,
+          verificationMeasurements: sortedMeas,
+          restoredMeasurements: sortedMeas,
+          primaryCleaning: rootInsp.cleaningOperationId != null
+              ? cleaningsById[rootInsp.cleaningOperationId!]
               : null,
         ),
       );

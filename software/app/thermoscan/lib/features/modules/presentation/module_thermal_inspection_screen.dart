@@ -189,12 +189,6 @@ class _ModuleThermalInspectionScreenState
             latestInspection: latestInspection,
           );
 
-          final inspections = rawInspections.isNotEmpty
-              ? rawInspections
-              : (latestInspection != null
-                  ? <ModuleInspection>[latestInspection.inspection]
-                  : const <ModuleInspection>[]);
-
           final List<ModuleMeasurement> activeMeasurements;
           final LatestInspection? activeInspection;
           final ModuleMeasurement? activeLatestMeasurement;
@@ -311,9 +305,11 @@ class _ModuleThermalInspectionScreenState
                     latestInspection: activeInspection,
                     totalMeasurements: activeMeasurements.length,
                     isViewingLatest: isViewingLatest,
-                    inspections: inspections,
+                    bundles: bundles,
                     latestInspectionId: latestInspection?.inspection.id ??
-                        (inspections.isNotEmpty ? inspections.first.id : null),
+                        (bundles.isNotEmpty
+                            ? bundles.first.routineInspection.id
+                            : null),
                   ),
                   const SizedBox(height: 16),
 
@@ -327,9 +323,9 @@ class _ModuleThermalInspectionScreenState
                         : activeMeasurements,
                     verificationMeasurements: activeVerificationMeasurements,
                     postCleaningResult: activePostCleaningResult,
-                    fallbackBaselineTempC: activeBundle?.baselineTemperatureC,
+                    fallbackBaselineTempC: activeBundle.baselineTemperatureC,
                     fallbackConfirmedAnomalies:
-                        activeBundle?.confirmedAnomalies,
+                        activeBundle.confirmedAnomalies,
                   ),
                 ],
               ),
@@ -347,7 +343,7 @@ class _ModuleThermalInspectionScreenState
     required LatestInspection? latestInspection,
     required int totalMeasurements,
     required bool isViewingLatest,
-    required List<ModuleInspection> inspections,
+    required List<InspectionRoutineBundle> bundles,
     required String? latestInspectionId,
   }) {
     final confirmedCount = latestInspection?.confirmedAnomalies.length ?? 0;
@@ -488,7 +484,7 @@ class _ModuleThermalInspectionScreenState
                 borderRadius: BorderRadius.circular(8),
                 onTap: () => _showScanSelectorModal(
                   context,
-                  inspections: inspections,
+                  bundles: bundles,
                   latestInspectionId: latestInspectionId,
                 ),
                 child: Container(
@@ -676,7 +672,7 @@ class _ModuleThermalInspectionScreenState
 
   void _showScanSelectorModal(
     BuildContext context, {
-    required List<ModuleInspection> inspections,
+    required List<InspectionRoutineBundle> bundles,
     required String? latestInspectionId,
   }) {
     showModalBottomSheet<void>(
@@ -746,7 +742,7 @@ class _ModuleThermalInspectionScreenState
                 ),
               ),
               const Divider(height: 1, color: AppColors.border),
-              if (inspections.isEmpty)
+              if (bundles.isEmpty)
                 Padding(
                   padding: const EdgeInsets.all(32),
                   child: Center(
@@ -763,10 +759,11 @@ class _ModuleThermalInspectionScreenState
                   child: ListView.separated(
                     shrinkWrap: true,
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                    itemCount: inspections.length,
+                    itemCount: bundles.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (itemContext, index) {
-                      final insp = inspections[index];
+                      final bundle = bundles[index];
+                      final insp = bundle.routineInspection;
                       final isLatest = index == 0 ||
                           (latestInspectionId != null &&
                               insp.id == latestInspectionId);
@@ -775,16 +772,20 @@ class _ModuleThermalInspectionScreenState
                               isLatest) ||
                           (_selectedHistoricalInspection?.id == insp.id);
 
-                      final isPostCleaning =
+                      final isPostCleaning = insp.type == 'verification' ||
+                          insp.type == 'post_cleaning' ||
                           insp.type == 'post_cleaning_verification' ||
-                              insp.type == 'post_cleaning' ||
-                              insp.cleaningOperationId != null;
+                          insp.cleaningOperationId != null;
                       final scanTypeLabel = isPostCleaning
                           ? 'Post-Cleaning Verification'
                           : 'Routine Thermal Scan';
                       final timestamp = _formatIsoDate(
                         insp.finishedAt ?? insp.startedAt ?? insp.scheduledFor,
                       );
+                      final baseline = bundle.baselineTemperatureC;
+                      final hotspotCount = bundle.confirmedAnomalies.length;
+                      final hasVerif = bundle.hasPostCleaning;
+                      final isResolved = bundle.isHotspotResolved;
 
                       return InkWell(
                         key: Key('scan_selector_item_${insp.id}'),
@@ -819,22 +820,30 @@ class _ModuleThermalInspectionScreenState
                                 decoration: BoxDecoration(
                                   color: isLatest
                                       ? AppColors.successBackground
-                                      : AppColors.surface,
+                                      : (hasVerif && isResolved
+                                          ? AppColors.successBackground
+                                          : AppColors.surface),
                                   borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
                                     color: isLatest
                                         ? AppColors.successBorder
-                                        : AppColors.border,
+                                        : (hasVerif && isResolved
+                                            ? AppColors.successBorder
+                                            : AppColors.border),
                                   ),
                                 ),
                                 child: Icon(
-                                  isPostCleaning
-                                      ? Icons.water_drop_outlined
-                                      : Icons.thermostat_rounded,
+                                  hasVerif && isResolved
+                                      ? Icons.task_alt_rounded
+                                      : (isPostCleaning
+                                          ? Icons.water_drop_outlined
+                                          : Icons.thermostat_rounded),
                                   size: 18,
                                   color: isLatest
                                       ? AppColors.success
-                                      : AppColors.primary,
+                                      : (hasVerif && isResolved
+                                          ? AppColors.success
+                                          : AppColors.primary),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -881,6 +890,38 @@ class _ModuleThermalInspectionScreenState
                                               ),
                                             ),
                                           ),
+                                        if (hasVerif)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 7,
+                                              vertical: 2,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: isResolved
+                                                  ? AppColors.successBackground
+                                                  : AppColors.warningBackground,
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              border: Border.all(
+                                                color: isResolved
+                                                    ? AppColors.successBorder
+                                                    : AppColors.warningBorder,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              isResolved
+                                                  ? 'RESOLVED (${bundle.verificationInspections.length} verif.)'
+                                                  : 'UNRESOLVED (${bundle.verificationInspections.length} verif.)',
+                                              style: AppTypography.caption
+                                                  .copyWith(
+                                                color: isResolved
+                                                    ? AppColors.success
+                                                    : AppColors.warning,
+                                                fontWeight: FontWeight.w700,
+                                                fontSize: 9.5,
+                                              ),
+                                            ),
+                                          ),
                                       ],
                                     ),
                                     const SizedBox(height: 4),
@@ -894,6 +935,8 @@ class _ModuleThermalInspectionScreenState
                                     Wrap(
                                       spacing: 10,
                                       runSpacing: 4,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
                                       children: [
                                         Text(
                                           'Status: ${insp.status.toUpperCase()}',
@@ -902,11 +945,19 @@ class _ModuleThermalInspectionScreenState
                                             fontSize: 11,
                                           ),
                                         ),
-                                        if (insp.baselineTemperatureC != null)
+                                        if (hotspotCount > 0)
                                           Text(
-                                            'Normal: ${insp.baselineTemperatureC!.toStringAsFixed(1)} °C',
-                                            style:
-                                                AppTypography.caption.copyWith(
+                                            '$hotspotCount Hotspot${hotspotCount > 1 ? "s" : ""}',
+                                            style: AppTypography.caption.copyWith(
+                                              color: AppColors.warning,
+                                              fontWeight: FontWeight.w700,
+                                              fontSize: 11,
+                                            ),
+                                          )
+                                        else if (baseline != null)
+                                          Text(
+                                            'Normal: ${baseline.toStringAsFixed(1)} °C',
+                                            style: AppTypography.caption.copyWith(
                                               color: AppColors.primary,
                                               fontWeight: FontWeight.w600,
                                               fontSize: 11,

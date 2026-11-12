@@ -1738,8 +1738,8 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 	if limit <= 0 {
 		limit = 20
 	}
-	if limit > 50 {
-		limit = 50
+	if limit > 200 {
+		limit = 200
 	}
 	if offset < 0 {
 		offset = 0

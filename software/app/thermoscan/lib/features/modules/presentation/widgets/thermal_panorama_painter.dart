@@ -401,6 +401,8 @@ class ThermalPanoramaData {
     required this.panelCount,
     required this.panelSpacingCm,
     required this.totalRailLengthCm,
+    this.baselineTempC,
+    this.hotspotDeltaThresholdC = 8.0,
   });
 
   factory ThermalPanoramaData.fromMeasurements({
@@ -411,6 +413,8 @@ class ThermalPanoramaData {
     double? panelSpacingCm,
     int? focusedPanelIndex,
     int? totalInspectionMeasurements,
+    double? baselineTempC,
+    double hotspotDeltaThresholdC = 8.0,
     bool fitToScannedRange = false,
     bool deduplicateSpatially = true,
   }) {
@@ -583,12 +587,16 @@ class ThermalPanoramaData {
       panelCount: effectiveCount,
       panelSpacingCm: effectiveSpacing,
       totalRailLengthCm: totalRail,
+      baselineTempC: baselineTempC,
+      hotspotDeltaThresholdC: hotspotDeltaThresholdC,
     );
   }
 
   final List<ModuleMeasurement> sortedMeasurements;
   final List<ConfirmedAnomaly> confirmedAnomalies;
   final ThermalCoverageInfo coverageInfo;
+  final double? baselineTempC;
+  final double hotspotDeltaThresholdC;
   final double minDomainX;
   final double maxDomainX;
   final int gridColumns;
@@ -747,11 +755,73 @@ class ThermalPanoramaData {
     );
   }
 
-  /// Maps a valid temperature [tempC] to a color along [AppColors.thermalSpectrum].
-  /// Never maps invalid temperatures (`NaN` / `Infinite`) to thermal colors.
+  /// Generates a calibrated gradient reflecting the isotherm color ramp for scale bars.
+  List<Color> get scaleGradientColors {
+    if (baselineTempC != null && baselineTempC! > 0) {
+      return const [
+        AppColors.thermalCold, // Deep blue
+        AppColors.thermalCool, // Cyan (at normal elevation)
+        AppColors.thermalMid,  // Amber (approaching hotspot)
+        AppColors.thermalWarm, // Bright Orange (Hotspot threshold trigger)
+        AppColors.thermalHot,  // Crimson Red
+        Color(0xFFFFFFFF),     // White peak
+      ];
+    }
+    return AppColors.thermalSpectrum;
+  }
+
+  /// Maps a valid temperature [tempC] to an isotherm-enhanced radiometric color.
+  /// When a [baselineTempC] is available:
+  /// - Temperatures <= (baseline + 0.4 * delta): Deep cold blues to cyan.
+  /// - Temperatures between (baseline + 0.4 * delta) and (baseline + delta): Warm transition (cyan to golden amber).
+  /// - Temperatures >= (baseline + delta) (ISOTHERM ZONE): Immediate bright thermal alarm (hot orange -> vivid red -> incandescent white).
+  /// Falls back to linear interpolation along [AppColors.thermalSpectrum] when baseline is not available.
   Color colorForTemperature(double tempC) {
     if (!isValidPixelValue(tempC) || !hasValidTemperatures) {
       return ThermalPanoramaPainter.unresolvedInvalidColor;
+    }
+
+    if (baselineTempC != null && baselineTempC! > 0) {
+      final base = baselineTempC!;
+      final delta = hotspotDeltaThresholdC > 0 ? hotspotDeltaThresholdC : 8.0;
+      final alarmT = base + delta;
+      final midT = base + (delta * 0.4);
+      final floorT = math.min(base - 3.0, (minValidTempC ?? base) - 1.0);
+      final ceilT = math.max(alarmT + 6.0, (maxValidTempC ?? alarmT) + 1.0);
+
+      // 1. Cold / Normal operational band (up to 40% of delta over baseline):
+      if (tempC <= midT) {
+        final span = midT - floorT;
+        final t = span > 0 ? ((tempC - floorT) / span).clamp(0.0, 1.0) : 0.0;
+        return Color.lerp(
+          AppColors.thermalCold,
+          AppColors.thermalCool,
+          t,
+        )!;
+      }
+
+      // 2. Moderate warm elevation band (between 40% and 100% of delta over baseline):
+      if (tempC < alarmT) {
+        final span = alarmT - midT;
+        final t = span > 0 ? ((tempC - midT) / span).clamp(0.0, 1.0) : 0.0;
+        return Color.lerp(
+          AppColors.thermalCool,
+          AppColors.thermalMid,
+          t,
+        )!;
+      }
+
+      // 3. ISOTHERM ALARM ZONE: Hotspot reached or exceeded!
+      // High-visibility alarm ramp: Bright Orange -> Vivid Crimson Red -> Pure White core
+      final span = ceilT - alarmT;
+      final t = span > 0 ? ((tempC - alarmT) / span).clamp(0.0, 1.0) : 0.0;
+      if (t < 0.5) {
+        final subT = t * 2.0;
+        return Color.lerp(AppColors.thermalWarm, AppColors.thermalHot, subT)!;
+      } else {
+        final subT = (t - 0.5) * 2.0;
+        return Color.lerp(AppColors.thermalHot, const Color(0xFFFFFFFF), subT)!;
+      }
     }
 
     final minT = minValidTempC!;

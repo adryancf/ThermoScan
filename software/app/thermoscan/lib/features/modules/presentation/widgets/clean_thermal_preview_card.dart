@@ -100,6 +100,8 @@ class CleanThermalPreviewCard extends StatelessWidget {
       panelLengthCm: module.panelLengthCm,
       panelCount: module.panelCount,
       panelSpacingCm: module.panelSpacingCm,
+      baselineTempC: baselineTemp,
+      hotspotDeltaThresholdC: module.hotspotThresholdDeltaC,
       fitToScannedRange: false,
     );
 
@@ -273,6 +275,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
             minTemp: minScaleTemp,
             baselineTemp: baselineTemp,
             maxTemp: maxScaleTemp,
+            scaleColors: panorama.scaleGradientColors,
           ),
           const SizedBox(height: 16),
 
@@ -528,6 +531,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
     required double? minTemp,
     required double? baselineTemp,
     required double? maxTemp,
+    List<Color> scaleColors = AppColors.thermalSpectrum,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -537,9 +541,9 @@ class CleanThermalPreviewCard extends StatelessWidget {
           child: Container(
             height: 7,
             width: double.infinity,
-            decoration: const BoxDecoration(
+            decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: AppColors.thermalSpectrum,
+                colors: scaleColors,
               ),
             ),
           ),

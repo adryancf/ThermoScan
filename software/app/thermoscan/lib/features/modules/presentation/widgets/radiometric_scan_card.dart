@@ -217,29 +217,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             return true;
           }).toList();
 
-    final panorama = ThermalPanoramaData.fromMeasurements(
-      measurements: filteredInputMeasurements,
-      confirmedAnomalies: visibleAnomalies,
-      panelLengthCm: widget.module.panelLengthCm,
-      panelCount: widget.module.panelCount,
-      panelSpacingCm: widget.module.panelSpacingCm,
-      focusedPanelIndex: _focusedPanelIndex,
-      totalInspectionMeasurements: _focusedPanelIndex == null
-          ? insp?.totalMeasurements
-          : null,
-      fitToScannedRange: _fitToScan,
-      deduplicateSpatially: widget.deduplicateSpatially,
-    );
-    final displayedMeasurements = panorama.sortedMeasurements;
-
-    final coverage = panorama.coverageInfo;
-
-    final peakTemp = displayedMeasurements.isNotEmpty
-        ? displayedMeasurements
-            .map((e) => e.maxTemperatureC)
-            .reduce((a, b) => a > b ? a : b)
-        : (_focusedPanelIndex == null ? (m?.maxTemperatureC ?? 0.0) : 0.0);
-
     InspectionPanelResult? focusedPanelResult;
     final pResults = insp?.panelResults;
     if (_focusedPanelIndex != null && pResults != null) {
@@ -252,6 +229,31 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     }
     final baselineTemp = focusedPanelResult?.baselineTemperatureC ??
         insp?.inspection.baselineTemperatureC;
+
+    final panorama = ThermalPanoramaData.fromMeasurements(
+      measurements: filteredInputMeasurements,
+      confirmedAnomalies: visibleAnomalies,
+      panelLengthCm: widget.module.panelLengthCm,
+      panelCount: widget.module.panelCount,
+      panelSpacingCm: widget.module.panelSpacingCm,
+      focusedPanelIndex: _focusedPanelIndex,
+      totalInspectionMeasurements: _focusedPanelIndex == null
+          ? insp?.totalMeasurements
+          : null,
+      baselineTempC: baselineTemp,
+      hotspotDeltaThresholdC: widget.module.hotspotThresholdDeltaC,
+      fitToScannedRange: _fitToScan,
+      deduplicateSpatially: widget.deduplicateSpatially,
+    );
+    final displayedMeasurements = panorama.sortedMeasurements;
+
+    final coverage = panorama.coverageInfo;
+
+    final peakTemp = displayedMeasurements.isNotEmpty
+        ? displayedMeasurements
+            .map((e) => e.maxTemperatureC)
+            .reduce((a, b) => a > b ? a : b)
+        : (_focusedPanelIndex == null ? (m?.maxTemperatureC ?? 0.0) : 0.0);
 
     final hotspotIndex = _resolveHotspotFrameIndex(
       displayedMeasurements,
@@ -1193,8 +1195,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                     ? null
                     : ThermalPanoramaPainter.unresolvedInvalidColor,
                 gradient: panorama.hasValidTemperatures
-                    ? const LinearGradient(
-                        colors: AppColors.thermalSpectrum,
+                    ? LinearGradient(
+                        colors: panorama.scaleGradientColors,
                       )
                     : null,
               ),
@@ -1347,7 +1349,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       : 'DC Voltage & Current',
                   value: (voltage == null && current == null)
                       ? 'N/A'
-                      : '${voltage != null ? "${voltage.toStringAsFixed(2)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(2)} A" : "N/A"}',
+                      : '${voltage != null ? "${voltage.toStringAsFixed(2)} V" : "N/A"} · ${current != null ? "${(current * 1000).toStringAsFixed(1)} mA" : "N/A"}',
                   subtext: _focusedPanelIndex != null
                       ? 'Panel $_focusedPanelIndex output'
                       : 'Panel electrical output',
@@ -3239,7 +3241,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                           ),
                           if ((measurement.voltageV ?? 0.0) > 0.05)
                             Text(
-                              '${measurement.voltageV!.toStringAsFixed(2)}V • ${measurement.currentA?.toStringAsFixed(2) ?? "0.00"}A',
+                              '${measurement.voltageV!.toStringAsFixed(2)}V • ${measurement.currentA != null ? "${(measurement.currentA! * 1000).toStringAsFixed(1)}mA" : "0.0mA"}',
                               style: AppTypography.caption.copyWith(
                                 fontSize: 10,
                                 color: AppColors.primary,

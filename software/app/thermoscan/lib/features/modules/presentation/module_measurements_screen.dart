@@ -575,7 +575,7 @@ class _ModuleMeasurementsScreenState
       displayAmp = best.currentA;
       powerLabel = 'P$_selectedPanelFilter Power';
       powerSublabel = (displayVolt != null && displayAmp != null)
-          ? '${displayVolt.toStringAsFixed(2)}V · ${displayAmp.toStringAsFixed(2)}A'
+          ? '${displayVolt.toStringAsFixed(2)}V · ${(displayAmp * 1000).toStringAsFixed(1)}mA'
           : null;
     } else if (bestElecByPanel.length == 1) {
       final singleP = bestElecByPanel.keys.first;
@@ -585,7 +585,7 @@ class _ModuleMeasurementsScreenState
       displayAmp = best.currentA;
       powerLabel = 'P$singleP Power';
       powerSublabel = (displayVolt != null && displayAmp != null)
-          ? '${displayVolt.toStringAsFixed(2)}V · ${displayAmp.toStringAsFixed(2)}A'
+          ? '${displayVolt.toStringAsFixed(2)}V · ${(displayAmp * 1000).toStringAsFixed(1)}mA'
           : null;
     } else if (bestElecByPanel.length > 1) {
       displayPower = bestElecByPanel.values
@@ -829,7 +829,7 @@ class _ModuleMeasurementsScreenState
         avgPower != null ? '${avgPower.toStringAsFixed(2)} W' : 'N/A';
     final voltAmpText = powerSublabel ??
         ((avgVolt != null && avgAmp != null)
-            ? '${avgVolt.toStringAsFixed(2)}V · ${avgAmp.toStringAsFixed(2)}A'
+            ? '${avgVolt.toStringAsFixed(2)}V · ${(avgAmp * 1000).toStringAsFixed(1)}mA'
             : (hasElec ? 'Partial' : 'No Elec'));
 
     final tempText =
@@ -1012,7 +1012,7 @@ class _ModuleMeasurementsScreenState
       }
     }
     final elecStr = elecMeas != null
-        ? ' • Output: ${elecMeas.voltageV?.toStringAsFixed(2) ?? "N/A"}V · ${elecMeas.currentA?.toStringAsFixed(2) ?? "N/A"}A · ${elecMeas.powerW?.toStringAsFixed(2) ?? "N/A"}W'
+        ? ' • Output: ${elecMeas.voltageV?.toStringAsFixed(2) ?? "N/A"}V · ${elecMeas.currentA != null ? "${(elecMeas.currentA! * 1000).toStringAsFixed(1)}mA" : "N/A"} · ${elecMeas.powerW?.toStringAsFixed(2) ?? "N/A"}W'
         : '';
 
     final panelHotspots = inspAnomalies.where((a) {

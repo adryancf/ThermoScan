@@ -13,6 +13,7 @@ import 'package:thermoscan/features/modules/presentation/module_cleanings_screen
 import 'package:thermoscan/features/modules/presentation/module_details_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/radiometric_scan_card.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
 class _FakeAuthController extends StateNotifier<AuthState>
     implements AuthController {
@@ -686,6 +687,102 @@ void main() {
       expect(iconFinder, findsOneWidget);
       final iconWidget = tester.widget<Icon>(iconFinder);
       expect(iconWidget.color, equals(AppColors.secondary));
+    });
+
+    testWidgets('9. Electrical current displays in milliamperes (mA) rather than Amperes', (tester) async {
+      const mElec = ModuleMeasurement(
+        id: 'meas-elec',
+        moduleId: 'mod-audit',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-1',
+        panelIndex: 1,
+        xPositionCm: 10.0,
+        localXPositionCm: 10.0,
+        maxTemperatureC: 30.0,
+        voltageV: 18.50,
+        currentA: 0.250, // 0.25A should be displayed as 250.0mA
+        powerW: 4.625,
+        measuredAt: '2026-11-12T06:00:00Z',
+        receivedAt: '2026-11-12T06:00:05Z',
+      );
+
+      const insp = LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-1',
+          moduleId: 'mod-audit',
+          sourceEventId: 'evt-1',
+          type: 'scheduled',
+          scheduledFor: '2026-11-12T06:00:00Z',
+          status: 'completed',
+          baselineTemperatureC: 30.0,
+          createdAt: '2026-11-12T06:00:00Z',
+          updatedAt: '2026-11-12T06:00:00Z',
+        ),
+        totalMeasurements: 1,
+        confirmedAnomalies: [],
+      );
+
+      final repo = _AuditMockRepo(
+        module: baseModule,
+        latestInspection: insp,
+        mockMeasurements: const [mElec],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider.overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(repo),
+          ],
+          child: const MaterialApp(
+            home: ModuleMeasurementsScreen(moduleId: 'mod-audit'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Should display '250.0mA', never '0.25A'
+      expect(find.textContaining('250.0mA'), findsWidgets);
+      expect(find.textContaining('0.25A'), findsNothing);
+    });
+
+    test('10. Isotherm colormap strictly highlights hotspot temperatures >= baseline + delta', () {
+      final frame768 = List.filled(768, 25.0);
+      frame768[10] = 34.0;
+      frame768[20] = 45.0;
+
+      final panorama = ThermalPanoramaData.fromMeasurements(
+        measurements: [
+          ModuleMeasurement(
+            id: 'm1',
+            moduleId: 'mod-audit',
+            inspectionId: 'insp-1',
+            sourceEventId: 'evt-1',
+            xPositionCm: 5.0,
+            maxTemperatureC: 45.0,
+            measuredAt: '2026-11-12T06:00:00Z',
+            receivedAt: '2026-11-12T06:00:05Z',
+            thermalFrame: frame768,
+          ),
+        ],
+        baselineTempC: 25.0,
+        hotspotDeltaThresholdC: 8.0,
+      );
+
+      // Normal temperature at baseline (25.0°C) -> Cold/cool blue tone
+      final normalColor = panorama.colorForTemperature(25.0);
+      expect(normalColor.red, lessThan(100));
+      expect(normalColor.blue, greaterThan(150));
+
+      // Hotspot temperature exceeding threshold (34.0°C >= 25.0 + 8.0) -> Isotherm alarm (warm/red)
+      final hotspotColor = panorama.colorForTemperature(34.0);
+      expect(hotspotColor.red, greaterThan(200));
+
+      // Scale bar colors contain the isotherm alarm spectrum
+      expect(panorama.scaleGradientColors.length, equals(6));
+      expect(panorama.scaleGradientColors.last, equals(const Color(0xFFFFFFFF)));
     });
   });
 }

@@ -1328,7 +1328,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 label: 'DC Output',
                 value: (voltage == null && current == null)
                     ? 'N/A'
-                    : '${voltage != null ? "${voltage.toStringAsFixed(3)} V" : "N/A"} · ${current != null ? "${current.toStringAsFixed(3)} A" : "N/A"}',
+                    : '${voltage != null ? "${voltage.toStringAsFixed(3)} V" : "N/A"} · ${current != null ? "${(current * 1000).toStringAsFixed(1)} mA" : "N/A"}',
                 subtext: 'Array electrical output',
                 isWarning: false,
               ),

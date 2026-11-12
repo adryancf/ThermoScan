@@ -1141,6 +1141,7 @@ class DeviceStatus {
     this.latestMeasurementAt,
     this.nextInspectionAt,
     this.configurationSync,
+    this.manualInspectionPending = false,
     this.pingIntervalSeconds,
     this.onlineWindowSeconds,
   }) : _explicitIsOnline = isOnline;
@@ -1160,6 +1161,7 @@ class DeviceStatus {
   final String? latestMeasurementAt;
   final String? nextInspectionAt;
   final ConfigurationSyncInfo? configurationSync;
+  final bool manualInspectionPending;
   final int? pingIntervalSeconds;
   final int? onlineWindowSeconds;
 
@@ -1225,6 +1227,9 @@ class DeviceStatus {
       latestMeasurementAt: json['latest_measurement_at'] as String?,
       nextInspectionAt: (json['next_inspection_at'] ?? json['nextInspectionAt']) as String?,
       configurationSync: syncInfo,
+      manualInspectionPending: (json['manual_inspection_pending'] ??
+              json['manualInspectionPending']) as bool? ??
+          false,
       pingIntervalSeconds: (json['ping_interval_seconds'] ??
               json['pingIntervalSeconds'] as num?)
           ?.toInt(),

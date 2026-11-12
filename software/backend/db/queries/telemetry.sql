@@ -92,6 +92,28 @@ WHERE i.module_id = $1
 ORDER BY i.scheduled_for DESC, i.created_at DESC
 LIMIT 1;
 
+-- name: GetLatestCompletedInspectionByModule :one
+SELECT
+    i.id,
+    i.module_id,
+    i.source_event_id,
+    i.type,
+    i.cleaning_operation_id,
+    COALESCE(i.baseline_temperature_c::text, '')::text AS baseline_temperature_c,
+    i.scheduled_for,
+    i.started_at,
+    i.finished_at,
+    i.status,
+    i.failure_reason,
+    i.verification_result,
+    i.created_at,
+    i.updated_at
+FROM inspections i
+WHERE i.module_id = $1
+  AND i.status = 'completed'
+ORDER BY COALESCE(i.finished_at, i.started_at, i.scheduled_for) DESC, i.created_at DESC
+LIMIT 1;
+
 -- name: GetInspectionBySourceEventID :one
 SELECT
     i.id,

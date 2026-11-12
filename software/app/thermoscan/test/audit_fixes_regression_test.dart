@@ -8,10 +8,12 @@ import 'package:thermoscan/features/auth/data/auth_repository.dart';
 import 'package:thermoscan/features/auth/domain/auth_user.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
+import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/module_cleanings_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_details_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/clean_thermal_preview_card.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/radiometric_scan_card.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
@@ -1014,6 +1016,122 @@ void main() {
       // Verified badge in header
       expect(find.text('VERIFIED RESOLVED'), findsOneWidget);
       expect(find.text('Post-Cleaning Verification'), findsOneWidget);
+    });
+
+    testWidgets('13. Preserves completed inspection colormap and baseline during scheduled scan state', (tester) async {
+      tester.binding.window.physicalSizeTestValue = const Size(1200, 2000);
+      tester.binding.window.devicePixelRatioTestValue = 1.0;
+      addTearDown(() {
+        tester.binding.window.clearPhysicalSizeTestValue();
+        tester.binding.window.clearDevicePixelRatioTestValue();
+      });
+
+      const completedInsp = ModuleInspection(
+        id: 'insp-completed-1',
+        moduleId: 'mod-audit',
+        sourceEventId: 'src-1',
+        type: 'scheduled',
+        scheduledFor: '2026-11-12T10:00:00Z',
+        baselineTemperatureC: 25.0,
+        status: 'completed',
+        createdAt: '2026-11-12T10:00:00Z',
+        updatedAt: '2026-11-12T10:00:00Z',
+        confirmedAnomalies: [
+          ConfirmedAnomaly(
+            id: 'anom-uuid-1',
+            moduleId: 'mod-audit',
+            originMeasurementId: 'm-1',
+            confirmingMeasurementIds: ['m-1'],
+            sourceEventId: 'src-anom-1',
+            xPositionCm: 15.0,
+            detectedAt: '2026-11-12T10:00:00Z',
+            status: 'confirmed',
+            actuatedAttemptsCount: 0,
+            retryPending: false,
+          ),
+        ],
+      );
+
+      const scheduledEmptyInsp = ModuleInspection(
+        id: 'insp-scheduled-new',
+        moduleId: 'mod-audit',
+        sourceEventId: 'src-2',
+        type: 'scheduled',
+        scheduledFor: '2026-11-12T10:30:00Z',
+        baselineTemperatureC: null,
+        status: 'scheduled',
+        createdAt: '2026-11-12T10:30:00Z',
+        updatedAt: '2026-11-12T10:30:00Z',
+        confirmedAnomalies: [],
+      );
+
+      final m1 = ModuleMeasurement(
+        id: 'm-1',
+        moduleId: 'mod-audit',
+        inspectionId: 'insp-completed-1',
+        sourceEventId: 'src-m1',
+        xPositionCm: 15.0,
+        maxTemperatureC: 40.0,
+        measuredAt: '2026-11-12T10:00:00Z',
+        receivedAt: '2026-11-12T10:00:01Z',
+        thermalFrame: List.filled(768, 25.0),
+      );
+
+      // Verify InspectionRoutineBundle selects the completed bundle
+      final bundles = InspectionRoutineBundle.buildBundles(
+        allInspections: [scheduledEmptyInsp, completedInsp],
+        allCleanings: const [],
+        allMeasurements: [m1],
+        latestInspection: const LatestInspection(
+          inspection: scheduledEmptyInsp,
+          totalMeasurements: 0,
+          confirmedAnomalies: [],
+        ),
+      );
+
+      final activeBundle = InspectionRoutineBundle.getLatestActiveBundle(bundles);
+      expect(activeBundle, isNotNull);
+      expect(activeBundle!.routineInspection.id, 'insp-completed-1');
+      expect(activeBundle.baselineTemperatureC, 25.0);
+      expect(activeBundle.confirmedAnomalies.length, 1);
+
+      // Verify filterMeasurementsForCurrentInspection skips the empty scheduled inspection
+      final filtered = filterMeasurementsForCurrentInspection(
+        measurements: [m1],
+        latestInspection: const LatestInspection(
+          inspection: scheduledEmptyInsp,
+          totalMeasurements: 0,
+          confirmedAnomalies: [],
+        ),
+        latestMeasurement: m1,
+      );
+      expect(filtered.length, 1);
+      expect(filtered.first.inspectionId, 'insp-completed-1');
+
+      // Verify CleanThermalPreviewCard renders baseline and anomaly even if passed scheduled inspection
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CleanThermalPreviewCard(
+              module: baseModule,
+              latestMeasurement: m1,
+              latestInspection: const LatestInspection(
+                inspection: scheduledEmptyInsp,
+                totalMeasurements: 0,
+                confirmedAnomalies: [],
+              ),
+              measurements: [m1],
+              fallbackBaselineTempC: activeBundle.baselineTemperatureC,
+              fallbackConfirmedAnomalies: activeBundle.confirmedAnomalies,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Delta relative to 25.0 baseline is +15.0°C
+      expect(find.text('Hotspot +15.0°C above normal'), findsOneWidget);
+      expect(find.text('Normal (25.0°C)'), findsOneWidget);
     });
   });
 }

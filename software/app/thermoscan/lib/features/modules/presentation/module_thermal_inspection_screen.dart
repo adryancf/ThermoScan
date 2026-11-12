@@ -200,6 +200,7 @@ class _ModuleThermalInspectionScreenState
           final ModuleMeasurement? activeLatestMeasurement;
           final List<ModuleMeasurement> activeVerificationMeasurements;
           final String? activePostCleaningResult;
+          final InspectionRoutineBundle? activeBundle;
 
           if (isViewingLatest) {
             final measurements = allMeasurements;
@@ -216,47 +217,60 @@ class _ModuleThermalInspectionScreenState
                 ? currentMeasurements.first
                 : rawLatestMeasurement;
 
-            final latestRoutineId = latestInspection?.inspection.id ??
-                (bundles.isNotEmpty ? bundles.first.routineInspection.id : '');
+            final latestActiveBundle =
+                InspectionRoutineBundle.getLatestActiveBundle(bundles);
+            final latestRoutineId = (latestInspection != null &&
+                    latestInspection.inspection.status != 'scheduled')
+                ? latestInspection.inspection.id
+                : (latestActiveBundle?.routineInspection.id ??
+                    (bundles.isNotEmpty
+                        ? bundles.first.routineInspection.id
+                        : ''));
             final currentBundle = bundles.firstWhere(
               (b) => b.routineInspection.id == latestRoutineId,
-              orElse: () => bundles.isNotEmpty
-                  ? bundles.first
-                  : InspectionRoutineBundle(
-                      routineInspection: latestInspection?.inspection ??
-                          const ModuleInspection(
-                            id: '',
-                            moduleId: '',
-                            sourceEventId: '',
-                            type: 'scheduled',
-                            scheduledFor: '',
-                            status: 'completed',
-                            createdAt: '',
-                            updatedAt: '',
-                          ),
-                      verificationInspections: const [],
-                      routineMeasurements: currentMeasurements,
-                      verificationMeasurements: const [],
-                      restoredMeasurements: currentMeasurements,
-                    ),
+              orElse: () =>
+                  latestActiveBundle ??
+                  (bundles.isNotEmpty
+                      ? bundles.first
+                      : InspectionRoutineBundle(
+                          routineInspection: latestInspection?.inspection ??
+                              const ModuleInspection(
+                                id: '',
+                                moduleId: '',
+                                sourceEventId: '',
+                                type: 'scheduled',
+                                scheduledFor: '',
+                                status: 'completed',
+                                createdAt: '',
+                                updatedAt: '',
+                              ),
+                          verificationInspections: const [],
+                          routineMeasurements: currentMeasurements,
+                          verificationMeasurements: const [],
+                          restoredMeasurements: currentMeasurements,
+                        )),
             );
             activeVerificationMeasurements =
                 currentBundle.verificationMeasurements;
             activePostCleaningResult = currentBundle.verificationResult;
+            activeBundle = currentBundle;
           } else {
-            final histMeasurements = historicalPagedAsync?.valueOrNull?.measurements ??
-                const <ModuleMeasurement>[];
+            final histMeasurements =
+                historicalPagedAsync?.valueOrNull?.measurements ??
+                    const <ModuleMeasurement>[];
             activeMeasurements = histMeasurements;
             activeInspection = LatestInspection(
               inspection: _selectedHistoricalInspection!,
               totalMeasurements: histMeasurements.length,
-              confirmedAnomalies: _selectedHistoricalInspection!.confirmedAnomalies,
+              confirmedAnomalies:
+                  _selectedHistoricalInspection!.confirmedAnomalies,
             );
             activeLatestMeasurement =
                 histMeasurements.isNotEmpty ? histMeasurements.first : null;
 
             final histBundle = bundles.firstWhere(
-              (b) => b.routineInspection.id == _selectedHistoricalInspection!.id,
+              (b) =>
+                  b.routineInspection.id == _selectedHistoricalInspection!.id,
               orElse: () => InspectionRoutineBundle(
                 routineInspection: _selectedHistoricalInspection!,
                 verificationInspections: const [],
@@ -268,6 +282,7 @@ class _ModuleThermalInspectionScreenState
             activeVerificationMeasurements =
                 histBundle.verificationMeasurements;
             activePostCleaningResult = histBundle.verificationResult;
+            activeBundle = histBundle;
           }
 
           return RefreshIndicator(
@@ -306,6 +321,9 @@ class _ModuleThermalInspectionScreenState
                         : activeMeasurements,
                     verificationMeasurements: activeVerificationMeasurements,
                     postCleaningResult: activePostCleaningResult,
+                    fallbackBaselineTempC: activeBundle?.baselineTemperatureC,
+                    fallbackConfirmedAnomalies:
+                        activeBundle?.confirmedAnomalies,
                   ),
                 ],
               ),

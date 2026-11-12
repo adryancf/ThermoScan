@@ -20,6 +20,8 @@ class RadiometricScanCard extends StatefulWidget {
     this.initiallyExpanded,
     this.showDetailedSections = false,
     this.deduplicateSpatially = true,
+    this.fallbackBaselineTempC,
+    this.fallbackConfirmedAnomalies,
   });
 
   final PvModule module;
@@ -31,6 +33,8 @@ class RadiometricScanCard extends StatefulWidget {
   final bool? initiallyExpanded;
   final bool showDetailedSections;
   final bool deduplicateSpatially;
+  final double? fallbackBaselineTempC;
+  final List<ConfirmedAnomaly>? fallbackConfirmedAnomalies;
 
   @override
   State<RadiometricScanCard> createState() => _RadiometricScanCardState();
@@ -203,7 +207,12 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       );
     }
 
-    final rawAnomalies = insp?.confirmedAnomalies ?? const [];
+    final isInspScheduled = insp?.inspection.status == 'scheduled';
+    final rawAnomalies = (!isInspScheduled && insp != null)
+        ? insp.confirmedAnomalies
+        : (widget.fallbackConfirmedAnomalies ??
+            insp?.confirmedAnomalies ??
+            const []);
     final confirmedAnomalies =
         (hasPostCleaning && _showRestoredView && isHotspotResolved)
             ? const <ConfirmedAnomaly>[]
@@ -249,6 +258,10 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       }
     }
     final baselineTemp = focusedPanelResult?.baselineTemperatureC ??
+        ((!isInspScheduled && insp?.inspection.baselineTemperatureC != null)
+            ? insp!.inspection.baselineTemperatureC
+            : null) ??
+        widget.fallbackBaselineTempC ??
         insp?.inspection.baselineTemperatureC;
 
     final panorama = ThermalPanoramaData.fromMeasurements(

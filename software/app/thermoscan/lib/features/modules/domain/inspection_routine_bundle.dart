@@ -54,6 +54,22 @@ class InspectionRoutineBundle {
   /// Baseline temperature of the routine inspection.
   double? get baselineTemperatureC => routineInspection.baselineTemperatureC;
 
+  /// True if this routine has completed or contains valid measurement frames.
+  bool get hasData =>
+      routineMeasurements.isNotEmpty || routineInspection.status == 'completed';
+
+  /// Returns the latest active or completed routine bundle, avoiding empty pending scheduled scans.
+  static InspectionRoutineBundle? getLatestActiveBundle(
+      List<InspectionRoutineBundle> bundles) {
+    if (bundles.isEmpty) return null;
+    return bundles.firstWhere(
+      (b) =>
+          b.routineInspection.status == 'completed' ||
+          b.routineMeasurements.isNotEmpty,
+      orElse: () => bundles.first,
+    );
+  }
+
   /// Resolves bundles for all scheduled routine inspections from raw lists.
   static List<InspectionRoutineBundle> buildBundles({
     required List<ModuleInspection> allInspections,

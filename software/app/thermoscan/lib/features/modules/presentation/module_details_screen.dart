@@ -268,7 +268,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year} at $timeStr';
   }
 
-  String _formatNextInspectionLabel(String? iso) {
+  String _formatNextInspectionLabel(String? iso, {bool isPendingManual = false}) {
+    if (isPendingManual) {
+      return 'Scan Requested (Queued)';
+    }
     if (iso != null && iso.isNotEmpty) {
       final dt = DateTime.tryParse(iso)?.toLocal();
       if (dt != null) {
@@ -586,7 +589,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       latestInspection: latestInspection,
     );
 
-    final latestBundle = bundles.isNotEmpty ? bundles.first : null;
+    final latestBundle = InspectionRoutineBundle.getLatestActiveBundle(bundles) ??
+        (bundles.isNotEmpty ? bundles.first : null);
     final verifMeasurements =
         latestBundle?.verificationMeasurements ?? const <ModuleMeasurement>[];
     final postCleaningResult = latestBundle?.verificationResult;
@@ -686,6 +690,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               measurements: currentMeasurements,
               hasPostCleaning: latestBundle?.hasPostCleaning ?? false,
               isHotspotResolved: latestBundle?.isHotspotResolved ?? false,
+              fallbackBaselineTempC: latestBundle?.baselineTemperatureC,
+              fallbackConfirmedAnomalies: latestBundle?.confirmedAnomalies,
             ),
             const SizedBox(height: 16),
 
@@ -698,6 +704,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 measurements: measurementsAsync.valueOrNull,
                 verificationMeasurements: verifMeasurements,
                 postCleaningResult: postCleaningResult,
+                fallbackBaselineTempC: latestBundle?.baselineTemperatureC,
+                fallbackConfirmedAnomalies: latestBundle?.confirmedAnomalies,
               ),
               const SizedBox(height: 16),
               _buildKeyTelemetryGrid(
@@ -771,14 +779,25 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     required List<ModuleMeasurement> measurements,
     bool hasPostCleaning = false,
     bool isHotspotResolved = false,
+    double? fallbackBaselineTempC,
+    List<ConfirmedAnomaly>? fallbackConfirmedAnomalies,
   }) {
-    final confirmedAnomalies = latestInspection?.confirmedAnomalies ?? const [];
+    final isInspScheduled = latestInspection?.inspection.status == 'scheduled';
+    final confirmedAnomalies = (!isInspScheduled && latestInspection != null)
+        ? latestInspection.confirmedAnomalies
+        : (fallbackConfirmedAnomalies ??
+            latestInspection?.confirmedAnomalies ??
+            const []);
     final hasHotspot = confirmedAnomalies.isNotEmpty;
     final hasTelemetry = latestInspection != null ||
         latestMeasurement != null ||
         measurements.isNotEmpty;
 
-    final double? baseline = latestInspection?.inspection.baselineTemperatureC;
+    final double? baseline = (!isInspScheduled &&
+            latestInspection?.inspection.baselineTemperatureC != null)
+        ? latestInspection!.inspection.baselineTemperatureC
+        : (fallbackBaselineTempC ??
+            latestInspection?.inspection.baselineTemperatureC);
     double? peakTemp;
     if (measurements.isNotEmpty) {
       peakTemp = measurements
@@ -2104,10 +2123,14 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                         label: _formatNextInspectionLabel(
                           deviceStatus?.nextInspectionAt ??
                               mod.nextInspectionAt,
+                          isPendingManual:
+                              deviceStatus?.manualInspectionPending == true,
                         ),
-                        isScheduled: (deviceStatus?.nextInspectionAt ??
-                                mod.nextInspectionAt) !=
-                            null,
+                        isScheduled: deviceStatus?.manualInspectionPending ==
+                                true ||
+                            (deviceStatus?.nextInspectionAt ??
+                                    mod.nextInspectionAt) !=
+                                null,
                         onTap: () => _showScanHistoryModal(
                           context,
                           mod,

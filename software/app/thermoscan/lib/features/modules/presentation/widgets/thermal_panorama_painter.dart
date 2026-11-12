@@ -107,7 +107,9 @@ List<ModuleMeasurement> filterMeasurementsForCurrentInspection({
 
   String? targetInspectionId;
   final latestInspId = latestInspection?.inspection.id;
-  if (latestInspId != null &&
+  final isPendingScheduled = latestInspection?.inspection.status == 'scheduled';
+  if (!isPendingScheduled &&
+      latestInspId != null &&
       latestInspId.isNotEmpty &&
       measurements.any((m) => m.inspectionId == latestInspId)) {
     targetInspectionId = latestInspId;

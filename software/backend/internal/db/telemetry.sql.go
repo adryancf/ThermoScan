@@ -1071,6 +1071,68 @@ func (q *Queries) GetInspectionPanelResult(ctx context.Context, arg GetInspectio
 	return i, err
 }
 
+const getLatestCompletedInspectionByModule = `-- name: GetLatestCompletedInspectionByModule :one
+SELECT
+    i.id,
+    i.module_id,
+    i.source_event_id,
+    i.type,
+    i.cleaning_operation_id,
+    COALESCE(i.baseline_temperature_c::text, '')::text AS baseline_temperature_c,
+    i.scheduled_for,
+    i.started_at,
+    i.finished_at,
+    i.status,
+    i.failure_reason,
+    i.verification_result,
+    i.created_at,
+    i.updated_at
+FROM inspections i
+WHERE i.module_id = $1
+  AND i.status = 'completed'
+ORDER BY COALESCE(i.finished_at, i.started_at, i.scheduled_for) DESC, i.created_at DESC
+LIMIT 1
+`
+
+type GetLatestCompletedInspectionByModuleRow struct {
+	ID                   pgtype.UUID
+	ModuleID             pgtype.UUID
+	SourceEventID        pgtype.UUID
+	Type                 string
+	CleaningOperationID  pgtype.UUID
+	BaselineTemperatureC string
+	ScheduledFor         time.Time
+	StartedAt            *time.Time
+	FinishedAt           *time.Time
+	Status               string
+	FailureReason        pgtype.Text
+	VerificationResult   pgtype.Text
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
+func (q *Queries) GetLatestCompletedInspectionByModule(ctx context.Context, moduleID pgtype.UUID) (GetLatestCompletedInspectionByModuleRow, error) {
+	row := q.db.QueryRow(ctx, getLatestCompletedInspectionByModule, moduleID)
+	var i GetLatestCompletedInspectionByModuleRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.SourceEventID,
+		&i.Type,
+		&i.CleaningOperationID,
+		&i.BaselineTemperatureC,
+		&i.ScheduledFor,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.Status,
+		&i.FailureReason,
+		&i.VerificationResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getLatestInspectionByModule = `-- name: GetLatestInspectionByModule :one
 SELECT
     i.id,

@@ -22,6 +22,8 @@ class CleanThermalPreviewCard extends StatelessWidget {
     this.measurements,
     this.verificationMeasurements,
     this.postCleaningResult,
+    this.fallbackBaselineTempC,
+    this.fallbackConfirmedAnomalies,
   });
 
   final PvModule module;
@@ -30,6 +32,8 @@ class CleanThermalPreviewCard extends StatelessWidget {
   final List<ModuleMeasurement>? measurements;
   final List<ModuleMeasurement>? verificationMeasurements;
   final String? postCleaningResult;
+  final double? fallbackBaselineTempC;
+  final List<ConfirmedAnomaly>? fallbackConfirmedAnomalies;
 
   String _formatReadingTimestamp(String? iso) {
     if (iso == null || iso.isEmpty) return 'No inspection recorded';
@@ -89,13 +93,18 @@ class CleanThermalPreviewCard extends StatelessWidget {
           ])
         : rawMeasurements;
 
-    final rawAnomalies = insp?.confirmedAnomalies ?? const [];
+    final isInspScheduled = insp?.inspection.status == 'scheduled';
+    final rawAnomalies = (!isInspScheduled && insp != null)
+        ? insp.confirmedAnomalies
+        : (fallbackConfirmedAnomalies ?? insp?.confirmedAnomalies ?? const []);
     final confirmedAnomalies = (hasPostCleaning && isHotspotResolved)
         ? const <ConfirmedAnomaly>[]
         : rawAnomalies;
     final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
 
-    final double? baselineTemp = insp?.inspection.baselineTemperatureC;
+    final double? baselineTemp = (!isInspScheduled && insp != null && insp.inspection.baselineTemperatureC != null)
+        ? insp.inspection.baselineTemperatureC
+        : (fallbackBaselineTempC ?? insp?.inspection.baselineTemperatureC);
     double? peakTemp;
     if (effectiveMeasurements.isNotEmpty) {
       peakTemp = effectiveMeasurements

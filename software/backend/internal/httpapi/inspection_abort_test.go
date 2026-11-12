@@ -462,4 +462,146 @@ func TestTriggerManualInspectionStaleHandling(t *testing.T) {
 			t.Fatalf("expected 1 scheduled inspection, got %d", scheduledCount)
 		}
 	})
+
+	t.Run("CompletedInspectionPreservedDuringScheduledInspection", func(t *testing.T) {
+		modID := createModule("Preserve Completed Test Module")
+		insp1SourceID := "82000000-0000-0000-0000-000000000001"
+		m1 := "82000000-0000-0000-0000-000000000011"
+
+		// 1. Ingest telemetry for initial inspection
+		rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": insp1SourceID,
+			"source_event_id":           m1,
+			"x_position_cm":             15.0,
+			"max_temperature_c":         42.0,
+			"thermal_frame":             makeTestFrame768(42.0, nil, false),
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("telemetry: %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// 2. Finalize initial inspection with baseline and an anomaly
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp1SourceID+"/finalize", techAuth.AccessToken, map[string]any{
+			"status":                 "completed",
+			"baseline_temperature_c": 25.5,
+			"confirmed_hotspots": []map[string]any{
+				{
+					"source_event_id":             "82000000-0000-0000-0000-000000000099",
+					"global_x_position_cm":        15.0,
+					"max_temperature_c":           42.0,
+					"origin_measurement_event_id": m1,
+					"confirming_event_ids":        []string{m1},
+				},
+			},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("finalize insp1: %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// 3. Verify latest-inspection returns completed inspection
+		rec = doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/latest-inspection", techAuth.AccessToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		var latest1 struct {
+			LatestInspection struct {
+				Inspection struct {
+					SourceEventID        string   `json:"source_event_id"`
+					BaselineTemperatureC *float64 `json:"baseline_temperature_c"`
+					Status               string   `json:"status"`
+				} `json:"inspection"`
+				ConfirmedAnomalies []any `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &latest1)
+		if latest1.LatestInspection.Inspection.SourceEventID != insp1SourceID {
+			t.Fatalf("expected %s, got %s", insp1SourceID, latest1.LatestInspection.Inspection.SourceEventID)
+		}
+		if latest1.LatestInspection.Inspection.BaselineTemperatureC == nil || *latest1.LatestInspection.Inspection.BaselineTemperatureC != 25.5 {
+			t.Fatalf("expected baseline 25.5, got %v", latest1.LatestInspection.Inspection.BaselineTemperatureC)
+		}
+		if len(latest1.LatestInspection.ConfirmedAnomalies) != 1 {
+			t.Fatalf("expected 1 anomaly, got %d", len(latest1.LatestInspection.ConfirmedAnomalies))
+		}
+
+		// 4. Trigger manual inspection (schedules new inspection)
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/trigger-inspection", techAuth.AccessToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 triggering manual inspection, got %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// 5. Verify latest-inspection STILL serves the completed inspection (preserving colormap and anomalies!)
+		rec = doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/latest-inspection", techAuth.AccessToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		var latestDuringScheduled struct {
+			LatestInspection struct {
+				Inspection struct {
+					SourceEventID        string   `json:"source_event_id"`
+					BaselineTemperatureC *float64 `json:"baseline_temperature_c"`
+					Status               string   `json:"status"`
+				} `json:"inspection"`
+				ConfirmedAnomalies []any `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &latestDuringScheduled)
+		if latestDuringScheduled.LatestInspection.Inspection.SourceEventID != insp1SourceID {
+			t.Fatalf("expected latest-inspection to preserve completed %s during scheduled state, got %s", insp1SourceID, latestDuringScheduled.LatestInspection.Inspection.SourceEventID)
+		}
+		if latestDuringScheduled.LatestInspection.Inspection.BaselineTemperatureC == nil || *latestDuringScheduled.LatestInspection.Inspection.BaselineTemperatureC != 25.5 {
+			t.Fatalf("expected preserved baseline 25.5, got %v", latestDuringScheduled.LatestInspection.Inspection.BaselineTemperatureC)
+		}
+		if len(latestDuringScheduled.LatestInspection.ConfirmedAnomalies) != 1 {
+			t.Fatalf("expected preserved 1 anomaly, got %d", len(latestDuringScheduled.LatestInspection.ConfirmedAnomalies))
+		}
+
+		// 6. Ingest telemetry for the 2nd inspection and finalize it
+		insp2SourceID := "82000000-0000-0000-0000-000000000002"
+		m2 := "82000000-0000-0000-0000-000000000022"
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+			"inspection_source_event_id": insp2SourceID,
+			"source_event_id":           m2,
+			"x_position_cm":             15.0,
+			"max_temperature_c":         28.0,
+			"thermal_frame":             makeTestFrame768(28.0, nil, false),
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("telemetry insp2: %d: %s", rec.Code, rec.Body.String())
+		}
+		rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp2SourceID+"/finalize", techAuth.AccessToken, map[string]any{
+			"status":                 "completed",
+			"baseline_temperature_c": 26.0,
+			"confirmed_hotspots":     []map[string]any{},
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("finalize insp2: %d: %s", rec.Code, rec.Body.String())
+		}
+
+		// 7. Verify latest-inspection immediately updates to the newly completed scan
+		rec = doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/latest-inspection", techAuth.AccessToken, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+		var latest2 struct {
+			LatestInspection struct {
+				Inspection struct {
+					SourceEventID        string   `json:"source_event_id"`
+					BaselineTemperatureC *float64 `json:"baseline_temperature_c"`
+					Status               string   `json:"status"`
+				} `json:"inspection"`
+				ConfirmedAnomalies []any `json:"confirmed_anomalies"`
+			} `json:"latest_inspection"`
+		}
+		_ = json.Unmarshal(rec.Body.Bytes(), &latest2)
+		if latest2.LatestInspection.Inspection.SourceEventID != insp2SourceID {
+			t.Fatalf("expected updated %s, got %s", insp2SourceID, latest2.LatestInspection.Inspection.SourceEventID)
+		}
+		if latest2.LatestInspection.Inspection.BaselineTemperatureC == nil || *latest2.LatestInspection.Inspection.BaselineTemperatureC != 26.0 {
+			t.Fatalf("expected new baseline 26.0, got %v", latest2.LatestInspection.Inspection.BaselineTemperatureC)
+		}
+		if len(latest2.LatestInspection.ConfirmedAnomalies) != 0 {
+			t.Fatalf("expected 0 anomalies after new clean scan, got %d", len(latest2.LatestInspection.ConfirmedAnomalies))
+		}
+	})
 }

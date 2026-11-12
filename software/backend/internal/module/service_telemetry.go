@@ -284,6 +284,14 @@ func (s *Service) GetLatestInspection(ctx context.Context, principal auth.Princi
 		return nil, err
 	}
 
+	// If the most recent inspection is not completed (e.g. scheduled or currently in progress without baseline),
+	// check if there is an earlier completed inspection with full radiometric baseline and anomalies.
+	if inspRow.Status == "scheduled" || (inspRow.Status == "in_progress" && inspRow.BaselineTemperatureC == "") {
+		if compRow, compErr := s.queries.GetLatestCompletedInspectionByModule(ctx, moduleID); compErr == nil {
+			inspRow = db.GetLatestInspectionByModuleRow(compRow)
+		}
+	}
+
 	totalMeas, err := s.queries.CountMeasurementsByInspection(ctx, db.CountMeasurementsByInspectionParams{
 		InspectionID: inspRow.ID,
 		ModuleID:     moduleID,

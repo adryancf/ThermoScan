@@ -240,6 +240,12 @@ constexpr float CRITICAL_HOTSPOT_MAX_TEMP_C   = 65.0f;   // Critical hotspot abs
 constexpr uint32_t MAX_CLEANING_ATTEMPTS      = 3;        // Maximum consecutive spray cleaning attempts per anomaly
 constexpr uint32_t POST_CLEANING_WAIT_SECONDS = 1800;     // Cooldown / dry wait time before post-cleaning verification (30 min)
 
+// Active water spray pump duration per cleaning cycle (ms):
+#ifndef SPRAY_DURATION_MS
+#define SPRAY_DURATION_MS 2500  // Default: 2.5 seconds (2500 ms)
+#endif
+constexpr uint32_t DEFAULT_SPRAY_DURATION_MS = SPRAY_DURATION_MS;
+
 // Spatial tolerance for consecutive acquisition hotspot matching (cm):
 #ifdef SPATIAL_TOLERANCE_DEFAULT_CM
 #undef SPATIAL_TOLERANCE_DEFAULT_CM

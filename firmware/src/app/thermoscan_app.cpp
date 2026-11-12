@@ -1028,7 +1028,9 @@ void ThermoscanApp::handleCleaning() {
         }
 
         bool spray_interrupted = false;
-        for (int step = 0; step < 35; ++step) {
+        constexpr uint32_t step_ms = 100;
+        const int total_steps = static_cast<int>(DEFAULT_SPRAY_DURATION_MS / step_ms);
+        for (int step = 0; step < total_steps; ++step) {
             const bool fluid = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
             const uint32_t check_now = getCurrentTime();
             if (!cleaning_sm_.monitorDuringSpray(fluid, check_now)) {
@@ -1038,7 +1040,12 @@ void ThermoscanApp::handleCleaning() {
                 break;
             }
 #if defined(ARDUINO) || defined(ESP32)
-            delay(100);
+            delay(step_ms);
+#endif
+        }
+        if (!spray_interrupted && (DEFAULT_SPRAY_DURATION_MS % step_ms) > 0) {
+#if defined(ARDUINO) || defined(ESP32)
+            delay(DEFAULT_SPRAY_DURATION_MS % step_ms);
 #endif
         }
 

@@ -70,58 +70,31 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     List<ConfirmedAnomaly> visibleAnomalies,
     double? baselineTemp,
   ) {
-    if (sortedFrames.isEmpty) return null;
-    if (visibleAnomalies.isNotEmpty) {
-      int? bestIdx;
-      double? bestTemp;
-      for (var i = 0; i < sortedFrames.length; i++) {
-        final f = sortedFrames[i];
-        if (visibleAnomalies.any((a) => isFrameAssociatedWithAnomaly(f, a))) {
-          if (bestIdx == null || f.maxTemperatureC > bestTemp!) {
-            bestIdx = i;
-            bestTemp = f.maxTemperatureC;
-          }
-        }
-      }
-      if (bestIdx != null) return bestIdx;
-      final targetX = visibleAnomalies.first.xPositionCm;
-      var closestIdx = 0;
-      var minDiff = (sortedFrames.first.xPositionCm - targetX).abs();
-      for (var i = 1; i < sortedFrames.length; i++) {
-        final diff = (sortedFrames[i].xPositionCm - targetX).abs();
-        if (diff < minDiff) {
-          minDiff = diff;
-          closestIdx = i;
-        }
-      }
-      return closestIdx;
-    }
+    if (sortedFrames.isEmpty || visibleAnomalies.isEmpty) return null;
 
-    var maxIdx = 0;
-    var minTemp = sortedFrames.first.maxTemperatureC;
-    var maxTemp = sortedFrames.first.maxTemperatureC;
+    int? bestIdx;
+    double? bestTemp;
+    for (var i = 0; i < sortedFrames.length; i++) {
+      final f = sortedFrames[i];
+      if (visibleAnomalies.any((a) => isFrameAssociatedWithAnomaly(f, a))) {
+        if (bestIdx == null || f.maxTemperatureC > bestTemp!) {
+          bestIdx = i;
+          bestTemp = f.maxTemperatureC;
+        }
+      }
+    }
+    if (bestIdx != null) return bestIdx;
+    final targetX = visibleAnomalies.first.xPositionCm;
+    var closestIdx = 0;
+    var minDiff = (sortedFrames.first.xPositionCm - targetX).abs();
     for (var i = 1; i < sortedFrames.length; i++) {
-      final t = sortedFrames[i].maxTemperatureC;
-      if (t > maxTemp) {
-        maxTemp = t;
-        maxIdx = i;
-      }
-      if (t < minTemp) {
-        minTemp = t;
+      final diff = (sortedFrames[i].xPositionCm - targetX).abs();
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = i;
       }
     }
-    if (baselineTemp != null &&
-        baselineTemp > 0 &&
-        (maxTemp - baselineTemp) >= 10.0) {
-      return maxIdx;
-    }
-    if (sortedFrames.length > 1 && (maxTemp - minTemp) >= 5.0) {
-      return maxIdx;
-    }
-    if (maxTemp >= 45.0) {
-      return maxIdx;
-    }
-    return null;
+    return closestIdx;
   }
 
   void _toggleTimelinePlayback(List<ModuleMeasurement> sortedFrames) {
@@ -2165,10 +2138,9 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     final total = sortedFrames.length;
     final activeIndex = _timelineFrameIndex.clamp(0, total - 1);
     final activeFrame = sortedFrames[activeIndex];
-    final isHotspotFrame = hotspotIndex == activeIndex ||
-        confirmedAnomalies.any(
-          (a) => isFrameAssociatedWithAnomaly(activeFrame, a),
-        );
+    final isHotspotFrame = confirmedAnomalies.any(
+      (a) => isFrameAssociatedWithAnomaly(activeFrame, a),
+    );
     final alignX = total > 1 ? -1.0 + (2.0 * (activeIndex / (total - 1))) : 0.0;
 
     return Container(

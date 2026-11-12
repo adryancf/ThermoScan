@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/domain/auth_user.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
@@ -401,5 +402,102 @@ void main() {
 
     // Robot scrubber updated to F2/2
     expect(find.text('F2/2'), findsOneWidget);
+  });
+
+  testWidgets(
+      'Scrubber does not infer false hotspots when confirmedAnomalies is empty even with large max-min temp delta',
+      (tester) async {
+    const inspectionNoHotspots = LatestInspection(
+      inspection: ModuleInspection(
+        id: 'insp-clean',
+        moduleId: testModuleId,
+        sourceEventId: 'evt-clean',
+        type: 'routine',
+        scheduledFor: '2026-03-01T10:00:00Z',
+        status: 'completed',
+        createdAt: '2026-03-01T10:00:00Z',
+        updatedAt: '2026-03-01T10:15:00Z',
+        finishedAt: '2026-03-01T10:15:00Z',
+        baselineTemperatureC: 29.1,
+      ),
+      totalMeasurements: 2,
+      confirmedAnomalies: [], // 0 confirmed hotspots
+    );
+
+    const framesWithDelta = [
+      ModuleMeasurement(
+        id: 'meas-cool',
+        moduleId: testModuleId,
+        inspectionId: 'insp-clean',
+        sourceEventId: 'evt-clean',
+        panelIndex: 1,
+        localXPositionCm: 10.0,
+        xPositionCm: 10.0,
+        measuredAt: '2026-03-01T10:05:00Z',
+        maxTemperatureC: 16.1, // Cool rail/gap
+        receivedAt: '2026-03-01T10:05:01Z',
+      ),
+      ModuleMeasurement(
+        id: 'meas-warm',
+        moduleId: testModuleId,
+        inspectionId: 'insp-clean',
+        sourceEventId: 'evt-clean',
+        panelIndex: 1,
+        localXPositionCm: 20.0,
+        xPositionCm: 20.0,
+        measuredAt: '2026-03-01T10:06:00Z',
+        maxTemperatureC: 37.8, // 37.8 - 16.1 = 21.7C (previously triggered false hotspot!)
+        receivedAt: '2026-03-01T10:06:01Z',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authControllerProvider.overrideWith(
+            (ref) => _FakeAuthController(
+              const AuthUser(
+                id: 'tech-1',
+                email: 'carlos@thermoscan.com',
+                name: 'Carlos Tech',
+                role: 'technician',
+                isActive: true,
+                mustChangePassword: false,
+              ),
+            ),
+          ),
+          moduleDetailsProvider(testModuleId).overrideWith(
+            (ref) => Future.value(dummyDetails),
+          ),
+          latestInspectionProvider(testModuleId).overrideWith(
+            (ref) => Future.value(inspectionNoHotspots),
+          ),
+          moduleMeasurementsProvider(testModuleId).overrideWith(
+            (ref) => Future.value(framesWithDelta),
+          ),
+          moduleInspectionsProvider(testModuleId).overrideWith(
+            (ref) => Future.value([inspectionNoHotspots.inspection]),
+          ),
+        ],
+        child: const MaterialApp(
+          home: ModuleThermalInspectionScreen(moduleId: testModuleId),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    // Verify jump to hotspot button is NOT rendered
+    expect(find.byKey(const Key('jump_to_hotspot_button')), findsNothing);
+
+    // Verify scrubber selector chip is primary color, NOT error
+    final chipContainer = tester.widget<Container>(
+      find.descendant(
+        of: find.byKey(const Key('scrubber_frame_selector_chip')),
+        matching: find.byType(Container),
+      ),
+    );
+    final boxDecoration = chipContainer.decoration as BoxDecoration;
+    expect(boxDecoration.color, equals(AppColors.primary));
   });
 }

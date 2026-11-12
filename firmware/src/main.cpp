@@ -16,6 +16,10 @@
 #include "app/thermoscan_app.h"
 #include "diagnostics/bench_diagnostics.h"
 #include "diagnostics/web_diagnostics.h"
+#include "lab/presentation/presentation_mode.h"
+
+// Quick switch: 1 = Presentation Demo Mode, 0 = Real Production Mode
+#define USE_PRESENTATION_MODE 1
 
 // WiFi Configuration (overridable via compiler build flags)
 #ifndef WIFI_SSID
@@ -45,11 +49,22 @@ static hal_esp32::Ina228Meter g_ina228(getInaAddressForPanel(1));
 static hal_esp32::Esp32TimeProvider g_time_provider("pool.ntp.org", "time.nist.gov");
 static hal_esp32::HttpCloudClient g_cloud(BACKEND_URL, &g_storage, &g_water, &g_stepper, &g_camera);
 
+#if USE_PRESENTATION_MODE
+static presentation::PresentationContext g_demo_ctx;
+static presentation::PresentationThermalCamera g_demo_camera(&g_camera, &g_stepper, &g_demo_ctx);
+static presentation::PresentationSprayActuator g_demo_spray(&g_spray, &g_stepper, &g_demo_ctx);
+#define APP_CAMERA &g_demo_camera
+#define APP_SPRAY  &g_demo_spray
+#else
+#define APP_CAMERA &g_camera
+#define APP_SPRAY  &g_spray
+#endif
+
 // Application Domain Orchestrator Instantiation
-static app::ThermoscanApp g_app(&g_camera,
+static app::ThermoscanApp g_app(APP_CAMERA,
                                 &g_ina228,
                                 &g_stepper,
-                                &g_spray,
+                                APP_SPRAY,
                                 &g_water,
                                 &g_storage,
                                 &g_cloud,

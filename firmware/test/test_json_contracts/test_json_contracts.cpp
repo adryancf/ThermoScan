@@ -315,6 +315,7 @@ void test_panel_thermal_result_and_multi_panel_index_contracts() {
 
     // 4. CleaningReportInput with panel_index
     CleaningReportInput c_in;
+    c_in.source_event_id = "50000000-0000-0000-0000-000000000001";
     c_in.anomaly_event_id = "40000000-0000-0000-0000-000000000009";
     c_in.panel_index = 2;
     c_in.target_x_position_cm = 126.0f;
@@ -325,6 +326,7 @@ void test_panel_thermal_result_and_multi_panel_index_contracts() {
     std::string c_json = HttpCloudClient::buildCleaningReportJson(c_in);
     JsonDocument c_doc;
     TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(c_doc, c_json).code());
+    TEST_ASSERT_EQUAL_STRING("50000000-0000-0000-0000-000000000001", c_doc["source_event_id"].as<const char*>());
     TEST_ASSERT_EQUAL_UINT8(2, c_doc["panel_index"].as<uint8_t>());
     TEST_ASSERT_EQUAL(1, c_doc["attempt_number"].as<int>());
 }

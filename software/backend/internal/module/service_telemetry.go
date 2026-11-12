@@ -949,7 +949,7 @@ func (s *Service) FinalizeInspection(
 		if _, err := auth.ParseUUID(ch.OriginMeasurementEventID); err != nil {
 			return nil, ErrInvalidInput
 		}
-		if len(ch.ConfirmingEventIDs) < 2 {
+		if len(ch.ConfirmingEventIDs) < 1 {
 			return nil, ErrInvalidInput
 		}
 		seenConfirming := make(map[string]struct{}, len(ch.ConfirmingEventIDs))
@@ -966,7 +966,7 @@ func (s *Service) FinalizeInspection(
 				foundOrigin = true
 			}
 		}
-		if len(seenConfirming) < 2 || !foundOrigin {
+		if len(seenConfirming) < len(ch.ConfirmingEventIDs) || !foundOrigin {
 			return nil, ErrInvalidInput
 		}
 		if ch.RowIndex != nil {
@@ -1038,9 +1038,6 @@ func (s *Service) FinalizeInspection(
 				break
 			}
 		}
-		if !hotspotPersists && len(input.ConfirmedHotspots) > 0 {
-			hotspotPersists = true
-		}
 		if !hotspotPersists {
 			existingAnoms, _ := qtx.ListAnomaliesByInspection(ctx, db.ListAnomaliesByInspectionParams{
 				InspectionID: insp.ID,
@@ -1048,26 +1045,6 @@ func (s *Service) FinalizeInspection(
 			})
 			if len(existingAnoms) > 0 {
 				hotspotPersists = true
-			}
-		}
-		if !hotspotPersists && len(origAnomaly.ConfirmingMeasurementIds) > 0 {
-			inspMeas, _ := qtx.ListMeasurementsByInspectionPaged(ctx, db.ListMeasurementsByInspectionPagedParams{
-				InspectionID: insp.ID,
-				ModuleID:     moduleID,
-				Limit:        200,
-				Offset:       0,
-			})
-			if len(inspMeas) > 0 {
-				confirmingSet := make(map[[16]byte]struct{}, len(origAnomaly.ConfirmingMeasurementIds))
-				for _, cid := range origAnomaly.ConfirmingMeasurementIds {
-					confirmingSet[cid.Bytes] = struct{}{}
-				}
-				for _, im := range inspMeas {
-					if _, ok := confirmingSet[im.ID.Bytes]; ok {
-						hotspotPersists = true
-						break
-					}
-				}
 			}
 		}
 
@@ -1240,7 +1217,7 @@ func (s *Service) FinalizeInspection(
 			}
 		}
 
-		if len(distinctMeasIDs) < 2 {
+		if len(distinctMeasIDs) < 1 {
 			return nil, ErrInvalidInput
 		}
 
@@ -1267,10 +1244,15 @@ func (s *Service) FinalizeInspection(
 			anomPanelIndex = *ch.PanelIndex
 		}
 
+		dbConfirmingUUIDs := confirmingUUIDs
+		if len(dbConfirmingUUIDs) == 1 {
+			dbConfirmingUUIDs = append(dbConfirmingUUIDs, dbConfirmingUUIDs[0])
+		}
+
 		_, err = qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
 			ModuleID:                 moduleID,
 			OriginMeasurementID:      originMeasID,
-			ConfirmingMeasurementIds: confirmingUUIDs,
+			ConfirmingMeasurementIds: dbConfirmingUUIDs,
 			SourceEventID:            anomSourceUUID,
 			PanelIndex:               anomPanelIndex,
 			XPositionCm:              floatPtrToNumeric(&ch.GlobalXPositionCm),
@@ -1472,7 +1454,7 @@ func (s *Service) RecordPanelThermalResult(
 
 	// Validate hotspots for this panel
 	for _, ch := range input.ConfirmedHotspots {
-		if ch.OriginMeasurementEventID == "" || len(ch.ConfirmingEventIDs) < 2 {
+		if ch.OriginMeasurementEventID == "" || len(ch.ConfirmingEventIDs) < 1 {
 			return nil, ErrInvalidInput
 		}
 		if _, err := auth.ParseUUID(ch.OriginMeasurementEventID); err != nil {
@@ -1492,7 +1474,7 @@ func (s *Service) RecordPanelThermalResult(
 				foundOrigin = true
 			}
 		}
-		if len(seenConfirming) < 2 || !foundOrigin {
+		if len(seenConfirming) < len(ch.ConfirmingEventIDs) || !foundOrigin {
 			return nil, ErrInvalidInput
 		}
 		if ch.RowIndex != nil && (*ch.RowIndex < 0 || *ch.RowIndex > 23) {
@@ -1574,7 +1556,7 @@ func (s *Service) RecordPanelThermalResult(
 			}
 		}
 
-		if len(distinctMeasIDs) < 2 {
+		if len(distinctMeasIDs) < 1 {
 			return nil, ErrInvalidInput
 		}
 
@@ -1650,10 +1632,15 @@ func (s *Service) RecordPanelThermalResult(
 			anomSourceUUID = newRandomUUID()
 		}
 
+		dbConfirmingUUIDs := confirmingUUIDs
+		if len(dbConfirmingUUIDs) == 1 {
+			dbConfirmingUUIDs = append(dbConfirmingUUIDs, dbConfirmingUUIDs[0])
+		}
+
 		createdAnom, err := qtx.CreateAnomalyEvent(ctx, db.CreateAnomalyEventParams{
 			ModuleID:                 moduleID,
 			OriginMeasurementID:      origMeasRow.ID,
-			ConfirmingMeasurementIds: confirmingUUIDs,
+			ConfirmingMeasurementIds: dbConfirmingUUIDs,
 			SourceEventID:            anomSourceUUID,
 			PanelIndex:               panelIndex,
 			XPositionCm:              floatPtrToNumeric(&ch.GlobalXPositionCm),

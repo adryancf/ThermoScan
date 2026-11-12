@@ -455,6 +455,7 @@ type ConfirmedHotspotInput struct {
 }
 
 type IngestCleaningInput struct {
+	SourceEventID          *string `json:"source_event_id,omitempty"`
 	AnomalyEventID         *string `json:"anomaly_event_id"`
 	PanelIndex             *int32  `json:"panel_index,omitempty"`
 	TargetXPositionCm      float64 `json:"target_x_position_cm"`

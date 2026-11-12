@@ -471,13 +471,45 @@ class _ModuleMeasurementsScreenState
             ? '${inspModel.type[0].toUpperCase()}${inspModel.type.substring(1)} Scan'
             : 'Robotic Scan');
 
+    final count = (mod?.panelCount != null && mod!.panelCount! > 0)
+        ? mod.panelCount!
+        : 1;
+    final len = (mod?.panelLengthCm != null && mod!.panelLengthCm! > 0)
+        ? mod.panelLengthCm!
+        : 100.0;
+    final spc = (mod?.panelSpacingCm != null && mod!.panelSpacingCm! >= 0)
+        ? mod.panelSpacingCm!
+        : 2.0;
+    final totalLength = count * len + (count - 1) * spc;
+
     final Map<int, List<ModuleMeasurement>> byPanel = {};
     for (final m in measurements) {
-      final p = m.panelIndex ??
-          (mod != null
-              ? mod.resolvePanelPosition(m.xPositionCm).panelIndex
-              : 1);
-      final effectiveP = p > 0 ? p : 1;
+      int effectiveP;
+      if (m.panelIndex != null && m.panelIndex! > 0) {
+        effectiveP = m.panelIndex!;
+      } else {
+        final x = m.xPositionCm;
+        if (x <= 0) {
+          effectiveP = 1;
+        } else if (x >= totalLength) {
+          effectiveP = count;
+        } else {
+          effectiveP = count;
+          for (var p = 1; p <= count; p++) {
+            final start = (p - 1) * (len + spc);
+            final end = start + len;
+            if (x >= start && x <= end) {
+              effectiveP = p;
+              break;
+            }
+            if (p < count && x > end && x < start + len + spc) {
+              final midGap = end + spc / 2.0;
+              effectiveP = (x <= midGap) ? p : p + 1;
+              break;
+            }
+          }
+        }
+      }
       byPanel.putIfAbsent(effectiveP, () => []).add(m);
     }
     final sortedPanels = byPanel.keys.toList()..sort();

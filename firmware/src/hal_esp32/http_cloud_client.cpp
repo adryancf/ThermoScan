@@ -690,6 +690,9 @@ bool HttpCloudClient::abortInspection(const std::string& inspection_source_event
 
 std::string HttpCloudClient::buildCleaningReportJson(const CleaningReportInput& input) {
     JsonDocument doc;
+    if (!input.source_event_id.empty()) {
+        doc["source_event_id"] = input.source_event_id.c_str();
+    }
     if (!input.anomaly_event_id.empty()) {
         doc["anomaly_event_id"] = input.anomaly_event_id.c_str();
     }

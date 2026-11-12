@@ -68,6 +68,7 @@ struct ConfirmedAnomalyRecord {
 // Cleaning report input for POST /cleanings
 // Capacitive water sensor is binary: estimated_water_volume_ml is omitted
 struct CleaningReportInput {
+    std::string source_event_id{""};
     std::string anomaly_event_id; // UUID of confirmed anomaly
     uint8_t panel_index{0};
     float target_x_position_cm{0.0f};

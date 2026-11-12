@@ -440,10 +440,10 @@ void main() {
       expect(find.text('F1 (X=2.0 cm)'), findsOneWidget);
       expect(find.text('F2 (X=4.0 cm)'), findsOneWidget);
 
-      // Candidate is NEVER displayed as HOTSPOT, but elevated/unconfirmed warning
+      // Candidate is NEVER displayed as HOTSPOT, and without confirmed anomaly status is Normal
       expect(find.text('HOTSPOT'), findsNothing);
       expect(find.text('HOTSPOT DETECTED'), findsNothing);
-      expect(find.text('+23.0°C (Elevated - Unconfirmed)'), findsOneWidget);
+      expect(find.text('+23.0°C (Normal)'), findsWidgets);
     });
 
     testWidgets('RadiometricScanCard highlights exclusively confirmedAnomalies from completed inspection', (tester) async {

@@ -267,9 +267,13 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      c.attemptNumber != null
-                          ? '${panelPrefix}Wash Attempt #${c.attemptNumber} • Spot Wash'
-                          : '${panelPrefix}Wash Request • Spot Wash',
+                      c.status == 'refused'
+                          ? '${panelPrefix}Cleaning Request (Refused)'
+                          : (!c.pumpActuated
+                              ? '${panelPrefix}Safety Hold (Pump Inactive)'
+                              : (c.attemptNumber != null
+                                  ? '${panelPrefix}Wash Attempt #${c.attemptNumber} • Spot Wash'
+                                  : '${panelPrefix}Wash Request • Spot Wash')),
                       style: AppTypography.h3.copyWith(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,

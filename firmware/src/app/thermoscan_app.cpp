@@ -980,6 +980,7 @@ void ThermoscanApp::handleCleaning() {
                           qh.target_x_cm, cleaning_sm_.getReason().c_str(), is_in_gap, water_ok);
 
             CleaningReportInput cr;
+            cr.source_event_id = utils::generateUUIDv4();
             cr.anomaly_event_id = qh.anomaly_event_id;
             cr.panel_index = qh.panel_index;
             cr.target_x_position_cm = qh.target_x_cm;
@@ -1051,6 +1052,7 @@ void ThermoscanApp::handleCleaning() {
         any_sprayed = true;
 
         CleaningReportInput cr;
+        cr.source_event_id = utils::generateUUIDv4();
         cr.anomaly_event_id = qh.anomaly_event_id;
         cr.panel_index = qh.panel_index;
         cr.target_x_position_cm = qh.target_x_cm;

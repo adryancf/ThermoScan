@@ -87,7 +87,7 @@ void ensureTestSeedDataExists() {
             "    '00000000-0000-0000-0000-000000000002', "
             "    'ThermoScan Unit 01', "
             "    '02:00:00:00:00:01', "
-            "    true, 'active', 100.0, 50.0, 1, 0.0, "
+            "    true, 'active', 68.0, 50.0, 1, 0.0, "
             "    -23.5505, -46.6333, 760.0, 180.0, 20.0, 'manual', 'manual', "
             "    30.0, 7, 1000.0, now() "
             ") ON CONFLICT (id) DO NOTHING;");

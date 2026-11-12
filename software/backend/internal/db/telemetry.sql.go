@@ -685,6 +685,79 @@ func (q *Queries) GetAnomalyEventBySourceEventID(ctx context.Context, arg GetAno
 	return i, err
 }
 
+const getCleaningOperationByAnomalyAndAttempt = `-- name: GetCleaningOperationByAnomalyAndAttempt :one
+SELECT
+    c.id,
+    c.module_id,
+    c.anomaly_event_id,
+    c.source_event_id,
+    c.panel_index,
+    c.target_x_position_cm::text AS target_x_position_cm,
+    c.pump_actuated,
+    c.attempt_number,
+    c.started_at,
+    c.ended_at,
+    c.duration_seconds::text AS duration_seconds,
+    c.estimated_water_volume_ml::text AS estimated_water_volume_ml,
+    c.status,
+    c.failure_reason,
+    c.post_cleaning_result,
+    c.created_at,
+    c.updated_at
+FROM cleaning_operations c
+WHERE c.anomaly_event_id = $1 AND c.attempt_number = $2
+`
+
+type GetCleaningOperationByAnomalyAndAttemptParams struct {
+	AnomalyEventID pgtype.UUID
+	AttemptNumber  pgtype.Int4
+}
+
+type GetCleaningOperationByAnomalyAndAttemptRow struct {
+	ID                     pgtype.UUID
+	ModuleID               pgtype.UUID
+	AnomalyEventID         pgtype.UUID
+	SourceEventID          pgtype.UUID
+	PanelIndex             pgtype.Int4
+	TargetXPositionCm      string
+	PumpActuated           bool
+	AttemptNumber          pgtype.Int4
+	StartedAt              *time.Time
+	EndedAt                *time.Time
+	DurationSeconds        string
+	EstimatedWaterVolumeMl string
+	Status                 string
+	FailureReason          pgtype.Text
+	PostCleaningResult     string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+func (q *Queries) GetCleaningOperationByAnomalyAndAttempt(ctx context.Context, arg GetCleaningOperationByAnomalyAndAttemptParams) (GetCleaningOperationByAnomalyAndAttemptRow, error) {
+	row := q.db.QueryRow(ctx, getCleaningOperationByAnomalyAndAttempt, arg.AnomalyEventID, arg.AttemptNumber)
+	var i GetCleaningOperationByAnomalyAndAttemptRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.AnomalyEventID,
+		&i.SourceEventID,
+		&i.PanelIndex,
+		&i.TargetXPositionCm,
+		&i.PumpActuated,
+		&i.AttemptNumber,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.DurationSeconds,
+		&i.EstimatedWaterVolumeMl,
+		&i.Status,
+		&i.FailureReason,
+		&i.PostCleaningResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCleaningOperationByID = `-- name: GetCleaningOperationByID :one
 SELECT
     c.id,
@@ -736,6 +809,79 @@ type GetCleaningOperationByIDRow struct {
 func (q *Queries) GetCleaningOperationByID(ctx context.Context, arg GetCleaningOperationByIDParams) (GetCleaningOperationByIDRow, error) {
 	row := q.db.QueryRow(ctx, getCleaningOperationByID, arg.ID, arg.ModuleID)
 	var i GetCleaningOperationByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.ModuleID,
+		&i.AnomalyEventID,
+		&i.SourceEventID,
+		&i.PanelIndex,
+		&i.TargetXPositionCm,
+		&i.PumpActuated,
+		&i.AttemptNumber,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.DurationSeconds,
+		&i.EstimatedWaterVolumeMl,
+		&i.Status,
+		&i.FailureReason,
+		&i.PostCleaningResult,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getCleaningOperationBySourceEventID = `-- name: GetCleaningOperationBySourceEventID :one
+SELECT
+    c.id,
+    c.module_id,
+    c.anomaly_event_id,
+    c.source_event_id,
+    c.panel_index,
+    c.target_x_position_cm::text AS target_x_position_cm,
+    c.pump_actuated,
+    c.attempt_number,
+    c.started_at,
+    c.ended_at,
+    c.duration_seconds::text AS duration_seconds,
+    c.estimated_water_volume_ml::text AS estimated_water_volume_ml,
+    c.status,
+    c.failure_reason,
+    c.post_cleaning_result,
+    c.created_at,
+    c.updated_at
+FROM cleaning_operations c
+WHERE c.module_id = $1 AND c.source_event_id = $2
+`
+
+type GetCleaningOperationBySourceEventIDParams struct {
+	ModuleID      pgtype.UUID
+	SourceEventID pgtype.UUID
+}
+
+type GetCleaningOperationBySourceEventIDRow struct {
+	ID                     pgtype.UUID
+	ModuleID               pgtype.UUID
+	AnomalyEventID         pgtype.UUID
+	SourceEventID          pgtype.UUID
+	PanelIndex             pgtype.Int4
+	TargetXPositionCm      string
+	PumpActuated           bool
+	AttemptNumber          pgtype.Int4
+	StartedAt              *time.Time
+	EndedAt                *time.Time
+	DurationSeconds        string
+	EstimatedWaterVolumeMl string
+	Status                 string
+	FailureReason          pgtype.Text
+	PostCleaningResult     string
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+}
+
+func (q *Queries) GetCleaningOperationBySourceEventID(ctx context.Context, arg GetCleaningOperationBySourceEventIDParams) (GetCleaningOperationBySourceEventIDRow, error) {
+	row := q.db.QueryRow(ctx, getCleaningOperationBySourceEventID, arg.ModuleID, arg.SourceEventID)
+	var i GetCleaningOperationBySourceEventIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.ModuleID,

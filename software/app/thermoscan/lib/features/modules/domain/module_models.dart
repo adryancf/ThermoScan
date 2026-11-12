@@ -177,6 +177,15 @@ class PvModule {
     final count = panelCount ?? 1;
     final len = panelLengthCm ?? 100.0;
     final spc = panelSpacingCm ?? 2.0;
+    final totalLength = count * len + (count - 1) * spc;
+
+    if (xCm < 0) {
+      return (panelIndex: 1, localXCm: 0.0, inGap: false);
+    }
+    if (xCm > totalLength) {
+      return (panelIndex: count, localXCm: len, inGap: false);
+    }
+
     for (var p = 1; p <= count; p++) {
       final start = (p - 1) * (len + spc);
       final end = start + len;
@@ -188,7 +197,7 @@ class PvModule {
         return (panelIndex: 0, localXCm: xCm - start, inGap: true);
       }
     }
-    return (panelIndex: 1, localXCm: xCm, inGap: false);
+    return (panelIndex: count, localXCm: len, inGap: false);
   }
 
   List<PanelSegmentGeometry> get panelSegments {

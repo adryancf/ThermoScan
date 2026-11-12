@@ -1269,3 +1269,189 @@ func TestTelemetryIdempotency(t *testing.T) {
 		t.Fatalf("expected 1 anomaly after idempotent finalize resend, got %d", len(latestResp.LatestInspection.ConfirmedAnomalies))
 	}
 }
+
+func TestCleaningIngestIdempotencyAndVerificationSpatialProximity(t *testing.T) {
+	ctx, conn, tx, q, router, techAuth, modID := setupTelemetryTestEnv(t)
+	defer conn.Close(ctx)
+	defer tx.Rollback(ctx)
+
+	doJSON := func(method, path, bearer string, body any) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		if body != nil {
+			_ = json.NewEncoder(&buf).Encode(body)
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		req.Header.Set("Content-Type", "application/json")
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. Ingest telemetry measurements (meas1 at X=16.0cm, meas2 at X=50.0cm)
+	inspSourceID := "77000000-0000-0000-0000-000000000001"
+	meas1 := "77000000-0000-0000-0000-000000000011"
+	meas2 := "77000000-0000-0000-0000-000000000012"
+	v, a := 18.5, 4.2
+	rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": inspSourceID,
+		"inspection_type":           "scheduled",
+		"batch": []map[string]any{
+			{"source_event_id": meas1, "x_position_cm": 16.0, "max_temperature_c": 55.0, "voltage_v": v, "current_a": a, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			{"source_event_id": meas2, "x_position_cm": 50.0, "max_temperature_c": 56.0, "voltage_v": v, "current_a": a, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("telemetry ingest: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Finalize with SINGLE confirming event ID (origin measurement alone)
+	anomSourceID := "77000000-0000-0000-0000-000000000099"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+inspSourceID+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":            anomSourceID,
+				"global_x_position_cm":        16.0,
+				"max_temperature_c":           55.0,
+				"origin_measurement_event_id": meas1,
+				"confirming_event_ids":        []string{meas1}, // Single confirming event ID!
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("single confirming event finalize should succeed, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var finResp struct {
+		LatestInspection struct {
+			ConfirmedAnomalies []struct {
+				ID string `json:"id"`
+			} `json:"confirmed_anomalies"`
+		} `json:"latest_inspection"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &finResp)
+	if len(finResp.LatestInspection.ConfirmedAnomalies) != 1 {
+		t.Fatalf("expected 1 anomaly, got %d (body: %s)", len(finResp.LatestInspection.ConfirmedAnomalies), rec.Body.String())
+	}
+	anomalyID := finResp.LatestInspection.ConfirmedAnomalies[0].ID
+
+	// 3. Ingest Cleaning with source_event_id
+	cleanSrcID1 := "77000000-0000-0000-0000-000000000081"
+	cleanPayload := map[string]any{
+		"source_event_id":      cleanSrcID1,
+		"anomaly_event_id":     anomalyID,
+		"target_x_position_cm": 16.0,
+		"pump_actuated":        true,
+		"attempt_number":       1,
+		"duration_seconds":     3.5,
+		"status":               "completed",
+	}
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, cleanPayload)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("cleaning 1 failed: %d: %s", rec.Code, rec.Body.String())
+	}
+	var cResp1 struct {
+		Cleaning struct {
+			ID            string `json:"id"`
+			SourceEventID string `json:"source_event_id"`
+		} `json:"cleaning"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &cResp1)
+	firstCleaningID := cResp1.Cleaning.ID
+	if cResp1.Cleaning.SourceEventID != cleanSrcID1 {
+		t.Fatalf("expected source_event_id %s, got %s", cleanSrcID1, cResp1.Cleaning.SourceEventID)
+	}
+
+	// 4. Idempotency test: Re-send with same source_event_id
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, cleanPayload)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("re-send with same source_event_id failed: %d: %s", rec.Code, rec.Body.String())
+	}
+	var cResp2 struct {
+		Cleaning struct {
+			ID string `json:"id"`
+		} `json:"cleaning"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &cResp2)
+	if cResp2.Cleaning.ID != firstCleaningID {
+		t.Fatalf("expected same cleaning ID on idempotent resend, got %s vs %s", cResp2.Cleaning.ID, firstCleaningID)
+	}
+
+	// 5. Idempotency test: Re-send with different source_event_id but same anomaly_event_id & attempt_number
+	cleanSrcID2 := "77000000-0000-0000-0000-000000000082"
+	cleanPayloadDiffSource := map[string]any{
+		"source_event_id":      cleanSrcID2,
+		"anomaly_event_id":     anomalyID,
+		"target_x_position_cm": 16.0,
+		"pump_actuated":        true,
+		"attempt_number":       1,
+		"duration_seconds":     3.5,
+		"status":               "completed",
+	}
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, cleanPayloadDiffSource)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("re-send with same attempt_number should succeed idempotently, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var cResp3 struct {
+		Cleaning struct {
+			ID string `json:"id"`
+		} `json:"cleaning"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &cResp3)
+	if cResp3.Cleaning.ID != firstCleaningID {
+		t.Fatalf("expected original cleaning ID for duplicate attempt_number, got %s vs %s", cResp3.Cleaning.ID, firstCleaningID)
+	}
+
+	// 6. Verification inspection with a DISTANT hotspot (at X=50.0cm, far from origX=16.0cm)
+	verifInspSourceID := "77000000-0000-0000-0000-000000000002"
+	vMeas1 := "77000000-0000-0000-0000-000000000021"
+	vMeas2 := "77000000-0000-0000-0000-000000000022"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": verifInspSourceID,
+		"inspection_type":           "verification",
+		"cleaning_operation_id":     firstCleaningID,
+		"batch": []map[string]any{
+			{"source_event_id": vMeas1, "x_position_cm": 16.0, "max_temperature_c": 35.0, "voltage_v": v, "current_a": a, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			{"source_event_id": vMeas2, "x_position_cm": 50.0, "max_temperature_c": 58.0, "voltage_v": v, "current_a": a, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("verification telemetry ingest: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Finalize verification: reports hotspot only at X=50.0cm (NOT at 16.0cm)
+	distantHotspotSourceID := "77000000-0000-0000-0000-000000000098"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+verifInspSourceID+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":            distantHotspotSourceID,
+				"global_x_position_cm":        50.0,
+				"max_temperature_c":           58.0,
+				"origin_measurement_event_id": vMeas2,
+				"confirming_event_ids":        []string{vMeas2},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("verification finalize: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 7. Spatial proximity check verification:
+	// The original anomaly at X=16.0cm MUST be marked 'resolved' because the hotspot at X=50.0cm is distant!
+	anomUUID, _ := auth.ParseUUID(anomalyID)
+	modUUID, _ := auth.ParseUUID(modID)
+	anomRow, err := q.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+		ID:       anomUUID,
+		ModuleID: modUUID,
+	})
+	if err != nil {
+		t.Fatalf("get anomaly: %v", err)
+	}
+	if anomRow.Status != "resolved" || anomRow.ClosedAt == nil {
+		t.Fatalf("expected anomaly at 16cm to be 'resolved' with closed_at set, got status=%s closed_at=%v", anomRow.Status, anomRow.ClosedAt)
+	}
+}

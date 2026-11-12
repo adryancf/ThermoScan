@@ -11,6 +11,7 @@ import (
 	"backend/internal/db"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -210,7 +211,6 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	}
 
 	var resolvedPanelIndex pgtype.Int4
-	var localTargetX *string
 	if input.PanelIndex != nil {
 		if *input.PanelIndex < 1 || *input.PanelIndex > cnt {
 			return nil, ErrInvalidInput
@@ -258,8 +258,6 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 				return nil, ErrInvalidInput
 			}
 			resolvedPanelIndex = pgtype.Int4{Int32: posRes.PanelIndex, Valid: true}
-			lStr := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
-			localTargetX = &lStr
 		}
 	}
 
@@ -282,6 +280,51 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	}
 
 	cleanEventID := newRandomUUID()
+	if input.SourceEventID != nil && strings.TrimSpace(*input.SourceEventID) != "" {
+		parsed, err := auth.ParseUUID(strings.TrimSpace(*input.SourceEventID))
+		if err != nil {
+			return nil, ErrInvalidInput
+		}
+		cleanEventID = parsed
+	}
+
+	// Idempotency check 1: already exists for this module with this source_event_id
+	if existing, err := qtx.GetCleaningOperationBySourceEventID(ctx, db.GetCleaningOperationBySourceEventIDParams{
+		ModuleID:      moduleID,
+		SourceEventID: cleanEventID,
+	}); err == nil {
+		_ = tx.Rollback(ctx)
+		return cleaningRowToDTO(
+			existing.ID, existing.ModuleID, existing.AnomalyEventID, existing.SourceEventID,
+			existing.PanelIndex, existing.TargetXPositionCm, existing.PumpActuated,
+			existing.AttemptNumber, existing.StartedAt, existing.EndedAt,
+			existing.DurationSeconds, existing.EstimatedWaterVolumeMl, existing.Status,
+			existing.FailureReason, existing.PostCleaningResult, existing.CreatedAt,
+			cnt, lenCm, spcCm,
+		), nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	// Idempotency check 2: already exists for same anomaly_event_id and attempt_number
+	if attemptNum.Valid {
+		if existing, err := qtx.GetCleaningOperationByAnomalyAndAttempt(ctx, db.GetCleaningOperationByAnomalyAndAttemptParams{
+			AnomalyEventID: anomID,
+			AttemptNumber:  attemptNum,
+		}); err == nil {
+			_ = tx.Rollback(ctx)
+			return cleaningRowToDTO(
+				existing.ID, existing.ModuleID, existing.AnomalyEventID, existing.SourceEventID,
+				existing.PanelIndex, existing.TargetXPositionCm, existing.PumpActuated,
+				existing.AttemptNumber, existing.StartedAt, existing.EndedAt,
+				existing.DurationSeconds, existing.EstimatedWaterVolumeMl, existing.Status,
+				existing.FailureReason, existing.PostCleaningResult, existing.CreatedAt,
+				cnt, lenCm, spcCm,
+			), nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
 
 	clean, err := qtx.CreateCleaningOperation(ctx, db.CreateCleaningOperationParams{
 		ModuleID:               moduleID,
@@ -300,6 +343,38 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		PostCleaningResult:     postRes,
 	})
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			_ = tx.Rollback(ctx)
+			if existing, qErr := s.queries.GetCleaningOperationBySourceEventID(ctx, db.GetCleaningOperationBySourceEventIDParams{
+				ModuleID:      moduleID,
+				SourceEventID: cleanEventID,
+			}); qErr == nil {
+				return cleaningRowToDTO(
+					existing.ID, existing.ModuleID, existing.AnomalyEventID, existing.SourceEventID,
+					existing.PanelIndex, existing.TargetXPositionCm, existing.PumpActuated,
+					existing.AttemptNumber, existing.StartedAt, existing.EndedAt,
+					existing.DurationSeconds, existing.EstimatedWaterVolumeMl, existing.Status,
+					existing.FailureReason, existing.PostCleaningResult, existing.CreatedAt,
+					cnt, lenCm, spcCm,
+				), nil
+			}
+			if attemptNum.Valid {
+				if existing, qErr := s.queries.GetCleaningOperationByAnomalyAndAttempt(ctx, db.GetCleaningOperationByAnomalyAndAttemptParams{
+					AnomalyEventID: anomID,
+					AttemptNumber:  attemptNum,
+				}); qErr == nil {
+					return cleaningRowToDTO(
+						existing.ID, existing.ModuleID, existing.AnomalyEventID, existing.SourceEventID,
+						existing.PanelIndex, existing.TargetXPositionCm, existing.PumpActuated,
+						existing.AttemptNumber, existing.StartedAt, existing.EndedAt,
+						existing.DurationSeconds, existing.EstimatedWaterVolumeMl, existing.Status,
+						existing.FailureReason, existing.PostCleaningResult, existing.CreatedAt,
+						cnt, lenCm, spcCm,
+					), nil
+				}
+			}
+		}
 		return nil, err
 	}
 
@@ -320,43 +395,76 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		return nil, err
 	}
 
+	return cleaningRowToDTO(
+		clean.ID, clean.ModuleID, clean.AnomalyEventID, clean.SourceEventID,
+		clean.PanelIndex, clean.TargetXPositionCm, clean.PumpActuated,
+		clean.AttemptNumber, clean.StartedAt, clean.EndedAt,
+		clean.DurationSeconds, clean.EstimatedWaterVolumeMl, clean.Status,
+		clean.FailureReason, clean.PostCleaningResult, clean.CreatedAt,
+		cnt, lenCm, spcCm,
+	), nil
+}
+
+func cleaningRowToDTO(
+	id, moduleID, anomalyEventID, sourceEventID pgtype.UUID,
+	panelIndex pgtype.Int4,
+	targetXPositionCm string,
+	pumpActuated bool,
+	attemptNumber pgtype.Int4,
+	startedAt, endedAt *time.Time,
+	durationSeconds, estimatedWaterVolumeMl, status string,
+	failureReason pgtype.Text,
+	postCleaningResult string,
+	createdAt time.Time,
+	cnt int32, lenCm, spcCm float64,
+) *CleaningDTO {
+	var localTargetXStr *string
+	if lenCm > 0 {
+		if targetX, err := strconv.ParseFloat(targetXPositionCm, 64); err == nil {
+			posRes := ResolvePanelPosition(cnt, lenCm, spcCm, targetX)
+			if !posRes.InGap {
+				s := strconv.FormatFloat(posRes.LocalXCm, 'f', 2, 64)
+				localTargetXStr = &s
+			}
+		}
+	}
+
 	var attPtr *int32
-	if clean.AttemptNumber.Valid {
-		attPtr = &clean.AttemptNumber.Int32
+	if attemptNumber.Valid {
+		attPtr = &attemptNumber.Int32
 	}
 	var fReason *string
-	if clean.FailureReason.Valid {
-		fReason = &clean.FailureReason.String
+	if failureReason.Valid {
+		fReason = &failureReason.String
 	}
-	var startStr *string
-	if clean.StartedAt != nil {
-		s := clean.StartedAt.UTC().Format(time.RFC3339)
-		startStr = &s
+	var startedAtStr, endedAtStr *string
+	if startedAt != nil {
+		s := startedAt.UTC().Format(time.RFC3339)
+		startedAtStr = &s
 	}
-	var endStr *string
-	if clean.EndedAt != nil {
-		e := clean.EndedAt.UTC().Format(time.RFC3339)
-		endStr = &e
+	if endedAt != nil {
+		e := endedAt.UTC().Format(time.RFC3339)
+		endedAtStr = &e
 	}
 
 	return &CleaningDTO{
-		ID:                     auth.FormatUUID(clean.ID),
-		ModuleID:               auth.FormatUUID(clean.ModuleID),
-		AnomalyEventID:         auth.FormatUUID(clean.AnomalyEventID),
-		SourceEventID:          auth.FormatUUID(clean.SourceEventID),
-		PanelIndex:             pgInt4ToInt32Ptr(clean.PanelIndex),
-		TargetXPositionCM:      clean.TargetXPositionCm,
-		LocalXPositionCM:       localTargetX,
-		LocalTargetXPositionCM: localTargetX,
-		PumpActuated:           clean.PumpActuated,
+		ID:                     auth.FormatUUID(id),
+		ModuleID:               auth.FormatUUID(moduleID),
+		AnomalyEventID:         auth.FormatUUID(anomalyEventID),
+		SourceEventID:          auth.FormatUUID(sourceEventID),
+		PanelIndex:             pgInt4ToInt32Ptr(panelIndex),
+		TargetXPositionCM:      targetXPositionCm,
+		LocalXPositionCM:       localTargetXStr,
+		LocalTargetXPositionCM: localTargetXStr,
+		PumpActuated:           pumpActuated,
 		AttemptNumber:          attPtr,
-		StartedAt:              startStr,
-		EndedAt:                endStr,
-		DurationSeconds:        clean.DurationSeconds,
-		EstimatedWaterML:       clean.EstimatedWaterVolumeMl,
-		Status:                 clean.Status,
+		StartedAt:              startedAtStr,
+		EndedAt:                endedAtStr,
+		DurationSeconds:        durationSeconds,
+		EstimatedWaterML:       estimatedWaterVolumeMl,
+		Status:                 status,
 		FailureReason:          fReason,
-		PostCleaningResult:     clean.PostCleaningResult,
-		CreatedAt:              clean.CreatedAt.UTC().Format(time.RFC3339),
-	}, nil
+		PostCleaningResult:     postCleaningResult,
+		CreatedAt:              createdAt.UTC().Format(time.RFC3339),
+	}
 }

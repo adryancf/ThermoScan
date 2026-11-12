@@ -317,16 +317,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         ? (peakTemp - baselineTemp)
         : null;
 
-    final bool isElevated =
-        !hasConfirmedHotspots && delta != null && delta >= 10.0;
-
     final String deltaText;
     if (hasConfirmedHotspots) {
       deltaText = delta != null
           ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
           : 'Hotspot Confirmed';
-    } else if (isElevated) {
-      deltaText = '+${delta.toStringAsFixed(1)}°C (Elevated - Unconfirmed)';
     } else {
       deltaText = delta != null
           ? '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
@@ -389,37 +384,23 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 decoration: BoxDecoration(
                   color: hasConfirmedHotspots
                       ? AppColors.errorBackground
-                      : (isElevated
-                          ? AppColors.warningBackground
-                          : AppColors.successBackground),
+                      : AppColors.successBackground,
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: hasConfirmedHotspots
                         ? AppColors.errorBorder
-                        : (isElevated
-                            ? AppColors.warningBorder
-                            : AppColors.successBorder),
+                        : AppColors.successBorder,
                   ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isElevated) ...[
-                      const Icon(
-                        Icons.warning_amber_rounded,
-                        size: 13,
-                        color: AppColors.warning,
-                      ),
-                      const SizedBox(width: 4),
-                    ],
                     Text(
                       deltaText,
                       style: AppTypography.caption.copyWith(
                         color: hasConfirmedHotspots
                             ? AppColors.error
-                            : (isElevated
-                                ? AppColors.warning
-                                : AppColors.success),
+                            : AppColors.success,
                         fontWeight: FontWeight.w800,
                         fontSize: 10,
                       ),
@@ -498,8 +479,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       final framePxWidth =
                           (ThermalCoverageInfo.fovCm * pxPerCm).clamp(
                             18.0,
-                            usableW,
-                          );
+                            math.max(18.0, usableW),
+                          ).toDouble();
 
                       double xToPx(double xCm) =>
                           padLeft + ((xCm - panorama.minDomainX) * pxPerCm);
@@ -612,8 +593,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                         left: (centerPx - approxBadgeHalfW)
                                             .clamp(
                                               padLeft,
-                                              w - padLeft - (approxBadgeHalfW * 2),
-                                            ),
+                                              math.max(
+                                                padLeft,
+                                                w - padLeft - (approxBadgeHalfW * 2),
+                                              ),
+                                            ).toDouble(),
                                         top: 0,
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(
@@ -648,8 +632,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                           ),
                                           left: (centerPx - 14).clamp(
                                             padLeft,
-                                            w - padLeft - 28.0,
-                                          ),
+                                            math.max(padLeft, w - padLeft - 28.0),
+                                          ).toDouble(),
                                           top: 1,
                                           child: Container(
                                             padding: const EdgeInsets.symmetric(
@@ -758,23 +742,27 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                                   16.0,
                                                   (xToPx(pb.endXCm) -
                                                           xToPx(pb.startXCm))
-                                                      .clamp(16.0, usableW),
-                                                )
+                                                      .clamp(16.0, math.max(16.0, usableW)),
+                                                ).toDouble()
                                               : framePxWidth;
                                           final minLeftPx = pb != null
                                               ? xToPx(pb.startXCm).clamp(
                                                   0.0,
-                                                  w - stripWidthPx,
-                                                )
+                                                  math.max(0.0, w - stripWidthPx),
+                                                ).toDouble()
                                               : 0.0;
+                                          final safeMaxBound =
+                                              math.max(minLeftPx, w - stripWidthPx);
                                           final maxLeftPx = pb != null
                                               ? (xToPx(pb.endXCm) - stripWidthPx)
-                                                  .clamp(minLeftPx, w - stripWidthPx)
+                                                  .clamp(minLeftPx, safeMaxBound).toDouble()
                                               : (w - stripWidthPx);
+                                          final safeMaxLeft =
+                                              math.max(minLeftPx, maxLeftPx);
                                           final clampedLeftPx = rawLeftPx.clamp(
                                             minLeftPx,
-                                            maxLeftPx,
-                                          );
+                                            safeMaxLeft,
+                                          ).toDouble();
 
                                           final associatedAnomalies =
                                               getFrameAssociatedAnomalies(
@@ -922,7 +910,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             final anomaly = entry.value;
                             final anomalyPx = xToPx(
                               anomaly.xPositionCm,
-                            ).clamp(14.0, w - 30.0);
+                            ).clamp(14.0, math.max(14.0, w - 30.0)).toDouble();
 
                             ModuleMeasurement? anomMeas;
                             for (final fm in displayedMeasurements) {
@@ -956,7 +944,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             return Positioned(
                               key: Key('rail_hotspot_marker_${anomIdx + 1}'),
                               top: 26,
-                              left: (anomalyPx - 11).clamp(2.0, w - 80.0),
+                              left: (anomalyPx - 11).clamp(2.0, math.max(2.0, w - 80.0)).toDouble(),
                               child: GestureDetector(
                                 onTap: () {
                                   setState(() {
@@ -1329,14 +1317,10 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                           ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
                           : 'Hotspot confirmed')
                       : (delta != null
-                          ? (delta >= 10.0
-                              ? '+${delta.toStringAsFixed(1)}°C above normal (Elevated)'
-                              : 'Normal (+${delta.toStringAsFixed(1)}°C)')
+                          ? '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
                           : 'Within normal range'),
                   isWarning: hasConfirmedHotspots,
-                  deltaBadge: hasConfirmedHotspots
-                      ? 'HOTSPOT'
-                      : (delta != null && delta >= 10.0 ? 'ELEVATED' : null),
+                  deltaBadge: hasConfirmedHotspots ? 'HOTSPOT' : null,
                 ),
               ),
               const SizedBox(width: 8),
@@ -3419,7 +3403,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       final leftPx = xToPx(x);
       widgets.add(
         Positioned(
-          left: (leftPx - 10).clamp(2.0, maxWidth - 28.0),
+          left: (leftPx - 10).clamp(2.0, math.max(2.0, maxWidth - 28.0)).toDouble(),
           top: 0,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -3816,8 +3800,8 @@ class _ThermalProfileCurvePainter extends CustomPainter {
         )..layout();
         final labelX = (pt.dx - tp.width / 2).clamp(
           padLeft,
-          size.width - padRight - tp.width,
-        );
+          math.max(padLeft, size.width - padRight - tp.width),
+        ).toDouble();
         tp.paint(canvas, Offset(labelX, padTop + plotH + 4));
       }
     }

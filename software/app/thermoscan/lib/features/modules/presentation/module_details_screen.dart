@@ -847,7 +847,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     final cleanings = cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
     final mostRecent = cleanings.isNotEmpty ? cleanings.first : null;
     final activeAnomalyIds =
-        confirmedAnomalies.map((a) => a.sourceEventId).toSet();
+        confirmedAnomalies.map((a) => a.id).toSet();
 
     final isWaterLow = deviceStatus?.waterAvailable == false ||
         deviceStatus?.waterStatus == 'low' ||
@@ -870,6 +870,16 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         (mostRecent.postCleaningResult == 'pending' ||
             (mostRecent.status == 'completed' &&
                 mostRecent.postCleaningResult.isEmpty));
+
+    final washEndTimeStr = mostRecent?.endedAt ?? mostRecent?.startedAt;
+    final washEndTime = washEndTimeStr != null
+        ? DateTime.tryParse(washEndTimeStr)?.toUtc()
+        : null;
+    final coolDownElapsedMinutes = washEndTime != null
+        ? DateTime.now().toUtc().difference(washEndTime).inMinutes
+        : null;
+    final isCoolDownElapsed =
+        coolDownElapsedMinutes != null && coolDownElapsedMinutes >= 30;
 
     final relevantCleaning = mostRecent != null &&
             (activeAnomalyIds.isEmpty ||
@@ -914,14 +924,25 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
           'The robot is actively washing the panel area to wash away dirt.';
       cleaningCardIcon = Icons.precision_manufacturing_rounded;
     } else if (isCoolDownPending) {
-      cleaningStatusBadge = 'COOL-DOWN (30M)';
-      cleaningBadgeColor = const Color(0xFF19B5D6);
-      cleaningBadgeBg = const Color(0xFFE0F7FA);
-      cleaningBadgeBorder = const Color(0xFFB2EBF2);
-      cleaningCardTitle = 'Wash Completed — Cooling Down';
-      cleaningCardDescription =
-          'Spot wash completed. Waiting 30 minutes for the panel to cool before re-scanning.';
-      cleaningCardIcon = Icons.hourglass_top_rounded;
+      if (isCoolDownElapsed) {
+        cleaningStatusBadge = 'AWAITING VERIFICATION';
+        cleaningBadgeColor = AppColors.primary;
+        cleaningBadgeBg = AppColors.primarySoft;
+        cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
+        cleaningCardTitle = 'Awaiting Post-Clean Verification';
+        cleaningCardDescription =
+            'Cool-down period completed. Ready for thermal re-scan to verify if hotspot was resolved.';
+        cleaningCardIcon = Icons.fact_check_outlined;
+      } else {
+        cleaningStatusBadge = 'COOL-DOWN (30M)';
+        cleaningBadgeColor = const Color(0xFF19B5D6);
+        cleaningBadgeBg = const Color(0xFFE0F7FA);
+        cleaningBadgeBorder = const Color(0xFFB2EBF2);
+        cleaningCardTitle = 'Wash Completed — Cooling Down';
+        cleaningCardDescription =
+            'Spot wash completed. Waiting 30 minutes for the panel to cool before re-scanning.';
+        cleaningCardIcon = Icons.hourglass_top_rounded;
+      }
     } else if (isPersistentHotspot) {
       cleaningStatusBadge = 'PERSISTENT HOTSPOT';
       cleaningBadgeColor = AppColors.error;
@@ -1276,17 +1297,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                         ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
                         : 'Hotspot confirmed')
                     : (delta != null
-                        ? (delta >= 10.0
-                            ? '+${delta.toStringAsFixed(1)}°C above normal (Elevated)'
-                            : 'Normal (+${delta.toStringAsFixed(1)}°C)')
+                        ? '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
                         : 'Within normal range'),
                 isWarning: hasConfirmedHotspots,
                 valueColor: hasConfirmedHotspots
                     ? AppColors.error
                     : AppColors.textPrimary,
-                badge: hasConfirmedHotspots
-                    ? 'HOTSPOT'
-                    : (delta != null && delta >= 10.0 ? 'ELEVATED' : null),
+                badge: hasConfirmedHotspots ? 'HOTSPOT' : null,
               ),
             ),
             const SizedBox(width: 10),

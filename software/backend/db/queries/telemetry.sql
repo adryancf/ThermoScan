@@ -323,6 +323,50 @@ SELECT
 FROM cleaning_operations c
 WHERE c.id = $1 AND c.module_id = $2;
 
+-- name: GetCleaningOperationBySourceEventID :one
+SELECT
+    c.id,
+    c.module_id,
+    c.anomaly_event_id,
+    c.source_event_id,
+    c.panel_index,
+    c.target_x_position_cm::text AS target_x_position_cm,
+    c.pump_actuated,
+    c.attempt_number,
+    c.started_at,
+    c.ended_at,
+    c.duration_seconds::text AS duration_seconds,
+    c.estimated_water_volume_ml::text AS estimated_water_volume_ml,
+    c.status,
+    c.failure_reason,
+    c.post_cleaning_result,
+    c.created_at,
+    c.updated_at
+FROM cleaning_operations c
+WHERE c.module_id = $1 AND c.source_event_id = $2;
+
+-- name: GetCleaningOperationByAnomalyAndAttempt :one
+SELECT
+    c.id,
+    c.module_id,
+    c.anomaly_event_id,
+    c.source_event_id,
+    c.panel_index,
+    c.target_x_position_cm::text AS target_x_position_cm,
+    c.pump_actuated,
+    c.attempt_number,
+    c.started_at,
+    c.ended_at,
+    c.duration_seconds::text AS duration_seconds,
+    c.estimated_water_volume_ml::text AS estimated_water_volume_ml,
+    c.status,
+    c.failure_reason,
+    c.post_cleaning_result,
+    c.created_at,
+    c.updated_at
+FROM cleaning_operations c
+WHERE c.anomaly_event_id = $1 AND c.attempt_number = $2;
+
 -- name: UpdateCleaningOperationPostResult :one
 UPDATE cleaning_operations
 SET post_cleaning_result = $1,

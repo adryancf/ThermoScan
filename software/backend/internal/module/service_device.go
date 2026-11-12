@@ -387,6 +387,7 @@ func (s *Service) GetDeviceConfiguration(ctx context.Context, moduleID pgtype.UU
 		MinSolarAngle:       numericToFloatPtr(mod.MinimumSolarAngleDeg),
 		IntervalDays:        mod.InspectionIntervalDays,
 		PingIntervalSeconds: s.PingIntervalSeconds(),
+		HotspotThresholdDeltaC: numericToFloatWithDefault(mod.HotspotThresholdDeltaC, 8.0),
 		PowerSensors:        powerSensorsData,
 	}, nil
 }

@@ -124,6 +124,7 @@ type createModuleRequest struct {
 	MinimumSolarAngleDeg       *float64               `json:"minimum_solar_angle_deg"`
 	InspectionIntervalDays     *int32                 `json:"inspection_interval_days"`
 	ReservoirNominalCapacityMl *float64               `json:"reservoir_nominal_capacity_ml"`
+	HotspotThresholdDeltaC     *float64               `json:"hotspot_threshold_delta_c"`
 	PowerSensors               []PowerSensorConfigDTO `json:"power_sensors,omitempty"`
 }
 
@@ -185,6 +186,7 @@ func (h *Handler) handleCreateModule(w http.ResponseWriter, r *http.Request) {
 		MinimumSolarAngleDeg:       req.MinimumSolarAngleDeg,
 		InspectionIntervalDays:     req.InspectionIntervalDays,
 		ReservoirNominalCapacityMl: req.ReservoirNominalCapacityMl,
+		HotspotThresholdDeltaC:     req.HotspotThresholdDeltaC,
 		PowerSensors:               req.PowerSensors,
 	})
 	if err != nil {
@@ -280,6 +282,7 @@ type updateConfigurationRequest struct {
 	MinimumSolarAngleDeg       *float64                 `json:"minimum_solar_angle_deg"`
 	InspectionIntervalDays     *int32                   `json:"inspection_interval_days"`
 	ReservoirNominalCapacityMl *float64                 `json:"reservoir_nominal_capacity_ml"`
+	HotspotThresholdDeltaC     *float64                 `json:"hotspot_threshold_delta_c"`
 	PowerSensors               *[]PowerSensorConfigDTO  `json:"power_sensors,omitempty"`
 	ClientIDs                  *[]string                `json:"client_ids,omitempty"`
 }
@@ -333,6 +336,7 @@ func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Reque
 		MinimumSolarAngleDeg:       req.MinimumSolarAngleDeg,
 		InspectionIntervalDays:     req.InspectionIntervalDays,
 		ReservoirNominalCapacityMl: req.ReservoirNominalCapacityMl,
+		HotspotThresholdDeltaC:     req.HotspotThresholdDeltaC,
 		PowerSensors:               req.PowerSensors,
 		ClientIDs:                  parsedClientUUIDs,
 	})

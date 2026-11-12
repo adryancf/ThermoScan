@@ -87,6 +87,7 @@ CREATE TABLE modules (
     minimum_solar_angle_deg numeric(6,3) CHECK (minimum_solar_angle_deg BETWEEN 0 AND 90),
     inspection_interval_days integer NOT NULL DEFAULT 1 CHECK (inspection_interval_days >= 1),
     reservoir_nominal_capacity_ml numeric(12,3) CHECK (reservoir_nominal_capacity_ml > 0),
+    hotspot_threshold_delta_c numeric(5,2) NOT NULL DEFAULT 8.0 CHECK (hotspot_threshold_delta_c > 0 AND hotspot_threshold_delta_c <= 50.0),
     power_sensors jsonb NULL CHECK (power_sensors IS NULL OR jsonb_typeof(power_sensors) = 'array'),
     configured_at timestamptz,
     next_inspection_at timestamptz,

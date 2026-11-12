@@ -63,6 +63,14 @@ func numericToFloatPtr(n pgtype.Numeric) *float64 {
 	return &val
 }
 
+func numericToFloatWithDefault(n pgtype.Numeric, defaultVal float64) float64 {
+	ptr := numericToFloatPtr(n)
+	if ptr == nil {
+		return defaultVal
+	}
+	return *ptr
+}
+
 func floatPtrToPgFloat8(v *float64) pgtype.Float8 {
 	if v == nil {
 		return pgtype.Float8{Valid: false}

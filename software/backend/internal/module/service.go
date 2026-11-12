@@ -201,6 +201,7 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		MinimumSolarAngleDeg:       floatPtrToNumeric(in.MinimumSolarAngleDeg),
 		InspectionIntervalDays:     intervalDays,
 		ReservoirNominalCapacityMl: floatPtrToNumeric(in.ReservoirNominalCapacityMl),
+		HotspotThresholdDeltaC:     floatPtrToNumeric(in.HotspotThresholdDeltaC),
 		PowerSensors:               powerSensorsBytes,
 		ConfiguredAt:               configuredAt,
 		ConfigVersion:              configVersion,
@@ -625,6 +626,14 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 		reservoirCap = in.ReservoirNominalCapacityMl
 	}
 
+	hotspotDelta := numericToFloatPtr(current.HotspotThresholdDeltaC)
+	if in.HotspotThresholdDeltaC != nil {
+		if *in.HotspotThresholdDeltaC <= 0 || *in.HotspotThresholdDeltaC > 50.0 {
+			return ModuleDetailsDTO{}, ErrInvalidInput
+		}
+		hotspotDelta = in.HotspotThresholdDeltaC
+	}
+
 	intervalDays := current.InspectionIntervalDays
 	if in.InspectionIntervalDays != nil {
 		if *in.InspectionIntervalDays < 1 {
@@ -724,6 +733,7 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 		MinimumSolarAngleDeg:       floatPtrToNumeric(minSolarAngle),
 		InspectionIntervalDays:     intervalDays,
 		ReservoirNominalCapacityMl: floatPtrToNumeric(reservoirCap),
+		HotspotThresholdDeltaC:     floatPtrToNumeric(hotspotDelta),
 		PowerSensors:               powerSensorsBytes,
 		ConfiguredAt:               configuredAt,
 	})
@@ -1070,6 +1080,7 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		MinimumSolarAngleDeg:       numericToFloatPtr(r.MinimumSolarAngleDeg),
 		InspectionIntervalDays:     r.InspectionIntervalDays,
 		ReservoirNominalCapacityMl: numericToFloatPtr(r.ReservoirNominalCapacityMl),
+		HotspotThresholdDeltaC:     numericToFloatWithDefault(r.HotspotThresholdDeltaC, 8.0),
 		TotalLengthCm:              totalLengthCm,
 		PowerSensors:               powerSensorsData,
 		ConfiguredAt:               configuredAtStr,

@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/storage/token_storage.dart';
 import 'package:thermoscan/features/auth/data/auth_repository.dart';
 import 'package:thermoscan/features/auth/domain/auth_user.dart';
@@ -622,6 +623,69 @@ void main() {
       // Should be grouped under Panel 2, not Panel 1
       expect(find.textContaining('Panel 2'), findsOneWidget);
       expect(find.textContaining('Panel 1'), findsNothing);
+    });
+
+    testWidgets(
+        '8. Peak Temp icon color respects firmware confirmation, staying secondary when deltaT > 5.0 without confirmed anomalies',
+        (tester) async {
+      const mHot = ModuleMeasurement(
+        id: 'meas-hot',
+        moduleId: 'mod-audit',
+        inspectionId: 'insp-1',
+        sourceEventId: 'evt-1',
+        panelIndex: 1,
+        xPositionCm: 10.0,
+        localXPositionCm: 10.0,
+        maxTemperatureC: 38.0, // Baseline is 30.0 -> deltaT is +8.0C (> 5.0C!)
+        measuredAt: '2026-11-12T06:00:00Z',
+        receivedAt: '2026-11-12T06:00:05Z',
+      );
+
+      const insp = LatestInspection(
+        inspection: ModuleInspection(
+          id: 'insp-1',
+          moduleId: 'mod-audit',
+          sourceEventId: 'evt-1',
+          type: 'scheduled',
+          scheduledFor: '2026-11-12T06:00:00Z',
+          status: 'completed',
+          baselineTemperatureC: 30.0,
+          createdAt: '2026-11-12T06:00:00Z',
+          updatedAt: '2026-11-12T06:00:00Z',
+        ),
+        totalMeasurements: 1,
+        confirmedAnomalies: [], // 0 confirmed anomalies by firmware!
+      );
+
+      final repo = _AuditMockRepo(
+        module: baseModule,
+        latestInspection: insp,
+        mockMeasurements: const [mHot],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            tokenStorageProvider.overrideWithValue(InMemoryTokenStorage()),
+            authRepositoryProvider.overrideWithValue(_MockAuthRepo()),
+            authControllerProvider.overrideWith((ref) => _FakeAuthController(techUser)),
+            moduleRepositoryProvider.overrideWithValue(repo),
+          ],
+          child: const MaterialApp(
+            home: ModuleMeasurementsScreen(moduleId: 'mod-audit'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Delta text is visible as informational
+      expect(find.text('+8.0°C above normal'), findsOneWidget);
+
+      // Thermostat icon should be AppColors.secondary, NOT AppColors.error
+      final iconFinder = find.byIcon(Icons.thermostat_rounded);
+      expect(iconFinder, findsOneWidget);
+      final iconWidget = tester.widget<Icon>(iconFinder);
+      expect(iconWidget.color, equals(AppColors.secondary));
     });
   });
 }

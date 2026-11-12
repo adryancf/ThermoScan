@@ -46,6 +46,7 @@ type ModuleDTO struct {
 	MinimumSolarAngleDeg       *float64             `json:"minimum_solar_angle_deg"`
 	InspectionIntervalDays     int32                `json:"inspection_interval_days"`
 	ReservoirNominalCapacityMl *float64             `json:"reservoir_nominal_capacity_ml"`
+	HotspotThresholdDeltaC     float64              `json:"hotspot_threshold_delta_c"`
 	TotalLengthCm              *float64             `json:"total_length_cm,omitempty"`
 	PowerSensors               any                  `json:"power_sensors,omitempty"`
 	ConfiguredAt               *string              `json:"configured_at"`
@@ -145,6 +146,7 @@ type CreateModuleInput struct {
 	MinimumSolarAngleDeg       *float64
 	InspectionIntervalDays     *int32
 	ReservoirNominalCapacityMl *float64
+	HotspotThresholdDeltaC     *float64
 	PowerSensors               []PowerSensorConfigDTO
 }
 
@@ -164,6 +166,7 @@ type UpdateConfigurationInput struct {
 	MinimumSolarAngleDeg       *float64
 	InspectionIntervalDays     *int32
 	ReservoirNominalCapacityMl *float64
+	HotspotThresholdDeltaC     *float64
 	PowerSensors               *[]PowerSensorConfigDTO
 	ClientIDs                  *[]pgtype.UUID
 }
@@ -375,6 +378,7 @@ type DeviceConfigurationDTO struct {
 	MinSolarAngle       *float64          `json:"min_solar_angle"`
 	IntervalDays        int32             `json:"interval_days"`
 	PingIntervalSeconds int               `json:"ping_interval_seconds"`
+	HotspotThresholdDeltaC float64        `json:"hotspot_threshold_delta_c"`
 	PowerSensors        any               `json:"power_sensors,omitempty"`
 }
 

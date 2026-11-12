@@ -155,6 +155,7 @@ type Module struct {
 	InspectionIntervalDays int32
 	// Optional descriptive metadata. The binary sensor does not measure remaining volume.
 	ReservoirNominalCapacityMl pgtype.Numeric
+	HotspotThresholdDeltaC     pgtype.Numeric
 	PowerSensors               []byte
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time

@@ -88,6 +88,7 @@ class PvModule {
     this.minimumSolarAngleDeg,
     required this.inspectionIntervalDays,
     this.reservoirNominalCapacityMl,
+    this.hotspotThresholdDeltaC = 8.0,
     this.configuredAt,
     this.nextInspectionAt,
     required this.createdAt,
@@ -127,6 +128,7 @@ class PvModule {
   final double? minimumSolarAngleDeg;
   final int inspectionIntervalDays;
   final double? reservoirNominalCapacityMl;
+  final double hotspotThresholdDeltaC;
   final String? configuredAt;
   final String? nextInspectionAt;
   final String createdAt;
@@ -296,6 +298,8 @@ class PvModule {
           (json['inspection_interval_days'] as num?)?.toInt() ?? 1,
       reservoirNominalCapacityMl:
           (json['reservoir_nominal_capacity_ml'] as num?)?.toDouble(),
+      hotspotThresholdDeltaC:
+          (json['hotspot_threshold_delta_c'] as num?)?.toDouble() ?? 8.0,
       configuredAt: json['configured_at'] as String?,
       nextInspectionAt: (json['next_inspection_at'] ?? json['nextInspectionAt']) as String?,
       createdAt: json['created_at'] as String? ?? '',
@@ -743,6 +747,7 @@ class ModuleInspection {
     required this.type,
     this.cleaningOperationId,
     this.baselineTemperatureC,
+    this.hotspotThresholdDeltaC = 8.0,
     required this.scheduledFor,
     this.startedAt,
     this.finishedAt,
@@ -759,6 +764,7 @@ class ModuleInspection {
   final String type;
   final String? cleaningOperationId;
   final double? baselineTemperatureC;
+  final double hotspotThresholdDeltaC;
   final String scheduledFor;
   final String? startedAt;
   final String? finishedAt;
@@ -775,6 +781,7 @@ class ModuleInspection {
     String? type,
     String? cleaningOperationId,
     double? baselineTemperatureC,
+    double? hotspotThresholdDeltaC,
     String? scheduledFor,
     String? startedAt,
     String? finishedAt,
@@ -791,6 +798,7 @@ class ModuleInspection {
       type: type ?? this.type,
       cleaningOperationId: cleaningOperationId ?? this.cleaningOperationId,
       baselineTemperatureC: baselineTemperatureC ?? this.baselineTemperatureC,
+      hotspotThresholdDeltaC: hotspotThresholdDeltaC ?? this.hotspotThresholdDeltaC,
       scheduledFor: scheduledFor ?? this.scheduledFor,
       startedAt: startedAt ?? this.startedAt,
       finishedAt: finishedAt ?? this.finishedAt,
@@ -816,6 +824,7 @@ class ModuleInspection {
       type: json['type'] as String? ?? 'scheduled',
       cleaningOperationId: json['cleaning_operation_id'] as String?,
       baselineTemperatureC: (json['baseline_temperature_c'] as num?)?.toDouble(),
+      hotspotThresholdDeltaC: (json['hotspot_threshold_delta_c'] as num?)?.toDouble() ?? 8.0,
       scheduledFor: json['scheduled_for'] as String? ?? '',
       startedAt: json['started_at'] as String?,
       finishedAt: json['finished_at'] as String?,

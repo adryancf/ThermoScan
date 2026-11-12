@@ -91,15 +91,15 @@ void test_candidate_detection_threshold(void) {
     }
 
     const float baseline = 25.0f;
-    // HOTSPOT_THRESHOLD_DELTA_C = 10.0f -> candidate threshold = 35.0f
+    // HOTSPOT_THRESHOLD_DELTA_C = 8.0f -> candidate threshold = 33.0f
 
-    // Row 5, Col 10: 34.9f -> NOT candidate (< 35.0f)
-    acq.frame.pixels[5 * 32 + 10] = 34.9f;
+    // Row 5, Col 10: 32.9f -> NOT candidate (< 33.0f)
+    acq.frame.pixels[5 * 32 + 10] = 32.9f;
 
-    // Row 5, Col 20: 35.0f -> Candidate (>= 35.0f)
-    acq.frame.pixels[5 * 32 + 20] = 35.0f;
+    // Row 5, Col 20: 33.0f -> Candidate (>= 33.0f)
+    acq.frame.pixels[5 * 32 + 20] = 33.0f;
 
-    // Row 8, Col 15: 42.0f -> Candidate (>= 35.0f)
+    // Row 8, Col 15: 42.0f -> Candidate (>= 33.0f)
     acq.frame.pixels[8 * 32 + 15] = 42.0f;
 
     auto candidates = analyzer.findCandidates(acq, baseline);
@@ -107,7 +107,7 @@ void test_candidate_detection_threshold(void) {
 
     TEST_ASSERT_EQUAL_INT(20, candidates[0].col);
     TEST_ASSERT_EQUAL_INT(5, candidates[0].row);
-    TEST_ASSERT_EQUAL_FLOAT(35.0f, candidates[0].temp_c);
+    TEST_ASSERT_EQUAL_FLOAT(33.0f, candidates[0].temp_c);
 
     TEST_ASSERT_EQUAL_INT(15, candidates[1].col);
     TEST_ASSERT_EQUAL_INT(8, candidates[1].row);

@@ -864,7 +864,7 @@ class _ModuleMeasurementsScreenState
           Expanded(
             child: _buildMetricStripItem(
               icon: Icons.thermostat_rounded,
-              iconColor: (deltaT != null && deltaT > 5.0)
+              iconColor: hotspotCount > 0
                   ? AppColors.error
                   : AppColors.secondary,
               label: 'Peak Temp',

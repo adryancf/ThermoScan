@@ -255,9 +255,26 @@ class _ModuleThermalInspectionScreenState
             activePostCleaningResult = currentBundle.verificationResult;
             activeBundle = currentBundle;
           } else {
-            final histMeasurements =
+            final pagedMeas =
                 historicalPagedAsync?.valueOrNull?.measurements ??
                     const <ModuleMeasurement>[];
+
+            final histBundle = bundles.firstWhere(
+              (b) =>
+                  b.routineInspection.id == _selectedHistoricalInspection!.id,
+              orElse: () => InspectionRoutineBundle(
+                routineInspection: _selectedHistoricalInspection!,
+                verificationInspections: const [],
+                routineMeasurements: pagedMeas,
+                verificationMeasurements: const [],
+                restoredMeasurements: pagedMeas,
+              ),
+            );
+
+            final histMeasurements = histBundle.routineMeasurements.isNotEmpty
+                ? histBundle.routineMeasurements
+                : pagedMeas;
+
             activeMeasurements = histMeasurements;
             activeInspection = LatestInspection(
               inspection: _selectedHistoricalInspection!,
@@ -268,17 +285,6 @@ class _ModuleThermalInspectionScreenState
             activeLatestMeasurement =
                 histMeasurements.isNotEmpty ? histMeasurements.first : null;
 
-            final histBundle = bundles.firstWhere(
-              (b) =>
-                  b.routineInspection.id == _selectedHistoricalInspection!.id,
-              orElse: () => InspectionRoutineBundle(
-                routineInspection: _selectedHistoricalInspection!,
-                verificationInspections: const [],
-                routineMeasurements: histMeasurements,
-                verificationMeasurements: const [],
-                restoredMeasurements: histMeasurements,
-              ),
-            );
             activeVerificationMeasurements =
                 histBundle.verificationMeasurements;
             activePostCleaningResult = histBundle.verificationResult;

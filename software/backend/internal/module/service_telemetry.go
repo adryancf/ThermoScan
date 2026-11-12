@@ -46,8 +46,8 @@ func (s *Service) ListMeasurements(ctx context.Context, principal auth.Principal
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > 3000 {
+		limit = 3000
 	}
 	if offset < 0 {
 		offset = 0
@@ -151,8 +151,8 @@ func (s *Service) ListInspectionMeasurementsPaged(
 	if limit <= 0 {
 		limit = 10
 	}
-	if limit > 200 {
-		limit = 200
+	if limit > 3000 {
+		limit = 3000
 	}
 	offset := (page - 1) * limit
 

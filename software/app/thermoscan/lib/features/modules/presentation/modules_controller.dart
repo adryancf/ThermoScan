@@ -50,7 +50,7 @@ final companyClientsOptionsProvider =
 final moduleMeasurementsProvider = FutureProvider.autoDispose
     .family<List<ModuleMeasurement>, String>((ref, moduleId) {
   final repo = ref.watch(moduleRepositoryProvider);
-  return repo.listMeasurements(moduleId: moduleId, limit: 200);
+  return repo.listMeasurements(moduleId: moduleId, limit: 3000);
 });
 
 final moduleCleaningsProvider = FutureProvider.autoDispose

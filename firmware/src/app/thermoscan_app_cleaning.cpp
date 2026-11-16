@@ -107,7 +107,7 @@ void ThermoscanApp::handleCleaning() {
         }
 
         bool spray_interrupted = false;
-        constexpr uint32_t step_ms = 100;
+        constexpr uint32_t step_ms = thermoscan_config::SPRAY_STEP_MS;
         const int total_steps = static_cast<int>(DEFAULT_SPRAY_DURATION_MS / step_ms);
         for (int step = 0; step < total_steps; ++step) {
             const bool fluid = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;

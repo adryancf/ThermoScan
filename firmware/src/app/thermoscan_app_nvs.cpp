@@ -78,6 +78,7 @@ void ThermoscanApp::restoreStateFromNvs() {
         inspection_source_event_id_ = s.inspection_source_event_id;
         last_completed_panel_ = s.last_completed_panel;
         inspection_crash_retries_ = s.inspection_crash_retries;
+        restored_operation_status_ = s.operation_status;
 
         if (inspection_source_event_id_.empty()) {
             storage_->getInspectionProgress(inspection_source_event_id_, last_completed_panel_, inspection_crash_retries_);
@@ -162,6 +163,11 @@ void ThermoscanApp::handleBootInit() {
     // Hardware subsystems initialization
     bool init_ok = true;
     if (storage_ != nullptr) init_ok &= storage_->init();
+    if (backup_storage_ != nullptr) {
+        if (backup_storage_->init() && backup_storage_->isAvailable()) {
+            backup_storage_->purgeTempFiles();
+        }
+    }
     if (motion_ != nullptr)  init_ok &= motion_->init();
     if (spray_ != nullptr)   init_ok &= spray_->init();
     if (camera_ != nullptr)  init_ok &= camera_->init();
@@ -183,7 +189,49 @@ void ThermoscanApp::handleBootInit() {
     // Conservative NVS state restoration
     restoreStateFromNvs();
 
-    // Check if an inspection was interrupted by a crash/power cycle
+    // Check if an inspection was interrupted during ANALYZING or SYNCING
+    if ((restored_operation_status_ == "ANALYZING" || restored_operation_status_ == "SYNCING") &&
+        state_ == AppState::BOOT_INIT) {
+        const bool has_backup = (backup_storage_ != nullptr &&
+                                 backup_storage_->isAvailable() &&
+                                 !inspection_source_event_id_.empty() &&
+                                 backup_storage_->hasScanBackup(inspection_source_event_id_));
+        if (has_backup && inspection_crash_retries_ < 2) {
+            inspection_crash_retries_++;
+            pending_sync_backup_id_ = inspection_source_event_id_;
+            state_ = (restored_operation_status_ == "ANALYZING")
+                         ? AppState::ANALYZING
+                         : AppState::SYNCING;
+            saveCurrentStateToNvs();
+            Serial.printf("[APP] Recovering pending %s for inspection ID %s from SD backup (crash retry %u)\n",
+                          restored_operation_status_.c_str(),
+                          inspection_source_event_id_.c_str(),
+                          static_cast<unsigned>(inspection_crash_retries_));
+        } else {
+            if (has_backup && inspection_crash_retries_ >= 2) {
+                Serial.printf("[APP] Backup recovery crash retries exhausted (%u) for inspection ID %s. Resetting to IDLE.\n",
+                              static_cast<unsigned>(inspection_crash_retries_),
+                              inspection_source_event_id_.c_str());
+                if (cloud_ != nullptr) {
+                    cloud_->abortInspection(inspection_source_event_id_, "crash_recovery_exhausted");
+                }
+                backup_storage_->removeScanBackup(inspection_source_event_id_);
+            } else {
+                Serial.println(F("[APP] Pending ANALYZING/SYNCING has no SD backup available. Resetting to IDLE."));
+            }
+            inspection_source_event_id_.clear();
+            pending_sync_backup_id_.clear();
+            last_completed_panel_ = 0;
+            inspection_crash_retries_ = 0;
+            if (storage_ != nullptr) {
+                storage_->clearInspectionProgress();
+            }
+            state_ = AppState::IDLE;
+            saveCurrentStateToNvs();
+        }
+    }
+
+    // Check if an inspection was interrupted by a crash/power cycle during SCANNING
     if (!inspection_source_event_id_.empty() && state_ == AppState::BOOT_INIT) {
         if (inspection_crash_retries_ < MAX_INSPECTION_CRASH_RETRIES) {
             inspection_crash_retries_++;

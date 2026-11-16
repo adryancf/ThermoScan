@@ -5,6 +5,7 @@
 
 #include "pinout.h"
 #include "hal_esp32/nvs_storage.h"
+#include "hal_esp32/sd_backup_storage.h"
 #include "hal_esp32/capacitive_water_sensor.h"
 #include "hal_esp32/drv8825_stepper.h"
 #include "hal_esp32/pump_servo_spray.h"
@@ -35,6 +36,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 
 // Hardware Drivers & Infrastructure Layer Instantiation
 static hal_esp32::NvsStorage g_storage;
+static hal_esp32::SdBackupStorage g_backup_storage;
 static hal_esp32::CapacitiveWaterSensor g_water(WATER_SENSOR_PIN);
 static hal_esp32::Drv8825Stepper g_stepper(STEPPER_STEP_PIN, STEPPER_DIR_PIN, STEPPER_EN_PIN, STEPPER_LIMIT_MIN_PIN, STEPPER_LIMIT_MAX_PIN, DEFAULT_STEPS_PER_CM, HOME_OFFSET_CM);
 static hal_esp32::PumpServoSpray g_spray(PUMP_MOSFET_PIN, SERVO_PWM_PIN, &g_water);
@@ -51,7 +53,8 @@ static app::ThermoscanApp g_app(&g_camera,
                                 &g_water,
                                 &g_storage,
                                 &g_cloud,
-                                &g_time_provider);
+                                &g_time_provider,
+                                &g_backup_storage);
 
 // Bench Diagnostics Console & Engine Instantiation
 static diagnostics::DualSerialProxy& g_dual_serial = diagnostics::getGlobalDualSerial();

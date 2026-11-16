@@ -20,7 +20,8 @@ ThermoscanApp::ThermoscanApp(IThermalCamera* camera,
                              IWaterSensor* water_sensor,
                              IStorage* storage,
                              ICloudClient* cloud,
-                             ITimeProvider* time_provider)
+                             ITimeProvider* time_provider,
+                             IBackupStorage* backup_storage)
     : camera_(camera),
       power_meter_(power_meter),
       motion_(motion),
@@ -28,7 +29,8 @@ ThermoscanApp::ThermoscanApp(IThermalCamera* camera,
       water_sensor_(water_sensor),
       storage_(storage),
       cloud_(cloud),
-      time_provider_(time_provider) {}
+      time_provider_(time_provider),
+      backup_storage_(backup_storage) {}
 
 const char* ThermoscanApp::getStateName() const {
     switch (state_) {

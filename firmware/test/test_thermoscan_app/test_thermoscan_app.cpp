@@ -6,8 +6,10 @@
 #include "hal/i_spray_actuator.h"
 #include "hal/i_water_sensor.h"
 #include "hal/i_storage.h"
+#include "hal/i_backup_storage.h"
 #include "hal/i_cloud_client.h"
 #include "hal/i_time_provider.h"
+#include <map>
 
 namespace {
 
@@ -268,6 +270,66 @@ public:
 
     uint32_t getEpochSeconds() const override { return epoch; }
     bool isTimeSynchronized() const override { return sync; }
+};
+
+class MockBackupStorage : public IBackupStorage {
+public:
+    bool init_success{true};
+    bool available{true};
+    int init_calls{0};
+    int purge_calls{0};
+    std::string active_tmp_id;
+    std::vector<float> tmp_frame_x_positions;
+    std::map<std::string, size_t> committed_bins;
+    std::vector<std::string> removed_bins;
+
+    bool init() override {
+        init_calls++;
+        available = init_success;
+        return init_success;
+    }
+
+    bool isAvailable() const override { return available; }
+
+    bool beginScanBackup(const std::string& inspection_id) override {
+        if (!available || inspection_id.empty()) return false;
+        active_tmp_id = inspection_id;
+        tmp_frame_x_positions.clear();
+        return true;
+    }
+
+    bool appendRawFrame(float scan_x_cm, const float* temps_768) override {
+        if (!available || active_tmp_id.empty() || temps_768 == nullptr) return false;
+        tmp_frame_x_positions.push_back(scan_x_cm);
+        return true;
+    }
+
+    bool commitScanBackup(const std::string& inspection_id) override {
+        if (!available || active_tmp_id != inspection_id) return false;
+        committed_bins[inspection_id] = tmp_frame_x_positions.size();
+        active_tmp_id.clear();
+        return true;
+    }
+
+    bool hasScanBackup(const std::string& inspection_id) override {
+        if (!available || inspection_id.empty()) return false;
+        return committed_bins.count(inspection_id) > 0;
+    }
+
+    bool removeScanBackup(const std::string& inspection_id) override {
+        if (!available || inspection_id.empty()) return false;
+        committed_bins.erase(inspection_id);
+        removed_bins.push_back(inspection_id);
+        return true;
+    }
+
+    bool purgeTempFiles() override {
+        if (!available) return false;
+        purge_calls++;
+        active_tmp_id.clear();
+        tmp_frame_x_positions.clear();
+        return true;
+    }
 };
 
 } // namespace
@@ -1094,6 +1156,167 @@ void test_manual_cleaning_from_device_status_and_ack(void) {
     TEST_ASSERT_EQUAL(1, cloud.manual_cleaning_acks_sent);
 }
 
+void test_sd_backup_normal_scan_commit_and_sync_cleanup(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+    MockBackupStorage backup;
+
+    storage.panel_cnt = 1;
+    storage.panel_len = 10.0f;
+    cloud.config_json_payload =
+        "{\"config_version\":2,\"geometry\":{\"panel_length_cm\":10.0,\"panel_width_cm\":50.0,"
+        "\"panel_count\":1,\"panel_spacing_cm\":2.0},\"min_solar_angle\":30.0,"
+        "\"interval_days\":7,\"ping_interval_seconds\":5}";
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time, &backup);
+    TEST_ASSERT_TRUE(app.init());
+    TEST_ASSERT_EQUAL(1, backup.init_calls);
+    TEST_ASSERT_EQUAL(1, backup.purge_calls);
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    TEST_ASSERT_EQUAL(AppState::SCANNING, app.getState());
+
+    app.tick(); // SCANNING -> ANALYZING (appends frames to .tmp, commits .bin)
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app.getState());
+    std::string insp_id = app.getInspectionSourceEventId();
+    TEST_ASSERT_FALSE(insp_id.empty());
+    TEST_ASSERT_TRUE(backup.active_tmp_id.empty());
+    TEST_ASSERT_TRUE(backup.hasScanBackup(insp_id));
+    TEST_ASSERT_GREATER_THAN(0, static_cast<int>(backup.committed_bins[insp_id]));
+
+    // Trigger config sync on SYNCING so HTTP 200 ackConfiguration runs before cleanup
+    app.setConfigUpdatePending(true);
+    app.tick(); // ANALYZING -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_TRUE(backup.hasScanBackup(insp_id));
+
+    app.tick(); // SYNCING -> IDLE (HTTP 200 ack -> removes .bin)
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_FALSE(backup.hasScanBackup(insp_id));
+    TEST_ASSERT_EQUAL(1, static_cast<int>(backup.removed_bins.size()));
+    TEST_ASSERT_EQUAL_STRING(insp_id.c_str(), backup.removed_bins[0].c_str());
+}
+
+void test_sd_backup_fallback_when_unavailable(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+    MockBackupStorage backup;
+
+    backup.init_success = false;
+    storage.panel_cnt = 1;
+    storage.panel_len = 10.0f;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time, &backup);
+    TEST_ASSERT_TRUE(app.init());
+    TEST_ASSERT_FALSE(backup.isAvailable());
+    TEST_ASSERT_EQUAL(0, backup.purge_calls);
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    app.tick(); // SCANNING -> ANALYZING
+    app.tick(); // ANALYZING -> SYNCING
+    app.tick(); // SYNCING -> IDLE
+
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_finalized);
+    TEST_ASSERT_TRUE(backup.committed_bins.empty());
+    TEST_ASSERT_TRUE(backup.removed_bins.empty());
+}
+
+void test_sd_backup_boot_recovery_analyzing_and_syncing(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+    MockBackupStorage backup;
+
+    // Case 1: Pending ANALYZING with .bin present and retries=0 -> recovers to ANALYZING
+    storage.state.operation_status = "ANALYZING";
+    storage.state.inspection_source_event_id = "insp-recover-analyzing";
+    storage.state.inspection_crash_retries = 0;
+    backup.committed_bins["insp-recover-analyzing"] = 4;
+
+    ThermoscanApp app1(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time, &backup);
+    TEST_ASSERT_TRUE(app1.init());
+    TEST_ASSERT_EQUAL(1, backup.purge_calls);
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app1.getState());
+    TEST_ASSERT_EQUAL_UINT8(1, app1.getInspectionCrashRetries());
+
+    app1.tick(); // ANALYZING -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app1.getState());
+    app1.tick(); // SYNCING -> IDLE (cleans up .bin)
+    TEST_ASSERT_EQUAL(AppState::IDLE, app1.getState());
+    TEST_ASSERT_FALSE(backup.hasScanBackup("insp-recover-analyzing"));
+
+    // Case 2: Pending SYNCING with .bin present and retries=1 (< 2) -> recovers to SYNCING
+    storage.state.operation_status = "SYNCING";
+    storage.state.inspection_source_event_id = "insp-recover-syncing";
+    storage.state.inspection_crash_retries = 1;
+    backup.committed_bins["insp-recover-syncing"] = 4;
+
+    ThermoscanApp app2(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time, &backup);
+    TEST_ASSERT_TRUE(app2.init());
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app2.getState());
+    TEST_ASSERT_EQUAL_UINT8(2, app2.getInspectionCrashRetries());
+
+    // Case 3: Pending ANALYZING without .bin -> resets to IDLE
+    storage.state.operation_status = "ANALYZING";
+    storage.state.inspection_source_event_id = "insp-missing-bin";
+    storage.state.inspection_crash_retries = 0;
+
+    ThermoscanApp app3(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time, &backup);
+    TEST_ASSERT_TRUE(app3.init());
+    TEST_ASSERT_EQUAL(AppState::IDLE, app3.getState());
+    TEST_ASSERT_TRUE(app3.getInspectionSourceEventId().empty());
+}
+
+void test_sd_backup_boot_recovery_crash_loop_guard(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+    MockBackupStorage backup;
+
+    storage.state.operation_status = "SYNCING";
+    storage.state.inspection_source_event_id = "insp-crash-loop";
+    storage.state.inspection_crash_retries = 2;
+    backup.committed_bins["insp-crash-loop"] = 4;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time, &backup);
+    TEST_ASSERT_TRUE(app.init());
+
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_aborted);
+    TEST_ASSERT_EQUAL_STRING("insp-crash-loop", cloud.last_abort_inspection_id.c_str());
+    TEST_ASSERT_EQUAL_STRING("crash_recovery_exhausted", cloud.last_abort_reason.c_str());
+    TEST_ASSERT_FALSE(backup.hasScanBackup("insp-crash-loop"));
+    TEST_ASSERT_TRUE(app.getInspectionSourceEventId().empty());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getInspectionCrashRetries());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1121,5 +1344,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_inspection_crash_retries_exhausted_aborts_inspection);
     RUN_TEST(test_inspection_abort_on_panel_result_rejected);
     RUN_TEST(test_manual_cleaning_from_device_status_and_ack);
+    RUN_TEST(test_sd_backup_normal_scan_commit_and_sync_cleanup);
+    RUN_TEST(test_sd_backup_fallback_when_unavailable);
+    RUN_TEST(test_sd_backup_boot_recovery_analyzing_and_syncing);
+    RUN_TEST(test_sd_backup_boot_recovery_crash_loop_guard);
     return UNITY_END();
 }

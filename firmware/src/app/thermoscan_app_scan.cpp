@@ -1,4 +1,5 @@
 #include "thermoscan_app.h"
+#include "thermoscan_config.h"
 #include <cmath>
 #include <algorithm>
 #include <ArduinoJson.h>
@@ -151,6 +152,10 @@ void ThermoscanApp::handleScanning() {
     scan_truncated_by_memory_ = false;
     all_panels_accepted_ = true;
 
+    if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
+        backup_storage_->beginScanBackup(inspection_source_event_id_);
+    }
+
     utils::HeapTracker::start();
 
     const uint8_t total_panels = (config_.panel_count > 0) ? static_cast<uint8_t>(config_.panel_count) : 1;
@@ -188,7 +193,7 @@ void ThermoscanApp::handleScanning() {
 
         std::vector<std::vector<float>> batch_frames_data;
         std::vector<PowerSnapshot> batch_power_data;
-        const size_t BATCH_CHUNK_SIZE = 3;
+        const size_t BATCH_CHUNK_SIZE = thermoscan_config::TELEMETRY_BATCH_CHUNK_SIZE;
         batch_frames_data.reserve(BATCH_CHUNK_SIZE);
         batch_power_data.reserve(BATCH_CHUNK_SIZE);
         current_batch_.reserve(BATCH_CHUNK_SIZE);
@@ -236,6 +241,10 @@ void ThermoscanApp::handleScanning() {
             }
 
             if (frame_ok) {
+                if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
+                    backup_storage_->appendRawFrame(current_x, frame.pixels);
+                }
+
                 histogram_.addFrame(frame);
 
                 std::string meas_id = utils::generateUUIDv4();
@@ -443,8 +452,13 @@ void ThermoscanApp::handleScanning() {
 
     utils::HeapTracker::update();
 
+    if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
+        backup_storage_->commitScanBackup(inspection_source_event_id_);
+    }
+
     Serial.println(F("[SCAN] Scan completed. State transition: SCANNING -> ANALYZING."));
     state_ = AppState::ANALYZING;
+    saveCurrentStateToNvs();
 }
 
 void ThermoscanApp::handleAnalyzing() {
@@ -456,7 +470,11 @@ void ThermoscanApp::handleAnalyzing() {
         if (cloud_ != nullptr) {
             cloud_->abortInspection(inspection_source_event_id_, "panel_result_rejected");
         }
+        if (backup_storage_ != nullptr && backup_storage_->isAvailable() && !inspection_source_event_id_.empty()) {
+            backup_storage_->removeScanBackup(inspection_source_event_id_);
+        }
         inspection_source_event_id_.clear();
+        pending_sync_backup_id_.clear();
         last_completed_panel_ = 0;
         inspection_crash_retries_ = 0;
         if (storage_ != nullptr) {
@@ -496,6 +514,7 @@ void ThermoscanApp::handleAnalyzing() {
     }
 
     if (fin_ok) {
+        pending_sync_backup_id_ = inspection_source_event_id_;
         inspection_source_event_id_.clear();
         last_completed_panel_ = 0;
         inspection_crash_retries_ = 0;
@@ -596,8 +615,8 @@ void ThermoscanApp::handleAnalyzing() {
         if (storage_ != nullptr) {
             storage_->clearCleaningQueue();
         }
-        saveCurrentStateToNvs();
         state_ = AppState::SYNCING;
+        saveCurrentStateToNvs();
     }
 }
 

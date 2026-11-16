@@ -2,6 +2,7 @@
 #define THERMOSCAN_APP_THERMOSCAN_APP_H
 
 #include <cstdint>
+#include "thermoscan_config.h"
 #include <string>
 #include <vector>
 
@@ -12,6 +13,7 @@
 #include "hal/i_spray_actuator.h"
 #include "hal/i_water_sensor.h"
 #include "hal/i_storage.h"
+#include "hal/i_backup_storage.h"
 #include "hal/i_cloud_client.h"
 #include "hal/i_time_provider.h"
 
@@ -68,7 +70,8 @@ public:
                   IWaterSensor* water_sensor,
                   IStorage* storage,
                   ICloudClient* cloud,
-                  ITimeProvider* time_provider);
+                  ITimeProvider* time_provider,
+                  IBackupStorage* backup_storage = nullptr);
 
     ~ThermoscanApp() = default;
 
@@ -111,6 +114,7 @@ private:
     IStorage* storage_{nullptr};
     ICloudClient* cloud_{nullptr};
     ITimeProvider* time_provider_{nullptr};
+    IBackupStorage* backup_storage_{nullptr};
 
     AppState state_{AppState::BOOT_INIT};
     AppConfig config_;
@@ -122,9 +126,11 @@ private:
     domain::TemperatureHistogram histogram_;
     std::vector<TelemetryMeasurementItem> current_batch_;
     std::string inspection_source_event_id_{};
+    std::string pending_sync_backup_id_{};
+    std::string restored_operation_status_{};
     uint8_t last_completed_panel_{0};
     uint8_t inspection_crash_retries_{0};
-    static constexpr uint8_t MAX_INSPECTION_CRASH_RETRIES = 1;
+    static constexpr uint8_t MAX_INSPECTION_CRASH_RETRIES = thermoscan_config::MAX_INSPECTION_CRASH_RETRIES;
     uint32_t inspection_started_at_{0};
     uint32_t inspection_scheduled_for_{0};
     std::string current_cleaning_op_id_{};

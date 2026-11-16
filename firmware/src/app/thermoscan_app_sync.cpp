@@ -16,6 +16,18 @@ namespace app {
 void ThermoscanApp::handleSyncing() {
     // Only fetch configuration if a pending update was marked
     if (!config_update_pending_) {
+        if (!pending_sync_backup_id_.empty()) {
+            if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
+                backup_storage_->removeScanBackup(pending_sync_backup_id_);
+            }
+            pending_sync_backup_id_.clear();
+            inspection_source_event_id_.clear();
+            inspection_crash_retries_ = 0;
+            if (storage_ != nullptr) {
+                storage_->clearInspectionProgress();
+            }
+            saveCurrentStateToNvs();
+        }
         state_ = AppState::IDLE;
         return;
     }
@@ -188,8 +200,21 @@ void ThermoscanApp::handleSyncing() {
     }
 
     // Send acknowledgment only after successful RAM & NVS persistence
-    cloud_->ackConfiguration(config_.config_version);
+    const bool ack_ok = cloud_->ackConfiguration(config_.config_version);
     cloud_->clearConfigurationPending();
+
+    if (ack_ok && !pending_sync_backup_id_.empty()) {
+        if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
+            backup_storage_->removeScanBackup(pending_sync_backup_id_);
+        }
+        pending_sync_backup_id_.clear();
+        inspection_source_event_id_.clear();
+        inspection_crash_retries_ = 0;
+        if (storage_ != nullptr) {
+            storage_->clearInspectionProgress();
+        }
+        saveCurrentStateToNvs();
+    }
 
     config_update_pending_ = false;
     config_sync_failed_waiting_ping_ = false;

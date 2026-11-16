@@ -372,6 +372,12 @@ void ThermoscanApp::handleIdle() {
         Serial.println(F("[APP] Ping detected pending manual inspection request from backend!"));
         triggerManualInspection();
     }
+    if (cloud_ != nullptr && cloud_->isManualCleaningPending()) {
+        const float target_x = cloud_->getManualCleaningTargetXCm();
+        cloud_->clearManualCleaningPending();
+        Serial.printf("[APP] Ping detected pending manual cleaning request from backend (target_x=%.1f cm)!\n", target_x);
+        triggerManualCleaning(target_x);
+    }
 
     // Determine ping interval: use fast ping (5s) when initial configuration is not yet synchronized,
     // otherwise use standard configured interval (default 5s)
@@ -392,6 +398,12 @@ void ThermoscanApp::handleIdle() {
             cloud_->clearManualInspectionPending();
             Serial.println(F("[APP] Periodic ping detected pending manual inspection request!"));
             triggerManualInspection();
+        }
+        if (cloud_->isManualCleaningPending()) {
+            const float target_x = cloud_->getManualCleaningTargetXCm();
+            cloud_->clearManualCleaningPending();
+            Serial.printf("[APP] Periodic ping detected pending manual cleaning request (target_x=%.1f cm)!\n", target_x);
+            triggerManualCleaning(target_x);
         }
     }
 
@@ -423,6 +435,7 @@ void ThermoscanApp::handleIdle() {
 
     if (manual_cleaning_requested_) {
         manual_cleaning_requested_ = false;
+        manual_cleaning_active_ = true;
         cleaning_queue_.clear();
         domain::PanelPositionInfo pos = domain::resolvePanelPosition(
             config_.panel_count, config_.panel_length_cm, config_.panel_spacing_cm, manual_cleaning_target_x_);
@@ -1093,6 +1106,14 @@ void ThermoscanApp::handleCleaning() {
         motion_->moveToXCm(0.0f);
     }
 
+    if (manual_cleaning_active_) {
+        manual_cleaning_active_ = false;
+        if (cloud_ != nullptr) {
+            cloud_->setManualCleaningAckPending(true);
+            cloud_->sendPing();
+        }
+    }
+
     if (any_sprayed) {
         if (last_spray_end > 0) {
             cleaning_sm_.setSprayEndedTimestamp(last_spray_end);
@@ -1127,6 +1148,11 @@ void ThermoscanApp::handleWaitingVerification() {
         if (cloud_->isManualInspectionPending()) {
             cloud_->clearManualInspectionPending();
             triggerManualInspection();
+        }
+        if (cloud_->isManualCleaningPending()) {
+            const float target_x = cloud_->getManualCleaningTargetXCm();
+            cloud_->clearManualCleaningPending();
+            triggerManualCleaning(target_x);
         }
     }
 }

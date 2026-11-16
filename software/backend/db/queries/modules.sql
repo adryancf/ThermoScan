@@ -138,6 +138,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -179,6 +181,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -222,6 +226,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -266,6 +272,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -665,6 +673,22 @@ WHERE id = $1;
 -- name: GetModuleByIDForDevice :one
 SELECT * FROM modules
 WHERE id = $1;
+
+-- name: SetManualCleaningPending :one
+UPDATE modules
+SET manual_cleaning_pending = true,
+    manual_cleaning_target_x_cm = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, manual_cleaning_pending, manual_cleaning_target_x_cm;
+
+-- name: ClearManualCleaningPending :exec
+UPDATE modules
+SET manual_cleaning_pending = false,
+    manual_cleaning_target_x_cm = NULL,
+    updated_at = now()
+WHERE id = $1;
+
 
 
 

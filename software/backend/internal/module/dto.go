@@ -326,6 +326,8 @@ type DeviceStatusDTO struct {
 	NextInspectionAt       *string              `json:"next_inspection_at,omitempty"`
 	ConfigurationSync      ConfigurationSyncDTO `json:"configuration_sync"`
 	ManualInspectionPending bool                 `json:"manual_inspection_pending"`
+	ManualCleaningPending   bool                 `json:"manual_cleaning_pending"`
+	ManualCleaningTargetXCm *float64             `json:"manual_cleaning_target_x_cm,omitempty"`
 	PingIntervalSeconds    int                  `json:"ping_interval_seconds"`
 	OnlineWindowSeconds    int                  `json:"online_window_seconds"`
 }
@@ -335,6 +337,7 @@ type RecordDevicePingInput struct {
 	LimitsCheckPassed   *bool      `json:"limits_check_passed"`
 	ThermalSensorActive *bool      `json:"thermal_sensor_active"`
 	NextInspectionAt    *time.Time `json:"next_inspection_at,omitempty"`
+	ManualCleaningAck   *bool      `json:"manual_cleaning_ack,omitempty"`
 }
 
 type ClaimDeviceInput struct {
@@ -358,6 +361,17 @@ type TriggerInspectionDTO struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Status  string `json:"status"`
+}
+
+type TriggerCleaningInput struct {
+	TargetXPositionCm float64 `json:"target_x_position_cm"`
+}
+
+type TriggerCleaningDTO struct {
+	Success           bool    `json:"success"`
+	Message           string  `json:"message"`
+	Status            string  `json:"status"`
+	TargetXPositionCm float64 `json:"target_x_position_cm"`
 }
 
 type DeviceGeometryDTO struct {

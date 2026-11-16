@@ -338,6 +338,36 @@ void test_abort_inspection_json_contract() {
     TEST_ASSERT_EQUAL_STRING("crash_recovery_exhausted", doc["failure_reason"].as<std::string>().c_str());
 }
 
+void test_ping_json_and_manual_cleaning_status_contract() {
+    // 1. Ping without manual_cleaning_ack
+    std::string ping_no_ack = HttpCloudClient::buildPingJson(true, true, true, "", false);
+    JsonDocument doc1;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc1, ping_no_ack).code());
+    TEST_ASSERT_TRUE(doc1["water_available"].as<bool>());
+    TEST_ASSERT_TRUE(doc1["manual_cleaning_ack"].isNull());
+
+    // 2. Ping with manual_cleaning_ack = true
+    std::string ping_with_ack = HttpCloudClient::buildPingJson(true, true, true, "", true);
+    JsonDocument doc2;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc2, ping_with_ack).code());
+    TEST_ASSERT_TRUE(doc2["manual_cleaning_ack"].as<bool>());
+
+    // 3. Parse device_status with manual_cleaning_pending and manual_cleaning_target_x_cm
+    HttpCloudClient client("http://localhost:8080");
+    const std::string status_resp =
+        "{\"device_status\":{\"manual_cleaning_pending\":true,\"manual_cleaning_target_x_cm\":42.5,\"manual_inspection_pending\":false}}";
+    TEST_ASSERT_TRUE(client.parsePingResponse(status_resp));
+    TEST_ASSERT_TRUE(client.isManualCleaningPending());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.5f, client.getManualCleaningTargetXCm());
+    TEST_ASSERT_FALSE(client.isManualInspectionPending());
+
+    // 4. Parse device_status clearing manual_cleaning_pending
+    const std::string cleared_resp =
+        "{\"device_status\":{\"manual_cleaning_pending\":false}}";
+    TEST_ASSERT_TRUE(client.parsePingResponse(cleared_resp));
+    TEST_ASSERT_FALSE(client.isManualCleaningPending());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
@@ -345,5 +375,6 @@ int main(int argc, char** argv) {
     RUN_TEST(test_cleaning_report_refused_contract);
     RUN_TEST(test_panel_thermal_result_and_multi_panel_index_contracts);
     RUN_TEST(test_abort_inspection_json_contract);
+    RUN_TEST(test_ping_json_and_manual_cleaning_status_contract);
     return UNITY_END();
 }

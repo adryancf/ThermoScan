@@ -157,6 +157,8 @@ type Module struct {
 	ReservoirNominalCapacityMl pgtype.Numeric
 	HotspotThresholdDeltaC     pgtype.Numeric
 	PowerSensors               []byte
+	ManualCleaningPending      bool
+	ManualCleaningTargetXCm    pgtype.Numeric
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time

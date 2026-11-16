@@ -146,6 +146,7 @@ private:
     uint32_t next_inspection_time_{0};
     bool manual_inspection_requested_{false};
     bool manual_cleaning_requested_{false};
+    bool manual_cleaning_active_{false};
     float manual_cleaning_target_x_{0.0f};
 
     bool config_update_pending_{false};

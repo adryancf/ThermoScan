@@ -89,6 +89,8 @@ CREATE TABLE modules (
     reservoir_nominal_capacity_ml numeric(12,3) CHECK (reservoir_nominal_capacity_ml > 0),
     hotspot_threshold_delta_c numeric(5,2) NOT NULL DEFAULT 8.0 CHECK (hotspot_threshold_delta_c > 0 AND hotspot_threshold_delta_c <= 50.0),
     power_sensors jsonb NULL CHECK (power_sensors IS NULL OR jsonb_typeof(power_sensors) = 'array'),
+    manual_cleaning_pending boolean NOT NULL DEFAULT false,
+    manual_cleaning_target_x_cm numeric(12,3) NULL,
     configured_at timestamptz,
     next_inspection_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),

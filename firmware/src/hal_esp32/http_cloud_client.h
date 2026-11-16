@@ -54,6 +54,10 @@ public:
     void clearConfigurationPending() override { config_pending_ = false; }
     bool isManualInspectionPending() const override { return manual_inspection_pending_; }
     void clearManualInspectionPending() override { manual_inspection_pending_ = false; }
+    bool isManualCleaningPending() const override { return manual_cleaning_pending_; }
+    float getManualCleaningTargetXCm() const override { return manual_cleaning_target_x_cm_; }
+    void clearManualCleaningPending() override { manual_cleaning_pending_ = false; }
+    void setManualCleaningAckPending(bool pending) override { manual_cleaning_ack_pending_ = pending; }
 
     bool hadAuthError() const override { return auth_error_; }
     void clearAuthError() override { auth_error_ = false; }
@@ -66,6 +70,10 @@ public:
     static std::string buildFinalizeJson(const FinalizeInspectionInput& input);
     static std::string buildAbortInspectionJson(const std::string& failure_reason);
     static std::string buildCleaningReportJson(const CleaningReportInput& input);
+    static std::string buildPingJson(bool water_ok, bool limits_ok, bool thermal_ok,
+                                     const std::string& next_inspection_at = "",
+                                     bool manual_cleaning_ack = false);
+    bool parsePingResponse(const std::string& response_json);
 
     // Advanced & Diagnostic helpers
     bool claimWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok);
@@ -94,6 +102,9 @@ private:
     bool conflict_error_{false};
     bool config_pending_{false};
     bool manual_inspection_pending_{false};
+    bool manual_cleaning_pending_{false};
+    float manual_cleaning_target_x_cm_{0.0f};
+    bool manual_cleaning_ack_pending_{false};
 
     void appendAuthHeader(HTTPClient& http);
 };

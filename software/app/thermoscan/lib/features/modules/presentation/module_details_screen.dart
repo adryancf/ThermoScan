@@ -39,6 +39,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   bool _infoExpanded = false;
   bool _updatingEmailPref = false;
   bool _isTriggeringInspection = false;
+  bool _isTriggeringCleaning = false;
 
   Future<void> _triggerManualScan(String moduleId) async {
     setState(() => _isTriggeringInspection = true);
@@ -69,6 +70,85 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     } finally {
       if (mounted) {
         setState(() => _isTriggeringInspection = false);
+      }
+    }
+  }
+
+  Future<void> _promptAndTriggerManualCleaning(String moduleId) async {
+    final controller = TextEditingController();
+    String? errorText;
+
+    final targetX = await showDialog<double>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Manual Cleaning'),
+          content: TextField(
+            controller: controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Target X Position (cm)',
+              hintText: 'e.g. 120.5',
+              errorText: errorText,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final parsed = double.tryParse(
+                  controller.text.trim().replaceAll(',', '.'),
+                );
+                if (parsed == null || parsed < 0) {
+                  setDialogState(() {
+                    errorText = 'Enter a valid non-negative number';
+                  });
+                  return;
+                }
+                Navigator.of(ctx).pop(parsed);
+              },
+              child: const Text('Trigger'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    controller.dispose();
+    if (targetX == null || !mounted) return;
+
+    setState(() => _isTriggeringCleaning = true);
+    try {
+      await ref.read(moduleRepositoryProvider).triggerManualCleaning(
+            moduleId: moduleId,
+            targetXPositionCm: targetX,
+          );
+      ref.invalidate(moduleDeviceStatusProvider(moduleId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Manual cleaning requested at ${targetX.toStringAsFixed(1)} cm.',
+          ),
+          backgroundColor: AppColors.success,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to request manual cleaning: $err'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isTriggeringCleaning = false);
       }
     }
   }
@@ -413,6 +493,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                         onSelected: (val) {
                           if (val == 'trigger_scan') {
                             _triggerManualScan(mod.id);
+                          } else if (val == 'trigger_cleaning') {
+                            _promptAndTriggerManualCleaning(mod.id);
                           } else if (val == 'verify_hardware') {
                             context.push('/modules/${mod.id}/device-verification');
                           } else if (val == 'delete') {
@@ -443,6 +525,38 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
                                         color: _isTriggeringInspection
+                                            ? AppColors.textSecondary
+                                            : AppColors.textPrimary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (!mod.isPendingConfiguration)
+                            PopupMenuItem<String>(
+                              value: 'trigger_cleaning',
+                              enabled: !_isTriggeringCleaning,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.cleaning_services_outlined,
+                                    size: 18,
+                                    color: _isTriggeringCleaning
+                                        ? AppColors.textSecondary
+                                        : AppColors.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      _isTriggeringCleaning
+                                          ? 'Sending Cleaning Request...'
+                                          : 'Manual Cleaning',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: _isTriggeringCleaning
                                             ? AppColors.textSecondary
                                             : AppColors.textPrimary,
                                         fontWeight: FontWeight.w600,

@@ -146,6 +146,75 @@ bool HttpCloudClient::sendPing() {
     return sendPingWithDiagnostics(water_ok, limits_ok, thermal_ok);
 }
 
+std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool thermal_ok,
+                                         const std::string& next_inspection_at,
+                                         bool manual_cleaning_ack) {
+    JsonDocument doc;
+    doc["water_available"] = water_ok;
+    doc["limits_check_passed"] = limits_ok;
+    doc["thermal_sensor_active"] = thermal_ok;
+
+    if (!next_inspection_at.empty()) {
+        doc["next_inspection_at"] = next_inspection_at.c_str();
+    }
+    if (manual_cleaning_ack) {
+        doc["manual_cleaning_ack"] = true;
+    }
+
+    std::string requestBody;
+    serializeJson(doc, requestBody);
+    return requestBody;
+}
+
+bool HttpCloudClient::parsePingResponse(const std::string& response_json) {
+    JsonDocument respDoc;
+    if (deserializeJson(respDoc, response_json.c_str())) {
+        return false;
+    }
+
+    JsonObject statusObj = respDoc["device_status"].as<JsonObject>();
+    JsonObject sync = statusObj.isNull()
+                          ? respDoc["configuration_sync"].as<JsonObject>()
+                          : statusObj["configuration_sync"].as<JsonObject>();
+
+    if (!sync.isNull()) {
+        const char* state = sync["state"] | "";
+        uint32_t latest_ver = sync["config_version"] | sync["latest_version"] | 0;
+        uint32_t applied_ver = sync["config_applied_version"] | sync["applied_version"] | 0;
+        bool is_sync = (strcmp(state, "synced") == 0) || (sync["is_synchronized"] | false);
+
+        if (!is_sync || (latest_ver > applied_ver)) {
+            config_pending_ = true;
+        } else {
+            config_pending_ = false;
+        }
+    }
+
+    if (respDoc["manual_inspection_pending"] == true ||
+        (!statusObj.isNull() && statusObj["manual_inspection_pending"] == true)) {
+        manual_inspection_pending_ = true;
+    } else {
+        manual_inspection_pending_ = false;
+    }
+
+    if (respDoc["manual_cleaning_pending"] == true ||
+        (!statusObj.isNull() && statusObj["manual_cleaning_pending"] == true)) {
+        manual_cleaning_pending_ = true;
+        if (respDoc["manual_cleaning_target_x_cm"].is<float>()) {
+            manual_cleaning_target_x_cm_ = respDoc["manual_cleaning_target_x_cm"].as<float>();
+        } else if (!statusObj.isNull() && statusObj["manual_cleaning_target_x_cm"].is<float>()) {
+            manual_cleaning_target_x_cm_ = statusObj["manual_cleaning_target_x_cm"].as<float>();
+        } else {
+            manual_cleaning_target_x_cm_ = 0.0f;
+        }
+    } else {
+        manual_cleaning_pending_ = false;
+        manual_cleaning_target_x_cm_ = 0.0f;
+    }
+
+    return true;
+}
+
 bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, bool thermal_ok) {
     if (!isConnected() || module_id_.empty() || device_token_.empty()) {
         Serial.printf("[PING] Aborted: wifi=%d, module_id=%s, token=%s\n",
@@ -156,30 +225,23 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/ping";
-    Serial.printf("[PING] Sending ping to %s (water=%d, limits=%d, thermal=%d)...\n",
-                  url.c_str(), water_ok, limits_ok, thermal_ok);
+    Serial.printf("[PING] Sending ping to %s (water=%d, limits=%d, thermal=%d, cleaning_ack=%d)...\n",
+                  url.c_str(), water_ok, limits_ok, thermal_ok, manual_cleaning_ack_pending_);
 
     HTTPClient http;
     http.begin(url.c_str());
     appendAuthHeader(http);
 
-    JsonDocument doc;
-    doc["water_available"] = water_ok;
-    doc["limits_check_passed"] = limits_ok;
-    doc["thermal_sensor_active"] = thermal_ok;
-
+    std::string next_insp_str;
     if (storage_ != nullptr) {
         uint32_t next_insp = 0;
         if (storage_->getNextInspectionTimestamp(next_insp) && next_insp > 0) {
-            std::string next_insp_str = formatEpochToRFC3339(next_insp);
-            if (!next_insp_str.empty()) {
-                doc["next_inspection_at"] = next_insp_str.c_str();
-            }
+            next_insp_str = formatEpochToRFC3339(next_insp);
         }
     }
 
-    std::string requestBody;
-    serializeJson(doc, requestBody);
+    std::string requestBody = buildPingJson(
+        water_ok, limits_ok, thermal_ok, next_insp_str, manual_cleaning_ack_pending_);
 
     int httpCode = http.POST(String(requestBody.c_str()));
 
@@ -194,33 +256,12 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
         String response = http.getString();
         http.end();
 
-        JsonDocument respDoc;
-        if (!deserializeJson(respDoc, response.c_str())) {
-            JsonObject statusObj = respDoc["device_status"].as<JsonObject>();
-            JsonObject sync = statusObj.isNull()
-                                  ? respDoc["configuration_sync"].as<JsonObject>()
-                                  : statusObj["configuration_sync"].as<JsonObject>();
+        manual_cleaning_ack_pending_ = false;
+        parsePingResponse(response.c_str());
 
-            if (!sync.isNull()) {
-                const char* state = sync["state"] | "";
-                uint32_t latest_ver = sync["config_version"] | sync["latest_version"] | 0;
-                uint32_t applied_ver = sync["config_applied_version"] | sync["applied_version"] | 0;
-                bool is_sync = (strcmp(state, "synced") == 0) || (sync["is_synchronized"] | false);
-
-                if (!is_sync || (latest_ver > applied_ver)) {
-                    config_pending_ = true;
-                } else {
-                    config_pending_ = false;
-                }
-            }
-            if (respDoc["manual_inspection_pending"] == true || (!statusObj.isNull() && statusObj["manual_inspection_pending"] == true)) {
-                manual_inspection_pending_ = true;
-            } else {
-                manual_inspection_pending_ = false;
-            }
-        }
-        Serial.printf("[PING] Success HTTP 200 | config_pending=%d | manual_pending=%d\n",
-                      config_pending_, manual_inspection_pending_);
+        Serial.printf("[PING] Success HTTP 200 | config_pending=%d | manual_insp=%d | manual_clean=%d (x=%.1f)\n",
+                      config_pending_, manual_inspection_pending_,
+                      manual_cleaning_pending_, manual_cleaning_target_x_cm_);
         return true;
     }
 

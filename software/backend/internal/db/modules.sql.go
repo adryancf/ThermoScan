@@ -126,6 +126,19 @@ func (q *Queries) CheckModuleOperationalHistory(ctx context.Context, moduleID pg
 	return i, err
 }
 
+const clearManualCleaningPending = `-- name: ClearManualCleaningPending :exec
+UPDATE modules
+SET manual_cleaning_pending = false,
+    manual_cleaning_target_x_cm = NULL,
+    updated_at = now()
+WHERE id = $1
+`
+
+func (q *Queries) ClearManualCleaningPending(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearManualCleaningPending, id)
+	return err
+}
+
 const createIntervalChangeLog = `-- name: CreateIntervalChangeLog :one
 INSERT INTO interval_change_logs (
     company_id,
@@ -531,7 +544,7 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 }
 
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -570,6 +583,8 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.ReservoirNominalCapacityMl,
 		&i.HotspotThresholdDeltaC,
 		&i.PowerSensors,
+		&i.ManualCleaningPending,
+		&i.ManualCleaningTargetXCm,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.CreatedAt,
@@ -605,6 +620,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -653,6 +670,8 @@ type GetModuleByIDRow struct {
 	ReservoirNominalCapacityMl pgtype.Numeric
 	HotspotThresholdDeltaC     pgtype.Numeric
 	PowerSensors               []byte
+	ManualCleaningPending      bool
+	ManualCleaningTargetXCm    pgtype.Numeric
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
@@ -695,6 +714,8 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.ReservoirNominalCapacityMl,
 		&i.HotspotThresholdDeltaC,
 		&i.PowerSensors,
+		&i.ManualCleaningPending,
+		&i.ManualCleaningTargetXCm,
 		&i.LimitsCheckPassed,
 		&i.ThermalSensorActive,
 		&i.LastPingAt,
@@ -711,7 +732,7 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 }
 
 const getModuleByIDForDevice = `-- name: GetModuleByIDForDevice :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE id = $1
 `
 
@@ -750,6 +771,8 @@ func (q *Queries) GetModuleByIDForDevice(ctx context.Context, id pgtype.UUID) (M
 		&i.ReservoirNominalCapacityMl,
 		&i.HotspotThresholdDeltaC,
 		&i.PowerSensors,
+		&i.ManualCleaningPending,
+		&i.ManualCleaningTargetXCm,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.CreatedAt,
@@ -783,6 +806,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -829,6 +854,8 @@ type GetModuleByIDForUpdateRow struct {
 	ReservoirNominalCapacityMl pgtype.Numeric
 	HotspotThresholdDeltaC     pgtype.Numeric
 	PowerSensors               []byte
+	ManualCleaningPending      bool
+	ManualCleaningTargetXCm    pgtype.Numeric
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
@@ -869,6 +896,8 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.ReservoirNominalCapacityMl,
 		&i.HotspotThresholdDeltaC,
 		&i.PowerSensors,
+		&i.ManualCleaningPending,
+		&i.ManualCleaningTargetXCm,
 		&i.LimitsCheckPassed,
 		&i.ThermalSensorActive,
 		&i.LastPingAt,
@@ -885,7 +914,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -924,6 +953,8 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.ReservoirNominalCapacityMl,
 		&i.HotspotThresholdDeltaC,
 		&i.PowerSensors,
+		&i.ManualCleaningPending,
+		&i.ManualCleaningTargetXCm,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.CreatedAt,
@@ -1478,6 +1509,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -1528,6 +1561,8 @@ type ListModulesForManagerRow struct {
 	ReservoirNominalCapacityMl pgtype.Numeric
 	HotspotThresholdDeltaC     pgtype.Numeric
 	PowerSensors               []byte
+	ManualCleaningPending      bool
+	ManualCleaningTargetXCm    pgtype.Numeric
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
@@ -1576,6 +1611,8 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.ReservoirNominalCapacityMl,
 			&i.HotspotThresholdDeltaC,
 			&i.PowerSensors,
+			&i.ManualCleaningPending,
+			&i.ManualCleaningTargetXCm,
 			&i.LimitsCheckPassed,
 			&i.ThermalSensorActive,
 			&i.LastPingAt,
@@ -1625,6 +1662,8 @@ SELECT
     m.reservoir_nominal_capacity_ml,
     m.hotspot_threshold_delta_c,
     m.power_sensors,
+    m.manual_cleaning_pending,
+    m.manual_cleaning_target_x_cm,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -1679,6 +1718,8 @@ type ListModulesForTechnicianRow struct {
 	ReservoirNominalCapacityMl pgtype.Numeric
 	HotspotThresholdDeltaC     pgtype.Numeric
 	PowerSensors               []byte
+	ManualCleaningPending      bool
+	ManualCleaningTargetXCm    pgtype.Numeric
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
 	LastPingAt                 *time.Time
@@ -1732,6 +1773,8 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.ReservoirNominalCapacityMl,
 			&i.HotspotThresholdDeltaC,
 			&i.PowerSensors,
+			&i.ManualCleaningPending,
+			&i.ManualCleaningTargetXCm,
 			&i.LimitsCheckPassed,
 			&i.ThermalSensorActive,
 			&i.LastPingAt,
@@ -1847,6 +1890,33 @@ type RemoveModuleClientParams struct {
 func (q *Queries) RemoveModuleClient(ctx context.Context, arg RemoveModuleClientParams) error {
 	_, err := q.db.Exec(ctx, removeModuleClient, arg.CompanyID, arg.ModuleID, arg.ClientID)
 	return err
+}
+
+const setManualCleaningPending = `-- name: SetManualCleaningPending :one
+UPDATE modules
+SET manual_cleaning_pending = true,
+    manual_cleaning_target_x_cm = $2,
+    updated_at = now()
+WHERE id = $1
+RETURNING id, manual_cleaning_pending, manual_cleaning_target_x_cm
+`
+
+type SetManualCleaningPendingParams struct {
+	ID                      pgtype.UUID
+	ManualCleaningTargetXCm pgtype.Numeric
+}
+
+type SetManualCleaningPendingRow struct {
+	ID                      pgtype.UUID
+	ManualCleaningPending   bool
+	ManualCleaningTargetXCm pgtype.Numeric
+}
+
+func (q *Queries) SetManualCleaningPending(ctx context.Context, arg SetManualCleaningPendingParams) (SetManualCleaningPendingRow, error) {
+	row := q.db.QueryRow(ctx, setManualCleaningPending, arg.ID, arg.ManualCleaningTargetXCm)
+	var i SetManualCleaningPendingRow
+	err := row.Scan(&i.ID, &i.ManualCleaningPending, &i.ManualCleaningTargetXCm)
+	return i, err
 }
 
 const setModuleDeviceToken = `-- name: SetModuleDeviceToken :one

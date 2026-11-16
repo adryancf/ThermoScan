@@ -378,4 +378,18 @@ class ModuleRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<void> triggerManualCleaning({
+    required String moduleId,
+    required double targetXPositionCm,
+  }) async {
+    try {
+      await dio.post<Map<String, dynamic>>(
+        '/modules/$moduleId/trigger-cleaning',
+        data: {'target_x_position_cm': targetXPositionCm},
+      );
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

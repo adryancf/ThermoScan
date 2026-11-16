@@ -143,6 +143,12 @@ public:
     virtual bool isManualInspectionPending() const { return false; }
     virtual void clearManualInspectionPending() {}
 
+    // Manual cleaning pending query, target, reset, and ack
+    virtual bool isManualCleaningPending() const { return false; }
+    virtual float getManualCleaningTargetXCm() const { return 0.0f; }
+    virtual void clearManualCleaningPending() {}
+    virtual void setManualCleaningAckPending(bool pending) { (void)pending; }
+
     // Legacy backward-compat methods
     virtual bool ingestTelemetry(const TelemetryPayload& telemetry) = 0;
     virtual bool ingestCleaning(const CleaningPayload& cleaning) = 0;

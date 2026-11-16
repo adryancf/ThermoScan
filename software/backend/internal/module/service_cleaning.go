@@ -391,6 +391,8 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		ModuleID:              moduleID,
 	})
 
+	_ = qtx.ClearManualCleaningPending(ctx, moduleID)
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"strconv"
@@ -140,6 +141,8 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		ThermalSensorActive: row.ThermalSensorActive,
 		NextInspectionAt:    nextInspectionAtStr,
 		ConfigurationSync:   syncDTO,
+		ManualCleaningPending:   row.ManualCleaningPending,
+		ManualCleaningTargetXCm: numericToFloatPtr(row.ManualCleaningTargetXCm),
 		PingIntervalSeconds: s.PingIntervalSeconds(),
 		OnlineWindowSeconds: s.OnlineWindowSeconds(),
 	}
@@ -248,6 +251,10 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if input.ManualCleaningAck != nil && *input.ManualCleaningAck {
+		_ = qtx.ClearManualCleaningPending(ctx, moduleID)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -543,5 +550,73 @@ func (s *Service) TriggerManualInspection(ctx context.Context, principal auth.Pr
 		Success: true,
 		Message: "Inspection requested successfully. It will start on the next device check-in.",
 		Status:  "scheduled",
+	}, nil
+}
+
+func (s *Service) TriggerManualCleaning(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, input TriggerCleaningInput) (*TriggerCleaningDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	mod, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if !mod.IsActive {
+		return nil, ErrForbidden
+	}
+
+	if mod.MonitoringStatus == StatusPendingConfiguration || mod.ConfiguredAt == nil {
+		return nil, ErrInvalidInput
+	}
+
+	if _, _, err := s.resolveUserModuleRelationship(ctx, s.queries, principal, mod.ID, mod.InstallerTechnicianID); err != nil {
+		return nil, err
+	}
+
+	pLen := numericToFloatPtr(mod.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(mod.PanelCount)
+	pSpc := numericToFloatPtr(mod.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
+	posRes, err := ValidatePanelAndPosition(input.TargetXPositionCm, lenCm, spcCm, cnt, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	targetX := input.TargetXPositionCm
+	targetXNumeric := floatPtrToNumeric(&targetX)
+
+	_, err = s.queries.SetManualCleaningPending(ctx, db.SetManualCleaningPendingParams{
+		ID:                      moduleID,
+		ManualCleaningTargetXCm: targetXNumeric,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &TriggerCleaningDTO{
+		Success:           true,
+		Message:           fmt.Sprintf("Cleaning requested at position %.1f cm (Panel %d). It will start on next device check-in.", targetX, posRes.PanelIndex),
+		Status:            "scheduled",
+		TargetXPositionCm: targetX,
 	}, nil
 }

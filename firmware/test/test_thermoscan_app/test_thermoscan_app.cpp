@@ -204,6 +204,10 @@ public:
     bool submit_panel_result_success{true};
 
     bool config_pending{false};
+    bool manual_cleaning_pending{false};
+    float manual_cleaning_target_x_cm{0.0f};
+    bool manual_cleaning_ack_pending{false};
+    int manual_cleaning_acks_sent{0};
     bool get_config_success{true};
     std::string config_json_payload{
         "{\"config_version\":2,\"geometry\":{\"panel_length_cm\":120.0,\"panel_width_cm\":60.0,\"panel_count\":2,\"panel_spacing_cm\":3.0},\"min_solar_angle\":35.0,\"interval_days\":14,\"ping_interval_seconds\":120,\"latitude\":-23.5,\"longitude\":-46.6}"
@@ -211,9 +215,20 @@ public:
 
     bool init() override { return true; }
     bool claimDevice(const std::string&) override { return true; }
-    bool sendPing() override { pings_sent++; return true; }
+    bool sendPing() override {
+        pings_sent++;
+        if (manual_cleaning_ack_pending) {
+            manual_cleaning_acks_sent++;
+            manual_cleaning_ack_pending = false;
+        }
+        return true;
+    }
     bool isConfigurationPending() const override { return config_pending; }
     void clearConfigurationPending() override { config_pending = false; }
+    bool isManualCleaningPending() const override { return manual_cleaning_pending; }
+    float getManualCleaningTargetXCm() const override { return manual_cleaning_target_x_cm; }
+    void clearManualCleaningPending() override { manual_cleaning_pending = false; }
+    void setManualCleaningAckPending(bool pending) override { manual_cleaning_ack_pending = pending; }
     bool getConfiguration(std::string& out) override {
         if (!get_config_success) return false;
         out = config_json_payload;
@@ -1040,6 +1055,45 @@ void test_inspection_abort_on_panel_result_rejected(void) {
     TEST_ASSERT_TRUE(storage.state.inspection_source_event_id.empty());
 }
 
+void test_manual_cleaning_from_device_status_and_ack(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Simulate backend returning manual_cleaning_pending = true with target X = 42.5 cm
+    cloud.manual_cleaning_pending = true;
+    cloud.manual_cleaning_target_x_cm = 42.5f;
+
+    app.tick(); // IDLE detects pending manual cleaning -> CLEANING
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+    TEST_ASSERT_FALSE(cloud.isManualCleaningPending());
+
+    app.tick(); // CLEANING moves to 42.5 cm, sprays, returns home, sends ping with ack -> WAITING_VERIFICATION
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+
+    // Verify carriage visited 42.5 cm and then returned to 0.0 cm
+    TEST_ASSERT_EQUAL(2, motion.visited_x.size());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.5f, motion.visited_x[0]);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, motion.visited_x[1]);
+
+    // Verify spray report was ingested as completed
+    TEST_ASSERT_EQUAL(1, cloud.cleaning_reports_ingested);
+    TEST_ASSERT_TRUE(cloud.last_cleaning_report.pump_actuated);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.5f, cloud.last_cleaning_report.target_x_position_cm);
+    TEST_ASSERT_EQUAL_STRING("completed", cloud.last_cleaning_report.status.c_str());
+
+    // Verify manual_cleaning_ack was sent via ping
+    TEST_ASSERT_EQUAL(1, cloud.manual_cleaning_acks_sent);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1066,5 +1120,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_inspection_crash_recovery_resumes_from_panel_2);
     RUN_TEST(test_inspection_crash_retries_exhausted_aborts_inspection);
     RUN_TEST(test_inspection_abort_on_panel_result_rejected);
+    RUN_TEST(test_manual_cleaning_from_device_status_and_ack);
     return UNITY_END();
 }

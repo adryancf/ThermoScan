@@ -88,6 +88,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{moduleID}/latest-inspection", h.handleGetLatestInspection)
 		r.Get("/{moduleID}/inspections/{inspectionId}/measurements", h.handleListInspectionMeasurements)
 		r.Post("/{moduleID}/trigger-inspection", h.handleTriggerManualInspection)
+		r.Post("/{moduleID}/trigger-cleaning", h.handleTriggerManualCleaning)
 		r.Get("/{moduleID}/device-status", h.handleGetDeviceStatus)
 		r.Post("/{moduleID}/device-ping", h.handleRecordDevicePing)
 		r.Get("/{moduleID}/device-configuration", h.handleGetDeviceConfiguration)
@@ -449,6 +450,46 @@ func (h *Handler) handleTriggerManualInspection(w http.ResponseWriter, r *http.R
 			httpjson.WriteError(w, http.StatusForbidden, "forbidden", "FORBIDDEN")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "failed to trigger inspection", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleTriggerManualCleaning(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleIDStr := chi.URLParam(r, "moduleID")
+	moduleID, err := auth.ParseUUID(moduleIDStr)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module id", "INVALID_INPUT")
+		return
+	}
+
+	var req TriggerCleaningInput
+	if err := httpjson.DecodeJSON(r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body", "INVALID_INPUT")
+		return
+	}
+
+	resp, err := h.service.TriggerManualCleaning(r.Context(), principal, moduleID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "forbidden", "FORBIDDEN")
+		case errors.Is(err, ErrMeasurementInGap):
+			httpjson.WriteError(w, http.StatusBadRequest, err.Error(), "COORDINATE_IN_GAP")
+		case errors.Is(err, ErrPositionOutOfBounds):
+			httpjson.WriteError(w, http.StatusBadRequest, err.Error(), "POSITION_OUT_OF_BOUNDS")
+		default:
+			httpjson.WriteError(w, http.StatusBadRequest, err.Error(), "INVALID_INPUT")
 		}
 		return
 	}

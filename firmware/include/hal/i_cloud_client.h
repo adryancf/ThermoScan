@@ -79,6 +79,13 @@ struct CleaningReportInput {
     std::string failure_reason{""};
 };
 
+// Fixed-size state transition entry (~12 bytes on 32-bit ESP32, zero heap allocation)
+struct StateTransitionEntry {
+    const char* state{nullptr};
+    const char* detail{nullptr};
+    uint32_t occurred_at{0};
+};
+
 // Legacy structs for backward compatibility
 struct TelemetryPayload {
     float ambient_temp_c{0.0f};
@@ -148,6 +155,17 @@ public:
     virtual float getManualCleaningTargetXCm() const { return 0.0f; }
     virtual void clearManualCleaningPending() {}
     virtual void setManualCleaningAckPending(bool pending) { (void)pending; }
+
+    // Firmware state tracking (zero-heap-allocation ring buffer in concrete client)
+    virtual void setFirmwareState(const char* state, const char* detail = nullptr) {
+        (void)state;
+        (void)detail;
+    }
+    virtual void recordStateTransition(const char* state, const char* detail, uint32_t occurred_at) {
+        (void)state;
+        (void)detail;
+        (void)occurred_at;
+    }
 
     // Legacy backward-compat methods
     virtual bool ingestTelemetry(const TelemetryPayload& telemetry) = 0;

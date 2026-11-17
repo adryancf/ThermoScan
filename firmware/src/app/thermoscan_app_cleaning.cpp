@@ -15,7 +15,7 @@ namespace app {
 
 void ThermoscanApp::handleCleaning() {
     if (cleaning_queue_.empty()) {
-        state_ = AppState::SYNCING;
+        transitionTo(AppState::SYNCING);
         return;
     }
 
@@ -185,10 +185,10 @@ void ThermoscanApp::handleCleaning() {
             cleaning_sm_.setSprayEndedTimestamp(last_spray_end);
         }
         saveCurrentStateToNvs();
-        state_ = AppState::WAITING_VERIFICATION;
+        transitionTo(AppState::WAITING_VERIFICATION, "cooldown_wait");
     } else {
         saveCurrentStateToNvs();
-        state_ = AppState::SYNCING;
+        transitionTo(AppState::SYNCING);
     }
 }
 
@@ -198,8 +198,15 @@ void ThermoscanApp::handleWaitingVerification() {
 
     // Strict 1800-second cooldown AND valid solar elevation window
     if (cleaning_sm_.canStartVerification(now, solar_ok)) {
-        state_ = AppState::VERIFYING;
+        transitionTo(AppState::VERIFYING);
         return;
+    }
+
+    const char* wait_detail = cleaning_sm_.canStartVerification(now, true)
+                                  ? "solar_window_closed"
+                                  : "cooldown_wait";
+    if (last_state_detail_ != wait_detail) {
+        transitionTo(AppState::WAITING_VERIFICATION, wait_detail);
     }
 
     // Send periodic health pings while in cooldown wait (if now > 0)
@@ -408,8 +415,10 @@ void ThermoscanApp::handleVerifying() {
         }
     }
 
+    quantized_frames_.clear();
+    quantized_frames_.shrink_to_fit();
     saveCurrentStateToNvs();
-    state_ = any_retry_allowed ? AppState::IDLE : AppState::SYNCING;
+    transitionTo(any_retry_allowed ? AppState::IDLE : AppState::SYNCING);
 }
 
 

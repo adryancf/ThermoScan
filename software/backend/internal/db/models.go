@@ -159,6 +159,9 @@ type Module struct {
 	PowerSensors               []byte
 	ManualCleaningPending      bool
 	ManualCleaningTargetXCm    pgtype.Numeric
+	FirmwareState              string
+	FirmwareStateDetail        pgtype.Text
+	FirmwareStateUpdatedAt     *time.Time
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
 	CreatedAt                  time.Time
@@ -179,6 +182,16 @@ type ModuleManager struct {
 	ModuleID  pgtype.UUID
 	ManagerID pgtype.UUID
 	CreatedAt time.Time
+}
+
+type ModuleStateLog struct {
+	Seq        int64
+	ID         pgtype.UUID
+	ModuleID   pgtype.UUID
+	State      string
+	Detail     pgtype.Text
+	OccurredAt time.Time
+	CreatedAt  time.Time
 }
 
 type ModuleTechnician struct {

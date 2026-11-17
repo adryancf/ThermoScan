@@ -260,7 +260,29 @@ public:
     }
     bool ingestTelemetry(const TelemetryPayload&) override { telemetries_ingested++; return true; }
     bool ingestCleaning(const CleaningPayload&) override { cleanings_ingested++; return true; }
-    bool isConnected() const override { return true; }
+    bool connected{true};
+    bool isConnected() const override { return connected; }
+
+    struct RecordedState {
+        std::string state;
+        std::string detail;
+        uint32_t occurred_at{0};
+    };
+    std::string last_firmware_state;
+    std::string last_firmware_detail;
+    std::vector<RecordedState> state_transitions;
+
+    void setFirmwareState(const char* state, const char* detail = nullptr) override {
+        last_firmware_state = state ? state : "";
+        last_firmware_detail = detail ? detail : "";
+    }
+    void recordStateTransition(const char* state, const char* detail, uint32_t occurred_at) override {
+        state_transitions.push_back(RecordedState{
+            state ? state : "",
+            detail ? detail : "",
+            occurred_at
+        });
+    }
 };
 
 class MockTimeProvider : public ITimeProvider {
@@ -517,12 +539,13 @@ void test_unsynced_clock_prevents_ping_and_solar_window(void) {
 
     ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
     app.init();
+    const int pings_after_init = cloud.pings_sent;
 
     // In IDLE, if now == 0, ping must NOT be sent in tight loops!
     for (int i = 0; i < 10; ++i) {
         app.tick();
     }
-    TEST_ASSERT_EQUAL(0, cloud.pings_sent);
+    TEST_ASSERT_EQUAL(pings_after_init, cloud.pings_sent);
 }
 
 void test_ack_configuration_called_in_syncing(void) {
@@ -571,10 +594,11 @@ void test_ping_in_idle_with_pending_config_syncs_and_acks(void) {
     // Backend informs via ping that configuration is pending
     cloud.config_pending = true;
     time.epoch = 1730000301; // Advance past ping interval (300s)
+    const int pings_before_tick = cloud.pings_sent;
 
     app.tick(); // IDLE: sends ping -> detects pending -> transitions to SYNCING
     TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
-    TEST_ASSERT_EQUAL(1, cloud.pings_sent);
+    TEST_ASSERT_EQUAL(pings_before_tick + 2, cloud.pings_sent);
 
     app.tick(); // SYNCING: fetches config -> validates -> applies RAM & NVS -> acks -> returns IDLE
     TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
@@ -1317,6 +1341,96 @@ void test_sd_backup_boot_recovery_crash_loop_guard(void) {
     TEST_ASSERT_EQUAL_UINT8(0, app.getInspectionCrashRetries());
 }
 
+void test_state_transition_records_detail_and_skips_ping_when_offline(void) {
+    // 1. Offline boot: transitions are recorded without triggering sendPing()
+    {
+        MockThermalCamera cam;
+        MockPowerMeter power;
+        MockMotionController motion;
+        MockSprayActuator spray;
+        MockWaterSensor water;
+        MockStorage storage;
+        MockCloudClient cloud;
+        MockTimeProvider time;
+        cloud.connected = false;
+
+        ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+        TEST_ASSERT_TRUE(app.init());
+        TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+        TEST_ASSERT_EQUAL(0, cloud.pings_sent);
+        TEST_ASSERT_EQUAL(2, static_cast<int>(cloud.state_transitions.size()));
+        TEST_ASSERT_EQUAL_STRING("BOOT_INIT", cloud.state_transitions[0].state.c_str());
+        TEST_ASSERT_EQUAL_STRING("IDLE", cloud.state_transitions[1].state.c_str());
+    }
+
+    // 2. Limits check failure -> ERROR_HALT with "limits_check_failed"
+    {
+        MockThermalCamera cam;
+        MockPowerMeter power;
+        MockMotionController motion;
+        MockSprayActuator spray;
+        MockWaterSensor water;
+        MockStorage storage;
+        MockCloudClient cloud;
+        MockTimeProvider time;
+        motion.limit_healthy = false;
+
+        ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+        TEST_ASSERT_FALSE(app.init());
+        TEST_ASSERT_EQUAL(AppState::ERROR_HALT, app.getState());
+        TEST_ASSERT_EQUAL_STRING("ERROR_HALT", cloud.last_firmware_state.c_str());
+        TEST_ASSERT_EQUAL_STRING("limits_check_failed", cloud.last_firmware_detail.c_str());
+        TEST_ASSERT_EQUAL(2, cloud.pings_sent); // BOOT_INIT + ERROR_HALT
+    }
+
+    // 3. Homing failure -> ERROR_HALT with "homing_failed"
+    {
+        MockThermalCamera cam;
+        MockPowerMeter power;
+        MockMotionController motion;
+        MockSprayActuator spray;
+        MockWaterSensor water;
+        MockStorage storage;
+        MockCloudClient cloud;
+        MockTimeProvider time;
+        motion.home_success = false;
+
+        ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+        TEST_ASSERT_FALSE(app.init());
+        TEST_ASSERT_EQUAL(AppState::ERROR_HALT, app.getState());
+        TEST_ASSERT_EQUAL_STRING("ERROR_HALT", cloud.last_firmware_state.c_str());
+        TEST_ASSERT_EQUAL_STRING("homing_failed", cloud.last_firmware_detail.c_str());
+    }
+}
+
+void test_waiting_verification_detail_transitions_cooldown_to_solar_window_closed(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // 1730000000 is ~2024-10-27 03:33:20 UTC (nighttime in Sao Paulo -46.6333 -> solar window closed)
+    storage.state.pending_verification = true;
+    storage.state.spray_ended_timestamp = 1730000000;
+    storage.state.effective_attempts = 1;
+    time.epoch = 1730000100; // Only 100s elapsed (< 1800s cooldown)
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    TEST_ASSERT_EQUAL_STRING("cooldown_wait", cloud.last_firmware_detail.c_str());
+
+    // Advance past 1800s cooldown while still in nighttime (solar window closed)
+    time.epoch = 1730001900;
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    TEST_ASSERT_EQUAL_STRING("solar_window_closed", cloud.last_firmware_detail.c_str());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1348,5 +1462,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_sd_backup_fallback_when_unavailable);
     RUN_TEST(test_sd_backup_boot_recovery_analyzing_and_syncing);
     RUN_TEST(test_sd_backup_boot_recovery_crash_loop_guard);
+    RUN_TEST(test_state_transition_records_detail_and_skips_ping_when_offline);
+    RUN_TEST(test_waiting_verification_detail_transitions_cooldown_to_solar_window_closed);
     return UNITY_END();
 }

@@ -91,6 +91,9 @@ CREATE TABLE modules (
     power_sensors jsonb NULL CHECK (power_sensors IS NULL OR jsonb_typeof(power_sensors) = 'array'),
     manual_cleaning_pending boolean NOT NULL DEFAULT false,
     manual_cleaning_target_x_cm numeric(12,3) NULL,
+    firmware_state text NOT NULL DEFAULT 'UNKNOWN',
+    firmware_state_detail text NULL,
+    firmware_state_updated_at timestamptz NULL,
     configured_at timestamptz,
     next_inspection_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
@@ -410,5 +413,18 @@ COMMENT ON COLUMN modules.minimum_solar_angle_deg IS
     'Angle in degrees; do not store the cosine score in this field. Confirm semantics during solar integration.';
 COMMENT ON COLUMN auth_sessions.refresh_token_hash IS
     'Hash of a high-entropy random token, never the raw refresh token.';
+
+CREATE TABLE module_state_logs (
+    seq bigserial NOT NULL,
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    module_id uuid NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+    state text NOT NULL,
+    detail text NULL,
+    occurred_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_module_state_logs_module_occurred_seq
+    ON module_state_logs (module_id, occurred_at DESC, seq DESC);
 
 COMMIT;

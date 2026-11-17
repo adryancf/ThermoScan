@@ -58,6 +58,27 @@ bool HttpCloudClient::isConnected() const {
     return WiFi.status() == WL_CONNECTED;
 }
 
+void HttpCloudClient::setFirmwareState(const char* state, const char* detail) {
+    current_firmware_state_ = state;
+    current_firmware_state_detail_ = detail;
+}
+
+void HttpCloudClient::recordStateTransition(const char* state, const char* detail, uint32_t occurred_at) {
+    if (state == nullptr || state[0] == '\0') {
+        return;
+    }
+    const size_t write_idx = (state_ring_head_ + state_ring_count_) % STATE_RING_CAPACITY;
+    state_ring_[write_idx].state = state;
+    state_ring_[write_idx].detail = detail;
+    state_ring_[write_idx].occurred_at = occurred_at;
+    if (state_ring_count_ < STATE_RING_CAPACITY) {
+        state_ring_count_++;
+    } else {
+        // Buffer is full: overwrite oldest entry and advance head
+        state_ring_head_ = (state_ring_head_ + 1) % STATE_RING_CAPACITY;
+    }
+}
+
 void HttpCloudClient::appendAuthHeader(HTTPClient& http) {
     if (!device_token_.empty()) {
         std::string auth = "Bearer " + device_token_;
@@ -171,7 +192,7 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
         }
     }
 
-    std::string requestBody = buildPingJson(
+    std::string requestBody = buildPingPayload(
         water_ok, limits_ok, thermal_ok, next_insp_str, manual_cleaning_ack_pending_);
 
     int httpCode = http.POST(String(requestBody.c_str()));
@@ -188,6 +209,8 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
         http.end();
 
         manual_cleaning_ack_pending_ = false;
+        state_ring_head_ = 0;
+        state_ring_count_ = 0;
         parsePingResponse(response.c_str());
 
         Serial.printf("[PING] Success HTTP 200 | config_pending=%d | manual_insp=%d | manual_clean=%d (x=%.1f)\n",

@@ -544,7 +544,7 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 }
 
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -585,6 +585,9 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.FirmwareState,
+		&i.FirmwareStateDetail,
+		&i.FirmwareStateUpdatedAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.CreatedAt,
@@ -632,7 +635,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -683,6 +689,9 @@ type GetModuleByIDRow struct {
 	ConfigAppliedVersion       int32
 	ConfigAppliedAt            *time.Time
 	ConfigApplyError           pgtype.Text
+	FirmwareState              string
+	FirmwareStateDetail        pgtype.Text
+	FirmwareStateUpdatedAt     *time.Time
 }
 
 func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (GetModuleByIDRow, error) {
@@ -727,12 +736,15 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.ConfigAppliedVersion,
 		&i.ConfigAppliedAt,
 		&i.ConfigApplyError,
+		&i.FirmwareState,
+		&i.FirmwareStateDetail,
+		&i.FirmwareStateUpdatedAt,
 	)
 	return i, err
 }
 
 const getModuleByIDForDevice = `-- name: GetModuleByIDForDevice :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE id = $1
 `
 
@@ -773,6 +785,9 @@ func (q *Queries) GetModuleByIDForDevice(ctx context.Context, id pgtype.UUID) (M
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.FirmwareState,
+		&i.FirmwareStateDetail,
+		&i.FirmwareStateUpdatedAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.CreatedAt,
@@ -818,7 +833,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 WHERE m.company_id = $1
   AND m.id = $2
@@ -867,6 +885,9 @@ type GetModuleByIDForUpdateRow struct {
 	ConfigAppliedVersion       int32
 	ConfigAppliedAt            *time.Time
 	ConfigApplyError           pgtype.Text
+	FirmwareState              string
+	FirmwareStateDetail        pgtype.Text
+	FirmwareStateUpdatedAt     *time.Time
 }
 
 func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDForUpdateParams) (GetModuleByIDForUpdateRow, error) {
@@ -909,12 +930,15 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.ConfigAppliedVersion,
 		&i.ConfigAppliedAt,
 		&i.ConfigApplyError,
+		&i.FirmwareState,
+		&i.FirmwareStateDetail,
+		&i.FirmwareStateUpdatedAt,
 	)
 	return i, err
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -955,6 +979,9 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.FirmwareState,
+		&i.FirmwareStateDetail,
+		&i.FirmwareStateUpdatedAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.CreatedAt,
@@ -1027,6 +1054,45 @@ func (q *Queries) GetModuleTechnicianAccess(ctx context.Context, arg GetModuleTe
 		&i.CanView,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertModuleStateLog = `-- name: InsertModuleStateLog :one
+INSERT INTO module_state_logs (
+    module_id,
+    state,
+    detail,
+    occurred_at
+) VALUES (
+    $1, $2, $3, $4
+)
+RETURNING seq, id, module_id, state, detail, occurred_at, created_at
+`
+
+type InsertModuleStateLogParams struct {
+	ModuleID   pgtype.UUID
+	State      string
+	Detail     pgtype.Text
+	OccurredAt time.Time
+}
+
+func (q *Queries) InsertModuleStateLog(ctx context.Context, arg InsertModuleStateLogParams) (ModuleStateLog, error) {
+	row := q.db.QueryRow(ctx, insertModuleStateLog,
+		arg.ModuleID,
+		arg.State,
+		arg.Detail,
+		arg.OccurredAt,
+	)
+	var i ModuleStateLog
+	err := row.Scan(
+		&i.Seq,
+		&i.ID,
+		&i.ModuleID,
+		&i.State,
+		&i.Detail,
+		&i.OccurredAt,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -1333,6 +1399,42 @@ func (q *Queries) ListManagersByModule(ctx context.Context, arg ListManagersByMo
 	return items, nil
 }
 
+const listModuleStateLogs = `-- name: ListModuleStateLogs :many
+SELECT seq, id, module_id, state, detail, occurred_at, created_at
+FROM module_state_logs
+WHERE module_id = $1
+ORDER BY occurred_at DESC, seq DESC
+LIMIT 100
+`
+
+func (q *Queries) ListModuleStateLogs(ctx context.Context, moduleID pgtype.UUID) ([]ModuleStateLog, error) {
+	rows, err := q.db.Query(ctx, listModuleStateLogs, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ModuleStateLog{}
+	for rows.Next() {
+		var i ModuleStateLog
+		if err := rows.Scan(
+			&i.Seq,
+			&i.ID,
+			&i.ModuleID,
+			&i.State,
+			&i.Detail,
+			&i.OccurredAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listModulesForClient = `-- name: ListModulesForClient :many
 SELECT
     m.id,
@@ -1368,7 +1470,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_clients mc ON mc.company_id = m.company_id AND mc.module_id = m.id
@@ -1420,6 +1525,9 @@ type ListModulesForClientRow struct {
 	ConfigAppliedVersion       int32
 	ConfigAppliedAt            *time.Time
 	ConfigApplyError           pgtype.Text
+	FirmwareState              string
+	FirmwareStateDetail        pgtype.Text
+	FirmwareStateUpdatedAt     *time.Time
 }
 
 func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForClientParams) ([]ListModulesForClientRow, error) {
@@ -1471,6 +1579,9 @@ func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForCl
 			&i.ConfigAppliedVersion,
 			&i.ConfigAppliedAt,
 			&i.ConfigApplyError,
+			&i.FirmwareState,
+			&i.FirmwareStateDetail,
+			&i.FirmwareStateUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1521,7 +1632,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -1574,6 +1688,9 @@ type ListModulesForManagerRow struct {
 	ConfigAppliedVersion       int32
 	ConfigAppliedAt            *time.Time
 	ConfigApplyError           pgtype.Text
+	FirmwareState              string
+	FirmwareStateDetail        pgtype.Text
+	FirmwareStateUpdatedAt     *time.Time
 }
 
 func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForManagerParams) ([]ListModulesForManagerRow, error) {
@@ -1624,6 +1741,9 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.ConfigAppliedVersion,
 			&i.ConfigAppliedAt,
 			&i.ConfigApplyError,
+			&i.FirmwareState,
+			&i.FirmwareStateDetail,
+			&i.FirmwareStateUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1674,7 +1794,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_technicians mt ON mt.company_id = m.company_id AND mt.module_id = m.id
@@ -1731,6 +1854,9 @@ type ListModulesForTechnicianRow struct {
 	ConfigAppliedVersion       int32
 	ConfigAppliedAt            *time.Time
 	ConfigApplyError           pgtype.Text
+	FirmwareState              string
+	FirmwareStateDetail        pgtype.Text
+	FirmwareStateUpdatedAt     *time.Time
 }
 
 func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesForTechnicianParams) ([]ListModulesForTechnicianRow, error) {
@@ -1786,6 +1912,9 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.ConfigAppliedVersion,
 			&i.ConfigAppliedAt,
 			&i.ConfigApplyError,
+			&i.FirmwareState,
+			&i.FirmwareStateDetail,
+			&i.FirmwareStateUpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2238,6 +2367,32 @@ func (q *Queries) UpdateModuleDeviceHealth(ctx context.Context, arg UpdateModule
 		&i.NextInspectionAt,
 	)
 	return i, err
+}
+
+const updateModuleFirmwareState = `-- name: UpdateModuleFirmwareState :exec
+UPDATE modules
+SET firmware_state = $2,
+    firmware_state_detail = $3,
+    firmware_state_updated_at = $4,
+    updated_at = now()
+WHERE id = $1
+`
+
+type UpdateModuleFirmwareStateParams struct {
+	ID                     pgtype.UUID
+	FirmwareState          string
+	FirmwareStateDetail    pgtype.Text
+	FirmwareStateUpdatedAt *time.Time
+}
+
+func (q *Queries) UpdateModuleFirmwareState(ctx context.Context, arg UpdateModuleFirmwareStateParams) error {
+	_, err := q.db.Exec(ctx, updateModuleFirmwareState,
+		arg.ID,
+		arg.FirmwareState,
+		arg.FirmwareStateDetail,
+		arg.FirmwareStateUpdatedAt,
+	)
+	return err
 }
 
 const upsertModuleTechnician = `-- name: UpsertModuleTechnician :one

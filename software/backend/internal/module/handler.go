@@ -90,6 +90,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/{moduleID}/trigger-inspection", h.handleTriggerManualInspection)
 		r.Post("/{moduleID}/trigger-cleaning", h.handleTriggerManualCleaning)
 		r.Get("/{moduleID}/device-status", h.handleGetDeviceStatus)
+		r.Get("/{moduleID}/state-logs", h.handleListModuleStateLogs)
 		r.Post("/{moduleID}/device-ping", h.handleRecordDevicePing)
 		r.Get("/{moduleID}/device-configuration", h.handleGetDeviceConfiguration)
 		r.Post("/{moduleID}/device-configuration/ack", h.handleAcknowledgeDeviceConfiguration)
@@ -358,6 +359,35 @@ func (h *Handler) handleUpdateConfiguration(w http.ResponseWriter, r *http.Reque
 	}
 
 	httpjson.WriteJSON(w, http.StatusOK, details)
+}
+
+func (h *Handler) handleListModuleStateLogs(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	logs, err := h.service.ListModuleStateLogs(r.Context(), principal, moduleID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{"items": logs})
 }
 
 func (h *Handler) handleListIntervalChangeLogs(w http.ResponseWriter, r *http.Request) {

@@ -61,6 +61,9 @@ type ModuleDTO struct {
 	OnlineWindowSeconds        int                  `json:"online_window_seconds"`
 	IsOnline                   bool                 `json:"is_online"`
 	LastPingAt                 *string              `json:"last_ping_at,omitempty"`
+	FirmwareState              string               `json:"firmware_state"`
+	FirmwareStateDetail        *string              `json:"firmware_state_detail,omitempty"`
+	FirmwareStateUpdatedAt     *string              `json:"firmware_state_updated_at,omitempty"`
 }
 
 type ModuleManagerDTO struct {
@@ -328,16 +331,38 @@ type DeviceStatusDTO struct {
 	ManualInspectionPending bool                 `json:"manual_inspection_pending"`
 	ManualCleaningPending   bool                 `json:"manual_cleaning_pending"`
 	ManualCleaningTargetXCm *float64             `json:"manual_cleaning_target_x_cm,omitempty"`
-	PingIntervalSeconds    int                  `json:"ping_interval_seconds"`
-	OnlineWindowSeconds    int                  `json:"online_window_seconds"`
+	PingIntervalSeconds     int                  `json:"ping_interval_seconds"`
+	OnlineWindowSeconds     int                  `json:"online_window_seconds"`
+	FirmwareState           string               `json:"firmware_state"`
+	FirmwareStateDetail     *string              `json:"firmware_state_detail,omitempty"`
+	FirmwareStateUpdatedAt  *string              `json:"firmware_state_updated_at,omitempty"`
+}
+
+type StateTransitionInput struct {
+	State      string  `json:"state"`
+	Detail     *string `json:"detail,omitempty"`
+	OccurredAt int64   `json:"occurred_at"`
+}
+
+type ModuleStateLogDTO struct {
+	Seq        int64   `json:"seq"`
+	ID         string  `json:"id"`
+	ModuleID   string  `json:"module_id"`
+	State      string  `json:"state"`
+	Detail     *string `json:"detail,omitempty"`
+	OccurredAt string  `json:"occurred_at"`
+	CreatedAt  string  `json:"created_at"`
 }
 
 type RecordDevicePingInput struct {
-	WaterAvailable      *bool      `json:"water_available"`
-	LimitsCheckPassed   *bool      `json:"limits_check_passed"`
-	ThermalSensorActive *bool      `json:"thermal_sensor_active"`
-	NextInspectionAt    *time.Time `json:"next_inspection_at,omitempty"`
-	ManualCleaningAck   *bool      `json:"manual_cleaning_ack,omitempty"`
+	WaterAvailable      *bool                  `json:"water_available"`
+	LimitsCheckPassed   *bool                  `json:"limits_check_passed"`
+	ThermalSensorActive *bool                  `json:"thermal_sensor_active"`
+	NextInspectionAt    *time.Time             `json:"next_inspection_at,omitempty"`
+	ManualCleaningAck   *bool                  `json:"manual_cleaning_ack,omitempty"`
+	FirmwareState       *string                `json:"firmware_state,omitempty"`
+	FirmwareStateDetail *string                `json:"firmware_state_detail,omitempty"`
+	StateTransitions    []StateTransitionInput `json:"state_transitions,omitempty"`
 }
 
 type ClaimDeviceInput struct {

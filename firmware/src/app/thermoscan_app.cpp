@@ -68,14 +68,32 @@ bool ThermoscanApp::checkSolarWindow() const {
                                      now);
 }
 
-void ThermoscanApp::executeEmergencyStop() {
+void ThermoscanApp::transitionTo(AppState new_state, const char* detail) {
+    state_ = new_state;
+    last_state_detail_ = detail;
+    const char* state_name = getStateName();
+    const uint32_t now = getCurrentTime();
+    if (cloud_ != nullptr) {
+        cloud_->setFirmwareState(state_name, detail);
+        cloud_->recordStateTransition(state_name, detail, now);
+        bool heap_ok = true;
+#if defined(ARDUINO) || defined(ESP32)
+        heap_ok = (ESP.getFreeHeap() >= 45000);
+#endif
+        if (cloud_->isConnected() && heap_ok) {
+            cloud_->sendPing();
+        }
+    }
+}
+
+void ThermoscanApp::executeEmergencyStop(const char* detail) {
     if (spray_ != nullptr) {
         spray_->stopPump();
     }
     if (motion_ != nullptr) {
         motion_->emergencyStop();
     }
-    state_ = AppState::ERROR_HALT;
+    transitionTo(AppState::ERROR_HALT, detail);
 }
 
 void ThermoscanApp::returnToSafeIdle() {
@@ -85,11 +103,11 @@ void ThermoscanApp::returnToSafeIdle() {
     if (motion_ != nullptr) {
         motion_->disableMotor();
     }
-    state_ = AppState::IDLE;
+    transitionTo(AppState::IDLE);
 }
 
 bool ThermoscanApp::init() {
-    state_ = AppState::BOOT_INIT;
+    transitionTo(AppState::BOOT_INIT);
     handleBootInit();
     return (state_ != AppState::ERROR_HALT);
 }

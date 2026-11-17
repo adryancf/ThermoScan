@@ -106,7 +106,7 @@ void ThermoscanApp::restoreStateFromNvs() {
                                           AnomalyResult::OPEN,
                                           restored_attempts,
                                           s.spray_ended_timestamp);
-                state_ = AppState::WAITING_VERIFICATION;
+                transitionTo(AppState::WAITING_VERIFICATION, "cooldown_wait");
             } else if (has_pending) {
                 for (const auto& qh : cleaning_queue_) {
                     if (qh.verification_status == "pending") {
@@ -120,11 +120,11 @@ void ThermoscanApp::restoreStateFromNvs() {
                                           AnomalyResult::OPEN,
                                           restored_attempts,
                                           0);
-                state_ = AppState::CLEANING;
+                transitionTo(AppState::CLEANING);
             } else {
                 cleaning_queue_.clear();
                 storage_->clearCleaningQueue();
-                state_ = AppState::IDLE;
+                transitionTo(AppState::IDLE);
             }
         } else if (s.pending_verification && s.spray_ended_timestamp > 0) {
             QueuedHotspot qh;
@@ -141,7 +141,7 @@ void ThermoscanApp::restoreStateFromNvs() {
                                       AnomalyResult::OPEN,
                                       s.effective_attempts,
                                       s.spray_ended_timestamp);
-            state_ = AppState::WAITING_VERIFICATION;
+            transitionTo(AppState::WAITING_VERIFICATION, "cooldown_wait");
         } else {
             cleaning_sm_.restoreState(CleaningStatus::IDLE,
                                       AnomalyResult::OPEN,
@@ -176,13 +176,13 @@ void ThermoscanApp::handleBootInit() {
 
     // Hardware self-diagnosis
     if (motion_ != nullptr && !motion_->checkLimitsIntegrity()) {
-        executeEmergencyStop();
+        executeEmergencyStop("limits_check_failed");
         return;
     }
 
     // Physical carriage homing to mechanical NC limit switch at X=0
     if (motion_ != nullptr && !motion_->home()) {
-        executeEmergencyStop();
+        executeEmergencyStop("homing_failed");
         return;
     }
 
@@ -199,9 +199,9 @@ void ThermoscanApp::handleBootInit() {
         if (has_backup && inspection_crash_retries_ < 2) {
             inspection_crash_retries_++;
             pending_sync_backup_id_ = inspection_source_event_id_;
-            state_ = (restored_operation_status_ == "ANALYZING")
-                         ? AppState::ANALYZING
-                         : AppState::SYNCING;
+            transitionTo((restored_operation_status_ == "ANALYZING")
+                             ? AppState::ANALYZING
+                             : AppState::SYNCING);
             saveCurrentStateToNvs();
             Serial.printf("[APP] Recovering pending %s for inspection ID %s from SD backup (crash retry %u)\n",
                           restored_operation_status_.c_str(),
@@ -226,7 +226,7 @@ void ThermoscanApp::handleBootInit() {
             if (storage_ != nullptr) {
                 storage_->clearInspectionProgress();
             }
-            state_ = AppState::IDLE;
+            transitionTo(AppState::IDLE);
             saveCurrentStateToNvs();
         }
     }
@@ -236,7 +236,7 @@ void ThermoscanApp::handleBootInit() {
         if (inspection_crash_retries_ < MAX_INSPECTION_CRASH_RETRIES) {
             inspection_crash_retries_++;
             saveCurrentStateToNvs();
-            state_ = AppState::SCANNING;
+            transitionTo(AppState::SCANNING);
             Serial.printf("[APP] Resuming interrupted inspection ID %s from panel %u (crash retry %u)\n",
                           inspection_source_event_id_.c_str(),
                           static_cast<unsigned>(last_completed_panel_ + 1),
@@ -255,13 +255,13 @@ void ThermoscanApp::handleBootInit() {
                 storage_->clearInspectionProgress();
             }
             saveCurrentStateToNvs();
-            state_ = AppState::IDLE;
+            transitionTo(AppState::IDLE);
         }
     }
 
     // If no verification was pending from prior power cycle, proceed to IDLE
     if (state_ == AppState::BOOT_INIT) {
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
     }
 }
 

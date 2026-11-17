@@ -130,6 +130,12 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		configApplyErr,
 	)
 
+	var firmwareStateUpdatedAtStr *string
+	if row.FirmwareStateUpdatedAt != nil {
+		str := row.FirmwareStateUpdatedAt.UTC().Format(time.RFC3339)
+		firmwareStateUpdatedAtStr = &str
+	}
+
 	dto := &DeviceStatusDTO{
 		ModuleID:            auth.FormatUUID(row.ID),
 		MACAddress:          row.MacAddress,
@@ -143,8 +149,11 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		ConfigurationSync:   syncDTO,
 		ManualCleaningPending:   row.ManualCleaningPending,
 		ManualCleaningTargetXCm: numericToFloatPtr(row.ManualCleaningTargetXCm),
-		PingIntervalSeconds: s.PingIntervalSeconds(),
-		OnlineWindowSeconds: s.OnlineWindowSeconds(),
+		PingIntervalSeconds:     s.PingIntervalSeconds(),
+		OnlineWindowSeconds:     s.OnlineWindowSeconds(),
+		FirmwareState:           row.FirmwareState,
+		FirmwareStateDetail:     pgTextToStringPtr(row.FirmwareStateDetail),
+		FirmwareStateUpdatedAt:  firmwareStateUpdatedAtStr,
 	}
 
 	if hasPending, err := s.queries.HasPendingScheduledInspection(ctx, moduleID); err == nil && hasPending {
@@ -257,11 +266,115 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		_ = qtx.ClearManualCleaningPending(ctx, moduleID)
 	}
 
+	if len(input.StateTransitions) > 0 {
+		now := time.Now().UTC()
+		var lastState string
+		var lastDetail *string
+		var lastOccurredAt time.Time
+		for _, tr := range input.StateTransitions {
+			st := strings.TrimSpace(tr.State)
+			if st == "" {
+				continue
+			}
+			occurredAt := now
+			if tr.OccurredAt >= 1000000000 {
+				occurredAt = time.Unix(tr.OccurredAt, 0).UTC()
+			}
+			if _, err := qtx.InsertModuleStateLog(ctx, db.InsertModuleStateLogParams{
+				ModuleID:   moduleID,
+				State:      st,
+				Detail:     stringPtrToPgText(tr.Detail),
+				OccurredAt: occurredAt,
+			}); err != nil {
+				return nil, err
+			}
+			lastState = st
+			lastDetail = tr.Detail
+			lastOccurredAt = occurredAt
+		}
+		if input.FirmwareState != nil && strings.TrimSpace(*input.FirmwareState) != "" {
+			lastState = strings.TrimSpace(*input.FirmwareState)
+			if input.FirmwareStateDetail != nil {
+				lastDetail = input.FirmwareStateDetail
+			}
+			if lastOccurredAt.IsZero() {
+				lastOccurredAt = now
+			}
+		}
+		if lastState != "" {
+			if err := qtx.UpdateModuleFirmwareState(ctx, db.UpdateModuleFirmwareStateParams{
+				ID:                     moduleID,
+				FirmwareState:          lastState,
+				FirmwareStateDetail:    stringPtrToPgText(lastDetail),
+				FirmwareStateUpdatedAt: &lastOccurredAt,
+			}); err != nil {
+				return nil, err
+			}
+		}
+	} else if input.FirmwareState != nil && strings.TrimSpace(*input.FirmwareState) != "" {
+		newState := strings.TrimSpace(*input.FirmwareState)
+		now := time.Now().UTC()
+		if newState != row.FirmwareState {
+			if _, err := qtx.InsertModuleStateLog(ctx, db.InsertModuleStateLogParams{
+				ModuleID:   moduleID,
+				State:      newState,
+				Detail:     stringPtrToPgText(input.FirmwareStateDetail),
+				OccurredAt: now,
+			}); err != nil {
+				return nil, err
+			}
+		}
+		if err := qtx.UpdateModuleFirmwareState(ctx, db.UpdateModuleFirmwareStateParams{
+			ID:                     moduleID,
+			FirmwareState:          newState,
+			FirmwareStateDetail:    stringPtrToPgText(input.FirmwareStateDetail),
+			FirmwareStateUpdatedAt: &now,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
 	return s.GetDeviceStatus(ctx, principal, moduleID)
+}
+
+func (s *Service) ListModuleStateLogs(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) ([]ModuleStateLogDTO, error) {
+	row, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if _, _, err := s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID); err != nil {
+		return nil, err
+	}
+
+	rows, err := s.queries.ListModuleStateLogs(ctx, moduleID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ModuleStateLogDTO, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ModuleStateLogDTO{
+			Seq:        r.Seq,
+			ID:         auth.FormatUUID(r.ID),
+			ModuleID:   auth.FormatUUID(r.ModuleID),
+			State:      r.State,
+			Detail:     pgTextToStringPtr(r.Detail),
+			OccurredAt: r.OccurredAt.UTC().Format(time.RFC3339),
+			CreatedAt:  r.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out, nil
 }
 
 func (s *Service) ClaimDevice(ctx context.Context, input ClaimDeviceInput) (*ClaimDeviceDTO, error) {

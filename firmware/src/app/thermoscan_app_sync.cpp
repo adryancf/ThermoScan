@@ -28,13 +28,13 @@ void ThermoscanApp::handleSyncing() {
             }
             saveCurrentStateToNvs();
         }
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
     if (cloud_ == nullptr || !cloud_->isConnected()) {
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -42,7 +42,7 @@ void ThermoscanApp::handleSyncing() {
     if (!cloud_->getConfiguration(cfg_json)) {
         // getConfiguration failed: keep pending flag true, return to IDLE, retry on next ping
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -51,7 +51,7 @@ void ThermoscanApp::handleSyncing() {
     if (err) {
         last_config_error_ = "json_parse_error";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -60,7 +60,7 @@ void ThermoscanApp::handleSyncing() {
     if (ver == 0) {
         last_config_error_ = "invalid_version";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -68,7 +68,7 @@ void ThermoscanApp::handleSyncing() {
     if (!doc["geometry"].is<JsonObject>()) {
         last_config_error_ = "missing_geometry";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -80,7 +80,7 @@ void ThermoscanApp::handleSyncing() {
     if (len <= 0.0f || width <= 0.0f || count < 1 || space < 0.0f) {
         last_config_error_ = "invalid_geometry";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -89,7 +89,7 @@ void ThermoscanApp::handleSyncing() {
     if (min_solar < 0.0f || min_solar > 90.0f) {
         last_config_error_ = "invalid_solar_angle";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -98,7 +98,7 @@ void ThermoscanApp::handleSyncing() {
     if (interval_d < 1) {
         last_config_error_ = "invalid_interval";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -107,7 +107,7 @@ void ThermoscanApp::handleSyncing() {
     if (ping_s < 5) {
         last_config_error_ = "invalid_ping_interval";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -118,7 +118,7 @@ void ThermoscanApp::handleSyncing() {
         if (lat < -90.0f || lat > 90.0f) {
             last_config_error_ = "invalid_latitude";
             config_sync_failed_waiting_ping_ = true;
-            state_ = AppState::IDLE;
+            transitionTo(AppState::IDLE);
             return;
         }
     }
@@ -129,7 +129,7 @@ void ThermoscanApp::handleSyncing() {
         if (lon < -180.0f || lon > 180.0f) {
             last_config_error_ = "invalid_longitude";
             config_sync_failed_waiting_ping_ = true;
-            state_ = AppState::IDLE;
+            transitionTo(AppState::IDLE);
             return;
         }
     }
@@ -144,7 +144,7 @@ void ThermoscanApp::handleSyncing() {
     if (azimuth < 0.0f || azimuth >= 360.0f) {
         last_config_error_ = "invalid_azimuth";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -157,7 +157,7 @@ void ThermoscanApp::handleSyncing() {
     if (tilt < 0.0f || tilt > 90.0f) {
         last_config_error_ = "invalid_tilt";
         config_sync_failed_waiting_ping_ = true;
-        state_ = AppState::IDLE;
+        transitionTo(AppState::IDLE);
         return;
     }
 
@@ -218,7 +218,7 @@ void ThermoscanApp::handleSyncing() {
 
     config_update_pending_ = false;
     config_sync_failed_waiting_ping_ = false;
-    state_ = AppState::IDLE;
+    transitionTo(AppState::IDLE);
 }
 
 } // namespace app

@@ -102,7 +102,7 @@ public:
     void triggerManualCleaning(float target_x_cm);
 
     // Safety and state restoration
-    void executeEmergencyStop();
+    void executeEmergencyStop(const char* detail = nullptr);
     void returnToSafeIdle();
 
 private:
@@ -159,6 +159,7 @@ private:
     bool config_sync_failed_waiting_ping_{false};
     std::string last_config_error_{};
     AppState last_logged_state_{AppState::ERROR_HALT};
+    const char* last_state_detail_{nullptr};
 
     // State handlers
     void handleBootInit();
@@ -171,6 +172,7 @@ private:
     void handleSyncing();
 
     // Helpers
+    void transitionTo(AppState new_state, const char* detail = nullptr);
     uint32_t getCurrentTime() const;
     bool checkSolarWindow() const;
     void saveCurrentStateToNvs();

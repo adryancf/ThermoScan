@@ -1056,6 +1056,12 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		_ = json.Unmarshal(r.PowerSensors, &powerSensorsData)
 	}
 
+	var firmwareStateUpdatedAtStr *string
+	if r.FirmwareStateUpdatedAt != nil {
+		str := r.FirmwareStateUpdatedAt.UTC().Format(time.RFC3339)
+		firmwareStateUpdatedAtStr = &str
+	}
+
 	return ModuleDTO{
 		ID:                         auth.FormatUUID(r.ID),
 		CompanyID:                  auth.FormatUUID(r.CompanyID),
@@ -1095,5 +1101,8 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		OnlineWindowSeconds:        s.OnlineWindowSeconds(),
 		IsOnline:                   isOnline,
 		LastPingAt:                 lastPingAtStr,
+		FirmwareState:              r.FirmwareState,
+		FirmwareStateDetail:        pgTextToStringPtr(r.FirmwareStateDetail),
+		FirmwareStateUpdatedAt:     firmwareStateUpdatedAtStr,
 	}
 }

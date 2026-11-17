@@ -4,6 +4,11 @@
 #include <string>
 #include <vector>
 #include <cmath>
+#include <thread>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 
 #include "hal/i_cloud_client.h"
 #include "hal_esp32/http_cloud_client.h"
@@ -368,6 +373,110 @@ void test_ping_json_and_manual_cleaning_status_contract() {
     TEST_ASSERT_FALSE(client.isManualCleaningPending());
 }
 
+void test_ping_firmware_state_and_detail_serialization() {
+    HttpCloudClient client("http://localhost:8080");
+    client.setFirmwareState("WAITING_VERIFICATION", "solar_window_closed");
+    client.recordStateTransition("BOOT_INIT", nullptr, 0);
+    client.recordStateTransition("WAITING_VERIFICATION", "solar_window_closed", 1730721600);
+
+    std::string json_str = client.buildPingPayload(true, true, true, "", false);
+    JsonDocument doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc, json_str).code());
+    TEST_ASSERT_EQUAL_STRING("WAITING_VERIFICATION", doc["firmware_state"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("solar_window_closed", doc["firmware_state_detail"].as<const char*>());
+
+    JsonArray transitions = doc["state_transitions"].as<JsonArray>();
+    TEST_ASSERT_EQUAL(2, transitions.size());
+    TEST_ASSERT_EQUAL_STRING("BOOT_INIT", transitions[0]["state"].as<const char*>());
+    TEST_ASSERT_TRUE(transitions[0]["detail"].isNull());
+    TEST_ASSERT_EQUAL(0, transitions[0]["occurred_at"].as<uint32_t>());
+
+    TEST_ASSERT_EQUAL_STRING("WAITING_VERIFICATION", transitions[1]["state"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("solar_window_closed", transitions[1]["detail"].as<const char*>());
+    TEST_ASSERT_TRUE(isValidRFC3339(transitions[1]["occurred_at"].as<std::string>()));
+    TEST_ASSERT_EQUAL_STRING("2024-11-04T12:00:00Z", transitions[1]["occurred_at"].as<const char*>());
+}
+
+void test_ping_state_ring_buffer_overflow_keeps_newest_16() {
+    HttpCloudClient client("http://localhost:8080");
+    static const char* kStates[20] = {
+        "S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09",
+        "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19"
+    };
+    for (uint32_t i = 0; i < 20; ++i) {
+        client.setFirmwareState(kStates[i], nullptr);
+        client.recordStateTransition(kStates[i], nullptr, 1730721600 + i);
+    }
+
+    TEST_ASSERT_EQUAL_UINT(16, client.getPendingStateTransitionCount());
+
+    std::string json_str = client.buildPingPayload(true, true, true, "", false);
+    JsonDocument doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc, json_str).code());
+    TEST_ASSERT_EQUAL_STRING("S19", doc["firmware_state"].as<const char*>());
+
+    JsonArray transitions = doc["state_transitions"].as<JsonArray>();
+    TEST_ASSERT_EQUAL(16, transitions.size());
+    // Oldest 4 (S00..S03) were overwritten; remaining are S04..S19 in chronological order
+    TEST_ASSERT_EQUAL_STRING("S04", transitions[0]["state"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("2024-11-04T12:00:04Z", transitions[0]["occurred_at"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("S19", transitions[15]["state"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("2024-11-04T12:00:19Z", transitions[15]["occurred_at"].as<const char*>());
+}
+
+void test_ping_state_ring_buffer_cleared_only_on_http_200() {
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    TEST_ASSERT_TRUE(server_fd >= 0);
+
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0; // ephemeral port
+    TEST_ASSERT_EQUAL(0, bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)));
+    TEST_ASSERT_EQUAL(0, listen(server_fd, 4));
+
+    socklen_t len = sizeof(addr);
+    TEST_ASSERT_EQUAL(0, getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &len));
+    int port = ntohs(addr.sin_port);
+
+    // Server thread: 1st request -> 500, 2nd request -> 200 OK
+    std::thread srv([server_fd]() {
+        const char* resp1 = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        const char* resp2 = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+        char buf[2048];
+        for (int i = 0; i < 2; ++i) {
+            int cfd = accept(server_fd, nullptr, nullptr);
+            if (cfd >= 0) {
+                recv(cfd, buf, sizeof(buf), 0);
+                const char* resp = (i == 0) ? resp1 : resp2;
+                send(cfd, resp, strlen(resp), 0);
+                close(cfd);
+            }
+        }
+        close(server_fd);
+    });
+
+    WiFi.setConnected(true);
+    HttpCloudClient client("http://127.0.0.1:" + std::to_string(port));
+    client.setCredentials("mod-1", "dev_sec_test");
+    client.setFirmwareState("ERROR_HALT", "homing_failed");
+    client.recordStateTransition("BOOT_INIT", nullptr, 1730721600);
+    client.recordStateTransition("ERROR_HALT", "homing_failed", 1730721605);
+
+    // 1st ping gets HTTP 500 -> must NOT clear ring buffer
+    TEST_ASSERT_FALSE(client.sendPingWithDiagnostics(true, false, true));
+    TEST_ASSERT_EQUAL_UINT(2, client.getPendingStateTransitionCount());
+
+    // 2nd ping gets HTTP 200 -> MUST clear ring buffer
+    TEST_ASSERT_TRUE(client.sendPingWithDiagnostics(true, false, true));
+    TEST_ASSERT_EQUAL_UINT(0, client.getPendingStateTransitionCount());
+
+    srv.join();
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
@@ -376,5 +485,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_panel_thermal_result_and_multi_panel_index_contracts);
     RUN_TEST(test_abort_inspection_json_contract);
     RUN_TEST(test_ping_json_and_manual_cleaning_status_contract);
+    RUN_TEST(test_ping_firmware_state_and_detail_serialization);
+    RUN_TEST(test_ping_state_ring_buffer_overflow_keeps_newest_16);
+    RUN_TEST(test_ping_state_ring_buffer_cleared_only_on_http_200);
     return UNITY_END();
 }

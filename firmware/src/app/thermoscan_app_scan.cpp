@@ -84,7 +84,7 @@ void ThermoscanApp::handleIdle() {
     if (manual_inspection_requested_) {
         manual_inspection_requested_ = false;
         Serial.println(F("[APP] State transition: IDLE -> SCANNING (Starting manual inspection)"));
-        state_ = AppState::SCANNING;
+        transitionTo(AppState::SCANNING);
         return;
     }
 
@@ -110,13 +110,13 @@ void ThermoscanApp::handleIdle() {
         if (storage_ != nullptr) {
             storage_->saveCleaningQueue(cleaning_queue_);
         }
-        state_ = AppState::CLEANING;
+        transitionTo(AppState::CLEANING);
         return;
     }
 
     // 2. Pending configuration synchronization
     if (config_update_pending_ && !config_sync_failed_waiting_ping_) {
-        state_ = AppState::SYNCING;
+        transitionTo(AppState::SYNCING);
         return;
     }
 
@@ -124,7 +124,7 @@ void ThermoscanApp::handleIdle() {
     if (now > 0 && next_inspection_time_ > 0 && now >= next_inspection_time_) {
         if (checkSolarWindow()) {
             Serial.println(F("[APP] State transition: IDLE -> SCANNING (Starting scheduled inspection)"));
-            state_ = AppState::SCANNING;
+            transitionTo(AppState::SCANNING);
             return;
         }
     }
@@ -457,8 +457,10 @@ void ThermoscanApp::handleScanning() {
     }
 
     Serial.println(F("[SCAN] Scan completed. State transition: SCANNING -> ANALYZING."));
-    state_ = AppState::ANALYZING;
+    quantized_frames_.clear();
+    quantized_frames_.shrink_to_fit();
     saveCurrentStateToNvs();
+    transitionTo(AppState::ANALYZING);
 }
 
 void ThermoscanApp::handleAnalyzing() {
@@ -485,7 +487,7 @@ void ThermoscanApp::handleAnalyzing() {
         }
         utils::HeapTracker::stop();
         saveCurrentStateToNvs();
-        state_ = AppState::SYNCING;
+        transitionTo(AppState::SYNCING);
         return;
     }
 
@@ -606,7 +608,7 @@ void ThermoscanApp::handleAnalyzing() {
             storage_->saveCleaningQueue(cleaning_queue_);
         }
         saveCurrentStateToNvs();
-        state_ = AppState::CLEANING;
+        transitionTo(AppState::CLEANING);
     } else {
         const uint32_t now = getCurrentTime();
         if (now > 0) {
@@ -615,8 +617,8 @@ void ThermoscanApp::handleAnalyzing() {
         if (storage_ != nullptr) {
             storage_->clearCleaningQueue();
         }
-        state_ = AppState::SYNCING;
         saveCurrentStateToNvs();
+        transitionTo(AppState::SYNCING);
     }
 }
 

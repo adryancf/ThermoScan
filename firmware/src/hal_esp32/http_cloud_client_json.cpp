@@ -11,19 +11,31 @@
 
 namespace hal_esp32 {
 
-static std::string formatEpochToRFC3339(uint32_t epoch) {
-    if (epoch == 0) return "";
+static bool formatEpochToBuf(uint32_t epoch, char (&buf)[25]) {
+    if (epoch == 0) {
+        buf[0] = '\0';
+        return false;
+    }
     time_t raw = static_cast<time_t>(epoch);
     struct tm ts;
     gmtime_r(&raw, &ts);
-    char buf[25];
     std::strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &ts);
+    return true;
+}
+
+static std::string formatEpochToRFC3339(uint32_t epoch) {
+    char buf[25];
+    if (!formatEpochToBuf(epoch, buf)) return "";
     return std::string(buf);
 }
 
 std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool thermal_ok,
                                          const std::string& next_inspection_at,
-                                         bool manual_cleaning_ack) {
+                                         bool manual_cleaning_ack,
+                                         const char* firmware_state,
+                                         const char* firmware_state_detail,
+                                         const StateTransitionEntry* transitions,
+                                         size_t transition_count) {
     JsonDocument doc;
     doc["water_available"] = water_ok;
     doc["limits_check_passed"] = limits_ok;
@@ -35,10 +47,56 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
     if (manual_cleaning_ack) {
         doc["manual_cleaning_ack"] = true;
     }
+    if (firmware_state != nullptr && firmware_state[0] != '\0') {
+        doc["firmware_state"] = firmware_state;
+    }
+    if (firmware_state_detail != nullptr && firmware_state_detail[0] != '\0') {
+        doc["firmware_state_detail"] = firmware_state_detail;
+    }
+    if (transitions != nullptr && transition_count > 0) {
+        JsonArray arr = doc["state_transitions"].to<JsonArray>();
+        for (size_t i = 0; i < transition_count; ++i) {
+            const StateTransitionEntry& entry = transitions[i];
+            if (entry.state == nullptr || entry.state[0] == '\0') {
+                continue;
+            }
+            JsonObject item = arr.add<JsonObject>();
+            item["state"] = entry.state;
+            if (entry.detail != nullptr && entry.detail[0] != '\0') {
+                item["detail"] = entry.detail;
+            }
+            char buf[25];
+            if (formatEpochToBuf(entry.occurred_at, buf)) {
+                item["occurred_at"] = buf;
+            } else {
+                item["occurred_at"] = 0;
+            }
+        }
+    }
 
     std::string requestBody;
+    requestBody.reserve(512);
     serializeJson(doc, requestBody);
     return requestBody;
+}
+
+std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
+                                            const std::string& next_inspection_at,
+                                            bool manual_cleaning_ack) const {
+    StateTransitionEntry ordered[STATE_RING_CAPACITY];
+    const size_t count = (state_ring_count_ <= STATE_RING_CAPACITY) ? state_ring_count_ : STATE_RING_CAPACITY;
+    for (size_t i = 0; i < count; ++i) {
+        ordered[i] = state_ring_[(state_ring_head_ + i) % STATE_RING_CAPACITY];
+    }
+    return buildPingJson(water_ok,
+                         limits_ok,
+                         thermal_ok,
+                         next_inspection_at,
+                         manual_cleaning_ack,
+                         current_firmware_state_,
+                         current_firmware_state_detail_,
+                         ordered,
+                         count);
 }
 
 bool HttpCloudClient::parsePingResponse(const std::string& response_json) {

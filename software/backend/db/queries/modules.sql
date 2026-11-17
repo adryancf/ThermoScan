@@ -150,7 +150,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -193,7 +196,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 WHERE m.company_id = $1
   AND m.id = $2
@@ -238,7 +244,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -284,7 +293,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_technicians mt ON mt.company_id = m.company_id AND mt.module_id = m.id
@@ -329,7 +341,10 @@ SELECT
     m.config_version,
     m.config_applied_version,
     m.config_applied_at,
-    m.config_apply_error
+    m.config_apply_error,
+    m.firmware_state,
+    m.firmware_state_detail,
+    m.firmware_state_updated_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_clients mc ON mc.company_id = m.company_id AND mc.module_id = m.id
@@ -688,6 +703,32 @@ SET manual_cleaning_pending = false,
     manual_cleaning_target_x_cm = NULL,
     updated_at = now()
 WHERE id = $1;
+
+-- name: UpdateModuleFirmwareState :exec
+UPDATE modules
+SET firmware_state = $2,
+    firmware_state_detail = $3,
+    firmware_state_updated_at = $4,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: InsertModuleStateLog :one
+INSERT INTO module_state_logs (
+    module_id,
+    state,
+    detail,
+    occurred_at
+) VALUES (
+    $1, $2, $3, $4
+)
+RETURNING seq, id, module_id, state, detail, occurred_at, created_at;
+
+-- name: ListModuleStateLogs :many
+SELECT seq, id, module_id, state, detail, occurred_at, created_at
+FROM module_state_logs
+WHERE module_id = $1
+ORDER BY occurred_at DESC, seq DESC
+LIMIT 100;
 
 
 

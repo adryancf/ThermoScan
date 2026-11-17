@@ -59,6 +59,13 @@ public:
     void clearManualCleaningPending() override { manual_cleaning_pending_ = false; }
     void setManualCleaningAckPending(bool pending) override { manual_cleaning_ack_pending_ = pending; }
 
+    static constexpr size_t STATE_RING_CAPACITY = 16;
+    void setFirmwareState(const char* state, const char* detail = nullptr) override;
+    void recordStateTransition(const char* state, const char* detail, uint32_t occurred_at) override;
+    size_t getPendingStateTransitionCount() const { return state_ring_count_; }
+    const char* getFirmwareState() const { return current_firmware_state_; }
+    const char* getFirmwareStateDetail() const { return current_firmware_state_detail_; }
+
     bool hadAuthError() const override { return auth_error_; }
     void clearAuthError() override { auth_error_ = false; }
     bool hadConflictError() const { return conflict_error_; }
@@ -72,7 +79,14 @@ public:
     static std::string buildCleaningReportJson(const CleaningReportInput& input);
     static std::string buildPingJson(bool water_ok, bool limits_ok, bool thermal_ok,
                                      const std::string& next_inspection_at = "",
-                                     bool manual_cleaning_ack = false);
+                                     bool manual_cleaning_ack = false,
+                                     const char* firmware_state = nullptr,
+                                     const char* firmware_state_detail = nullptr,
+                                     const StateTransitionEntry* transitions = nullptr,
+                                     size_t transition_count = 0);
+    std::string buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
+                                 const std::string& next_inspection_at = "",
+                                 bool manual_cleaning_ack = false) const;
     bool parsePingResponse(const std::string& response_json);
 
     // Advanced & Diagnostic helpers
@@ -105,6 +119,12 @@ private:
     bool manual_cleaning_pending_{false};
     float manual_cleaning_target_x_cm_{0.0f};
     bool manual_cleaning_ack_pending_{false};
+
+    const char* current_firmware_state_{nullptr};
+    const char* current_firmware_state_detail_{nullptr};
+    StateTransitionEntry state_ring_[STATE_RING_CAPACITY]{};
+    size_t state_ring_head_{0};
+    size_t state_ring_count_{0};
 
     void appendAuthHeader(HTTPClient& http);
 };

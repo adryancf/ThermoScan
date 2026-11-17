@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -14,9 +16,11 @@ import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/module_cleanings_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_configuration_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
+import 'package:thermoscan/features/modules/presentation/module_state_logs_screen.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/modules_home_screen.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/clean_thermal_preview_card.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/firmware_state_badge.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
 /// SCR-10: Module Details Screen with TabBar / TabBarView navigation
@@ -40,6 +44,26 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   bool _updatingEmailPref = false;
   bool _isTriggeringInspection = false;
   bool _isTriggeringCleaning = false;
+  Timer? _statusRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _statusRefreshTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) {
+        if (mounted) {
+          ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _statusRefreshTimer?.cancel();
+    super.dispose();
+  }
 
   Future<void> _triggerManualScan(String moduleId) async {
     setState(() => _isTriggeringInspection = true);
@@ -497,11 +521,37 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                             _promptAndTriggerManualCleaning(mod.id);
                           } else if (val == 'verify_hardware') {
                             context.push('/modules/${mod.id}/device-verification');
+                          } else if (val == 'state_logs') {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ModuleStateLogsScreen(
+                                  moduleId: mod.id,
+                                  moduleName: mod.name,
+                                ),
+                              ),
+                            );
                           } else if (val == 'delete') {
                             _confirmAndDeleteModule(mod.name);
                           }
                         },
                         itemBuilder: (ctx) => [
+                          PopupMenuItem<String>(
+                            value: 'state_logs',
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: const [
+                                Icon(
+                                  Icons.history_rounded,
+                                  size: 18,
+                                  color: AppColors.primary,
+                                ),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text('State Logs'),
+                                ),
+                              ],
+                            ),
+                          ),
                           if (!mod.isPendingConfiguration)
                             PopupMenuItem<String>(
                               value: 'trigger_scan',
@@ -2223,6 +2273,17 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                             ? Icons.wifi_rounded
                             : Icons.wifi_off_rounded,
                       ),
+                      if ((deviceStatus?.firmwareState ?? mod.firmwareState) !=
+                              null &&
+                          (deviceStatus?.firmwareState ?? mod.firmwareState)!
+                              .trim()
+                              .isNotEmpty)
+                        FirmwareStateBadge(
+                          firmwareState:
+                              deviceStatus?.firmwareState ?? mod.firmwareState,
+                          firmwareStateDetail: deviceStatus?.firmwareStateDetail ??
+                              mod.firmwareStateDetail,
+                        ),
                       _buildStatusPill(
                         label: deviceStatus?.waterAvailable == true
                             ? 'Water OK'

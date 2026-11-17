@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/firmware_state_badge.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
@@ -389,6 +390,13 @@ class _ModuleListCard extends ConsumerWidget {
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   _ConnectionStatusPill(module: module),
+                  if (module.firmwareState != null &&
+                      module.firmwareState!.trim().isNotEmpty)
+                    FirmwareStateBadge(
+                      firmwareState: module.firmwareState,
+                      firmwareStateDetail: module.firmwareStateDetail,
+                      compact: true,
+                    ),
                   _RelationshipBadge(label: module.relationshipLabel),
                   if (module.panelCount != null &&
                       module.panelLengthCm != null &&

@@ -392,4 +392,21 @@ class ModuleRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<List<ModuleStateLog>> getStateLogs(String moduleId) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/state-logs',
+      );
+      final rawList = (response.data?['logs'] ??
+              response.data?['state_logs'] ??
+              const []) as List<dynamic>;
+      return rawList
+          .whereType<Map<String, dynamic>>()
+          .map(ModuleStateLog.fromJson)
+          .toList();
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

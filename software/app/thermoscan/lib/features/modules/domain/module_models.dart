@@ -101,6 +101,9 @@ class PvModule {
     this.onlineWindowSeconds,
     this.lastPingAt,
     bool isOnline = false,
+    this.firmwareState,
+    this.firmwareStateDetail,
+    this.firmwareStateUpdatedAt,
   }) : _explicitIsOnline = isOnline;
 
   final String id;
@@ -141,6 +144,9 @@ class PvModule {
   final int? onlineWindowSeconds;
   final String? lastPingAt;
   final bool _explicitIsOnline;
+  final String? firmwareState;
+  final String? firmwareStateDetail;
+  final String? firmwareStateUpdatedAt;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -323,6 +329,9 @@ class PvModule {
       onlineWindowSeconds: (json['online_window_seconds'] ?? json['onlineWindowSeconds'] as num?)?.toInt(),
       lastPingAt: (json['last_ping_at'] ?? json['lastPingAt']) as String?,
       isOnline: json['is_online'] as bool? ?? false,
+      firmwareState: (json['firmware_state'] ?? json['firmwareState']) as String?,
+      firmwareStateDetail: (json['firmware_state_detail'] ?? json['firmwareStateDetail']) as String?,
+      firmwareStateUpdatedAt: (json['firmware_state_updated_at'] ?? json['firmwareStateUpdatedAt']) as String?,
     );
   }
 
@@ -1144,6 +1153,9 @@ class DeviceStatus {
     this.manualInspectionPending = false,
     this.pingIntervalSeconds,
     this.onlineWindowSeconds,
+    this.firmwareState,
+    this.firmwareStateDetail,
+    this.firmwareStateUpdatedAt,
   }) : _explicitIsOnline = isOnline;
 
   final String moduleId;
@@ -1164,6 +1176,9 @@ class DeviceStatus {
   final bool manualInspectionPending;
   final int? pingIntervalSeconds;
   final int? onlineWindowSeconds;
+  final String? firmwareState;
+  final String? firmwareStateDetail;
+  final String? firmwareStateUpdatedAt;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -1236,6 +1251,9 @@ class DeviceStatus {
       onlineWindowSeconds: (json['online_window_seconds'] ??
               json['onlineWindowSeconds'] as num?)
           ?.toInt(),
+      firmwareState: (json['firmware_state'] ?? json['firmwareState']) as String?,
+      firmwareStateDetail: (json['firmware_state_detail'] ?? json['firmwareStateDetail']) as String?,
+      firmwareStateUpdatedAt: (json['firmware_state_updated_at'] ?? json['firmwareStateUpdatedAt']) as String?,
     );
   }
 
@@ -1263,6 +1281,36 @@ class DeviceStatus {
         'ping_interval_seconds': pingIntervalSeconds,
       if (onlineWindowSeconds != null)
         'online_window_seconds': onlineWindowSeconds,
+      if (firmwareState != null) 'firmware_state': firmwareState,
+      if (firmwareStateDetail != null)
+        'firmware_state_detail': firmwareStateDetail,
+      if (firmwareStateUpdatedAt != null)
+        'firmware_state_updated_at': firmwareStateUpdatedAt,
     };
+  }
+}
+
+class ModuleStateLog {
+  const ModuleStateLog({
+    required this.id,
+    required this.state,
+    this.detail,
+    required this.occurredAt,
+  });
+
+  final String id;
+  final String state;
+  final String? detail;
+  final DateTime occurredAt;
+
+  factory ModuleStateLog.fromJson(Map<String, dynamic> json) {
+    final rawOccurredAt =
+        (json['occurred_at'] ?? json['occurredAt']) as String? ?? '';
+    return ModuleStateLog(
+      id: (json['id'] ?? '').toString(),
+      state: json['state'] as String? ?? '',
+      detail: json['detail'] as String?,
+      occurredAt: DateTime.tryParse(rawOccurredAt) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    );
   }
 }

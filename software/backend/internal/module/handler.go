@@ -89,6 +89,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{moduleID}/inspections/{inspectionId}/measurements", h.handleListInspectionMeasurements)
 		r.Post("/{moduleID}/trigger-inspection", h.handleTriggerManualInspection)
 		r.Post("/{moduleID}/trigger-cleaning", h.handleTriggerManualCleaning)
+		r.Post("/{moduleID}/reset-routine", h.handleResetRoutine)
 		r.Get("/{moduleID}/device-status", h.handleGetDeviceStatus)
 		r.Get("/{moduleID}/state-logs", h.handleListModuleStateLogs)
 		r.Post("/{moduleID}/device-ping", h.handleRecordDevicePing)
@@ -525,6 +526,39 @@ func (h *Handler) handleTriggerManualCleaning(w http.ResponseWriter, r *http.Req
 	}
 
 	httpjson.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleResetRoutine(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleIDStr := chi.URLParam(r, "moduleID")
+	moduleID, err := auth.ParseUUID(moduleIDStr)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module id", "INVALID_INPUT")
+		return
+	}
+
+	if err := h.service.ResetRoutine(r.Context(), principal, moduleID); err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "forbidden", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"status":  "reset_requested",
+		"message": "Reset routine requested. Active operations aborted.",
+	})
 }
 
 func parsePositiveInt32(s string, defaultVal int32) int32 {

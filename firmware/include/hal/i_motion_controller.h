@@ -9,6 +9,7 @@ public:
 
     virtual bool init() = 0;
     virtual bool home() = 0;
+    virtual bool isHomed() const { return true; }
     virtual bool moveToXCm(float target_x_cm) = 0;
     virtual float getXPositionCm() const = 0;
     virtual bool checkLimitsIntegrity() = 0;

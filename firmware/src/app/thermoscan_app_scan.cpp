@@ -17,6 +17,11 @@ namespace app {
 void ThermoscanApp::handleIdle() {
     const uint32_t now = getCurrentTime();
 
+    if (cloud_ != nullptr && cloud_->isResetPending()) {
+        executeFullReset();
+        return;
+    }
+
     // Check if cloud client reported pending configuration or manual inspection from startup/claim ping
     if (cloud_ != nullptr && cloud_->isConfigurationPending()) {
         config_update_pending_ = true;
@@ -45,6 +50,10 @@ void ThermoscanApp::handleIdle() {
         (now - last_ping_time_) >= effective_ping_interval) {
         cloud_->sendPing();
         last_ping_time_ = now;
+        if (cloud_->isResetPending()) {
+            executeFullReset();
+            return;
+        }
         if (cloud_->isConfigurationPending()) {
             config_update_pending_ = true;
             config_sync_failed_waiting_ping_ = false;
@@ -338,6 +347,20 @@ void ThermoscanApp::handleScanning() {
                     current_batch_.clear();
                     batch_frames_data.clear();
                     batch_power_data.clear();
+
+                    if (cloud_ != nullptr) {
+                        bool heap_ok = true;
+#if defined(ARDUINO) || defined(ESP32)
+                        heap_ok = (ESP.getFreeHeap() >= 45000);
+#endif
+                        if (heap_ok) {
+                            cloud_->sendPing();
+                            if (cloud_->isResetPending()) {
+                                executeFullReset();
+                                return;
+                            }
+                        }
+                    }
                 }
             } else {
                 Serial.printf("[SCAN] Warning: Failed to capture thermal frame at X = %.1f cm (skipped)\n", current_x);
@@ -464,6 +487,11 @@ void ThermoscanApp::handleScanning() {
 }
 
 void ThermoscanApp::handleAnalyzing() {
+    if (cloud_ != nullptr && cloud_->isResetPending()) {
+        executeFullReset();
+        return;
+    }
+
     // Safeguard 2: Never finalize inspection as complete if any panel result was rejected
     if (!all_panels_accepted_) {
 #if defined(ARDUINO) || defined(ESP32)

@@ -477,6 +477,96 @@ void test_ping_state_ring_buffer_cleared_only_on_http_200() {
     srv.join();
 }
 
+void test_ping_reset_pending_and_ack_json_contract() {
+    std::string no_ack_json = HttpCloudClient::buildPingJson(
+        true, true, true, "", false, nullptr, nullptr, nullptr, 0, false);
+    JsonDocument doc_no_ack;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc_no_ack, no_ack_json).code());
+    TEST_ASSERT_TRUE(doc_no_ack["reset_ack"].isNull());
+
+    std::string ack_json = HttpCloudClient::buildPingJson(
+        true, true, true, "", false, "IDLE", "user_reset", nullptr, 0, true);
+    JsonDocument doc_ack;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc_ack, ack_json).code());
+    TEST_ASSERT_TRUE(doc_ack["reset_ack"].as<bool>());
+    TEST_ASSERT_EQUAL_STRING("IDLE", doc_ack["firmware_state"].as<const char*>());
+    TEST_ASSERT_EQUAL_STRING("user_reset", doc_ack["firmware_state_detail"].as<const char*>());
+
+    HttpCloudClient client("http://localhost:8080");
+    TEST_ASSERT_FALSE(client.isResetPending());
+
+    TEST_ASSERT_TRUE(client.parsePingResponse("{\"device_status\":{\"reset_pending\":true}}"));
+    TEST_ASSERT_TRUE(client.isResetPending());
+
+    client.clearResetPending();
+    TEST_ASSERT_FALSE(client.isResetPending());
+
+    TEST_ASSERT_TRUE(client.parsePingResponse("{\"reset_pending\":true}"));
+    TEST_ASSERT_TRUE(client.isResetPending());
+
+    TEST_ASSERT_TRUE(client.parsePingResponse("{\"device_status\":{\"reset_pending\":false}}"));
+    TEST_ASSERT_FALSE(client.isResetPending());
+}
+
+void test_ping_reset_ack_cleared_only_on_http_200() {
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    TEST_ASSERT_TRUE(server_fd >= 0);
+
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    TEST_ASSERT_EQUAL(0, bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)));
+    TEST_ASSERT_EQUAL(0, listen(server_fd, 4));
+
+    socklen_t len = sizeof(addr);
+    TEST_ASSERT_EQUAL(0, getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &len));
+    int port = ntohs(addr.sin_port);
+
+    std::vector<std::string> captured_bodies;
+    std::thread srv([server_fd, &captured_bodies]() {
+        const char* resp500 = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        const char* resp200 = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+        char buf[4096];
+        for (int i = 0; i < 3; ++i) {
+            int cfd = accept(server_fd, nullptr, nullptr);
+            if (cfd >= 0) {
+                ssize_t n = recv(cfd, buf, sizeof(buf) - 1, 0);
+                if (n > 0) {
+                    buf[n] = '\0';
+                    captured_bodies.emplace_back(buf);
+                }
+                const char* resp = (i == 0) ? resp500 : resp200;
+                send(cfd, resp, strlen(resp), 0);
+                close(cfd);
+            }
+        }
+        close(server_fd);
+    });
+
+    WiFi.setConnected(true);
+    HttpCloudClient client("http://127.0.0.1:" + std::to_string(port));
+    client.setCredentials("mod-1", "dev_sec_test");
+    client.setResetAckPending(true);
+
+    // 1st ping: HTTP 500 -> reset_ack must remain pending and be sent
+    TEST_ASSERT_FALSE(client.sendPingWithDiagnostics(true, true, true));
+    // 2nd ping: HTTP 200 -> reset_ack sent, then cleared
+    TEST_ASSERT_TRUE(client.sendPingWithDiagnostics(true, true, true));
+    // 3rd ping: HTTP 200 -> reset_ack must NOT be sent
+    TEST_ASSERT_TRUE(client.sendPingWithDiagnostics(true, true, true));
+
+    srv.join();
+
+    TEST_ASSERT_EQUAL_UINT(3, captured_bodies.size());
+    TEST_ASSERT_TRUE(captured_bodies[0].find("\"reset_ack\":true") != std::string::npos);
+    TEST_ASSERT_TRUE(captured_bodies[1].find("\"reset_ack\":true") != std::string::npos);
+    TEST_ASSERT_TRUE(captured_bodies[2].find("\"reset_ack\"") == std::string::npos);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
@@ -488,5 +578,7 @@ int main(int argc, char** argv) {
     RUN_TEST(test_ping_firmware_state_and_detail_serialization);
     RUN_TEST(test_ping_state_ring_buffer_overflow_keeps_newest_16);
     RUN_TEST(test_ping_state_ring_buffer_cleared_only_on_http_200);
+    RUN_TEST(test_ping_reset_pending_and_ack_json_contract);
+    RUN_TEST(test_ping_reset_ack_cleared_only_on_http_200);
     return UNITY_END();
 }

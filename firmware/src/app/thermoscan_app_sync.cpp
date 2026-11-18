@@ -14,6 +14,11 @@
 namespace app {
 
 void ThermoscanApp::handleSyncing() {
+    if (cloud_ != nullptr && cloud_->isResetPending()) {
+        executeFullReset();
+        return;
+    }
+
     // Only fetch configuration if a pending update was marked
     if (!config_update_pending_) {
         if (!pending_sync_backup_id_.empty()) {

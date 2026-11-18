@@ -393,6 +393,16 @@ class ModuleRepository {
     }
   }
 
+  Future<void> resetRoutine(String moduleId) async {
+    try {
+      await dio.post<Map<String, dynamic>>(
+        '/modules/$moduleId/reset-routine',
+      );
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
   Future<List<ModuleStateLog>> getStateLogs(String moduleId) async {
     try {
       final response = await dio.get<Map<String, dynamic>>(

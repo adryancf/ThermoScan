@@ -58,6 +58,9 @@ public:
     float getManualCleaningTargetXCm() const override { return manual_cleaning_target_x_cm_; }
     void clearManualCleaningPending() override { manual_cleaning_pending_ = false; }
     void setManualCleaningAckPending(bool pending) override { manual_cleaning_ack_pending_ = pending; }
+    bool isResetPending() const override { return reset_pending_; }
+    void clearResetPending() override { reset_pending_ = false; }
+    void setResetAckPending(bool pending) override { reset_ack_pending_ = pending; }
 
     static constexpr size_t STATE_RING_CAPACITY = 16;
     void setFirmwareState(const char* state, const char* detail = nullptr) override;
@@ -83,10 +86,12 @@ public:
                                      const char* firmware_state = nullptr,
                                      const char* firmware_state_detail = nullptr,
                                      const StateTransitionEntry* transitions = nullptr,
-                                     size_t transition_count = 0);
+                                     size_t transition_count = 0,
+                                     bool reset_ack = false);
     std::string buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
                                  const std::string& next_inspection_at = "",
-                                 bool manual_cleaning_ack = false) const;
+                                 bool manual_cleaning_ack = false,
+                                 bool reset_ack = false) const;
     bool parsePingResponse(const std::string& response_json);
 
     // Advanced & Diagnostic helpers
@@ -119,6 +124,8 @@ private:
     bool manual_cleaning_pending_{false};
     float manual_cleaning_target_x_cm_{0.0f};
     bool manual_cleaning_ack_pending_{false};
+    bool reset_pending_{false};
+    bool reset_ack_pending_{false};
 
     const char* current_firmware_state_{nullptr};
     const char* current_firmware_state_detail_{nullptr};

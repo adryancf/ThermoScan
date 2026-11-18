@@ -159,6 +159,7 @@ type Module struct {
 	PowerSensors               []byte
 	ManualCleaningPending      bool
 	ManualCleaningTargetXCm    pgtype.Numeric
+	ResetPending               bool
 	FirmwareState              string
 	FirmwareStateDetail        pgtype.Text
 	FirmwareStateUpdatedAt     *time.Time

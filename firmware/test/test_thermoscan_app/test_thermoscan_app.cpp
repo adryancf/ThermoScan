@@ -60,16 +60,22 @@ public:
     float x_pos{0.0f};
     bool limit_healthy{true};
     bool home_success{true};
+    bool homed{true};
     MockThermalCamera* camera{nullptr};
     std::vector<float> visited_x;
 
     bool init() override { return true; }
     bool home() override {
-        if (!home_success) return false;
+        if (!home_success) {
+            homed = false;
+            return false;
+        }
+        homed = true;
         x_pos = 0.0f;
         if (camera) camera->current_x = 0.0f;
         return true;
     }
+    bool isHomed() const override { return homed; }
     bool moveToXCm(float target_x_cm) override {
         x_pos = target_x_cm;
         visited_x.push_back(target_x_cm);
@@ -210,6 +216,10 @@ public:
     float manual_cleaning_target_x_cm{0.0f};
     bool manual_cleaning_ack_pending{false};
     int manual_cleaning_acks_sent{0};
+    bool reset_pending{false};
+    bool reset_ack_pending{false};
+    int reset_acks_sent{0};
+    int trigger_reset_on_ping_call{0};
     bool get_config_success{true};
     std::string config_json_payload{
         "{\"config_version\":2,\"geometry\":{\"panel_length_cm\":120.0,\"panel_width_cm\":60.0,\"panel_count\":2,\"panel_spacing_cm\":3.0},\"min_solar_angle\":35.0,\"interval_days\":14,\"ping_interval_seconds\":120,\"latitude\":-23.5,\"longitude\":-46.6}"
@@ -223,6 +233,13 @@ public:
             manual_cleaning_acks_sent++;
             manual_cleaning_ack_pending = false;
         }
+        if (reset_ack_pending) {
+            reset_acks_sent++;
+            reset_ack_pending = false;
+        }
+        if (trigger_reset_on_ping_call > 0 && pings_sent == trigger_reset_on_ping_call) {
+            reset_pending = true;
+        }
         return true;
     }
     bool isConfigurationPending() const override { return config_pending; }
@@ -231,6 +248,9 @@ public:
     float getManualCleaningTargetXCm() const override { return manual_cleaning_target_x_cm; }
     void clearManualCleaningPending() override { manual_cleaning_pending = false; }
     void setManualCleaningAckPending(bool pending) override { manual_cleaning_ack_pending = pending; }
+    bool isResetPending() const override { return reset_pending; }
+    void clearResetPending() override { reset_pending = false; }
+    void setResetAckPending(bool pending) override { reset_ack_pending = pending; }
     bool getConfiguration(std::string& out) override {
         if (!get_config_success) return false;
         out = config_json_payload;
@@ -1431,6 +1451,168 @@ void test_waiting_verification_detail_transitions_cooldown_to_solar_window_close
     TEST_ASSERT_EQUAL_STRING("solar_window_closed", cloud.last_firmware_detail.c_str());
 }
 
+void test_execute_full_reset_from_scanning_preserves_nvs_credentials(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    storage.state.module_id = "mod-reset-1";
+    storage.saveConfigVersion(42);
+    time.epoch = 1730721600;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    // Trigger manual inspection -> IDLE -> SCANNING
+    app.triggerManualInspection();
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::SCANNING, app.getState());
+
+    // Trigger reset_pending on the ping right after the first batch is sent in SCANNING
+    cloud.trigger_reset_on_ping_call = cloud.pings_sent + 1;
+    app.tick();
+
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_STRING("IDLE", cloud.last_firmware_state.c_str());
+    TEST_ASSERT_EQUAL_STRING("user_reset", cloud.last_firmware_detail.c_str());
+    TEST_ASSERT_FALSE(cloud.isResetPending());
+    TEST_ASSERT_TRUE(cloud.reset_acks_sent >= 1);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, motion.getXPositionCm());
+    TEST_ASSERT_TRUE(app.getCleaningQueue().empty());
+    TEST_ASSERT_TRUE(app.getAllConfirmedHotspots().empty());
+    TEST_ASSERT_TRUE(app.getInspectionSourceEventId().empty());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getLastCompletedPanel());
+    TEST_ASSERT_EQUAL_UINT8(0, app.getInspectionCrashRetries());
+
+    // Operational NVS cleared, credentials & config_version preserved
+    TEST_ASSERT_EQUAL_STRING("mod-reset-1", storage.state.module_id.c_str());
+    TEST_ASSERT_EQUAL_UINT32(42, storage.state.config_version);
+    TEST_ASSERT_EQUAL_STRING("IDLE", storage.state.operation_status.c_str());
+    TEST_ASSERT_FALSE(storage.state.pending_verification);
+    TEST_ASSERT_TRUE(storage.saved_queue.empty());
+}
+
+void test_execute_full_reset_from_cleaning_halts_pump_and_clears_queue(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    storage.state.module_id = "mod-reset-2";
+    storage.saveConfigVersion(7);
+    time.epoch = 1730721600;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+
+    // Enter CLEANING via manual cleaning trigger
+    app.triggerManualCleaning(35.0f);
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+    TEST_ASSERT_EQUAL_UINT(1, app.getCleaningQueue().size());
+
+    // Next ping in handleCleaning() returns reset_pending=true before spraying
+    cloud.trigger_reset_on_ping_call = cloud.pings_sent + 1;
+    app.tick();
+
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_STRING("user_reset", cloud.last_firmware_detail.c_str());
+    TEST_ASSERT_FALSE(spray.isPumpActive());
+    TEST_ASSERT_TRUE(app.getCleaningQueue().empty());
+    TEST_ASSERT_TRUE(storage.saved_queue.empty());
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, motion.getXPositionCm());
+    TEST_ASSERT_TRUE(cloud.reset_acks_sent >= 1);
+    TEST_ASSERT_EQUAL_STRING("mod-reset-2", storage.state.module_id.c_str());
+    TEST_ASSERT_EQUAL_UINT32(7, storage.state.config_version);
+}
+
+void test_execute_full_reset_from_waiting_verification(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    storage.state.module_id = "mod-reset-3";
+    storage.saveConfigVersion(9);
+    storage.state.pending_verification = true;
+    storage.state.spray_ended_timestamp = 1730000000;
+    storage.state.effective_attempts = 1;
+    QueuedHotspot qh;
+    qh.panel_index = 1;
+    qh.target_x_cm = 40.0f;
+    qh.anomaly_event_id = "anom-123";
+    qh.verification_status = "cleaned";
+    storage.saved_queue.push_back(qh);
+
+    time.epoch = 1730000100; // In cooldown wait
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+
+    // Advance past ping interval and return reset_pending=true
+    time.epoch = 1730000200;
+    cloud.trigger_reset_on_ping_call = cloud.pings_sent + 1;
+    app.tick();
+
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_STRING("user_reset", cloud.last_firmware_detail.c_str());
+    TEST_ASSERT_TRUE(app.getCleaningQueue().empty());
+    TEST_ASSERT_TRUE(storage.saved_queue.empty());
+    TEST_ASSERT_FALSE(storage.state.pending_verification);
+    TEST_ASSERT_EQUAL_UINT8(0, app.getCleaningStateMachine().getEffectiveAttempts());
+    TEST_ASSERT_TRUE(cloud.reset_acks_sent >= 1);
+    TEST_ASSERT_EQUAL_STRING("mod-reset-3", storage.state.module_id.c_str());
+    TEST_ASSERT_EQUAL_UINT32(9, storage.state.config_version);
+}
+
+void test_execute_full_reset_from_error_halt_recovers_to_idle(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    storage.state.module_id = "mod-reset-4";
+    storage.saveConfigVersion(11);
+    motion.home_success = false;
+    time.epoch = 1730721600;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_FALSE(app.init());
+    TEST_ASSERT_EQUAL(AppState::ERROR_HALT, app.getState());
+    TEST_ASSERT_FALSE(motion.isHomed());
+
+    // Advance 5s in ERROR_HALT so handleErrorHalt() sends periodic ping and sees reset_pending=true
+    time.epoch = 1730721606;
+    cloud.trigger_reset_on_ping_call = cloud.pings_sent + 1;
+    app.tick();
+
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL_STRING("IDLE", cloud.last_firmware_state.c_str());
+    TEST_ASSERT_EQUAL_STRING("user_reset", cloud.last_firmware_detail.c_str());
+    TEST_ASSERT_TRUE(cloud.reset_acks_sent >= 1);
+    TEST_ASSERT_EQUAL_STRING("mod-reset-4", storage.state.module_id.c_str());
+    TEST_ASSERT_EQUAL_UINT32(11, storage.state.config_version);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1464,5 +1646,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_sd_backup_boot_recovery_crash_loop_guard);
     RUN_TEST(test_state_transition_records_detail_and_skips_ping_when_offline);
     RUN_TEST(test_waiting_verification_detail_transitions_cooldown_to_solar_window_closed);
+    RUN_TEST(test_execute_full_reset_from_scanning_preserves_nvs_credentials);
+    RUN_TEST(test_execute_full_reset_from_cleaning_halts_pump_and_clears_queue);
+    RUN_TEST(test_execute_full_reset_from_waiting_verification);
+    RUN_TEST(test_execute_full_reset_from_error_halt_recovers_to_idle);
     return UNITY_END();
 }

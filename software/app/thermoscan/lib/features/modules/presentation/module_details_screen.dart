@@ -212,6 +212,56 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     }
   }
 
+  Future<void> _confirmAndResetRoutine() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Abort & Reset Routine'),
+        content: const Text(
+          'This will stop any active scan or cleaning, clear the command queue, '
+          'and return the module to IDLE. Are you sure you want to continue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.error,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Abort & Reset'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    try {
+      await ref.read(moduleRepositoryProvider).resetRoutine(widget.moduleId);
+      ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
+      ref.invalidate(moduleDetailsProvider(widget.moduleId));
+      ref.invalidate(latestInspectionProvider(widget.moduleId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Reset routine requested. Module will return to IDLE.'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to reset routine: $e'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
   Future<void> _confirmAndDeleteModule(String moduleName) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -530,6 +580,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                                 ),
                               ),
                             );
+                          } else if (val == 'reset_routine') {
+                            _confirmAndResetRoutine();
                           } else if (val == 'delete') {
                             _confirmAndDeleteModule(mod.name);
                           }
@@ -633,6 +685,30 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: AppColors.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem<String>(
+                            value: 'reset_routine',
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.restart_alt_rounded,
+                                  size: 18,
+                                  color: AppColors.error,
+                                ),
+                                SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Abort & Reset Routine',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: AppColors.error,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),

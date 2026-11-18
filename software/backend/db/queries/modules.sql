@@ -140,6 +140,7 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -186,6 +187,7 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -234,6 +236,7 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -283,6 +286,7 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
     m.last_ping_at,
@@ -729,6 +733,37 @@ FROM module_state_logs
 WHERE module_id = $1
 ORDER BY occurred_at DESC, seq DESC
 LIMIT 100;
+
+-- name: SetResetPending :exec
+UPDATE modules
+SET reset_pending = true,
+    manual_cleaning_pending = false,
+    manual_cleaning_target_x_cm = NULL,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: ClearResetPending :exec
+UPDATE modules
+SET reset_pending = false,
+    updated_at = now()
+WHERE id = $1;
+
+-- name: AbortActiveInspectionsByModule :exec
+UPDATE inspections
+SET status = 'cancelled',
+    failure_reason = 'user_reset',
+    finished_at = now()
+WHERE module_id = $1
+  AND status IN ('scheduled', 'in_progress');
+
+-- name: AbortActiveCleaningsByModule :exec
+UPDATE cleaning_operations
+SET status = 'failed',
+    failure_reason = 'user_reset',
+    ended_at = now(),
+    updated_at = now()
+WHERE module_id = $1
+  AND status IN ('scheduled', 'in_progress');
 
 
 

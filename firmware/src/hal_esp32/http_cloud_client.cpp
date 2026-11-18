@@ -193,7 +193,7 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     }
 
     std::string requestBody = buildPingPayload(
-        water_ok, limits_ok, thermal_ok, next_insp_str, manual_cleaning_ack_pending_);
+        water_ok, limits_ok, thermal_ok, next_insp_str, manual_cleaning_ack_pending_, reset_ack_pending_);
 
     int httpCode = http.POST(String(requestBody.c_str()));
 
@@ -209,6 +209,7 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
         http.end();
 
         manual_cleaning_ack_pending_ = false;
+        reset_ack_pending_ = false;
         state_ring_head_ = 0;
         state_ring_count_ = 0;
         parsePingResponse(response.c_str());

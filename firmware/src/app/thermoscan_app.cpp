@@ -106,6 +106,108 @@ void ThermoscanApp::returnToSafeIdle() {
     transitionTo(AppState::IDLE);
 }
 
+void ThermoscanApp::executeFullReset() {
+    Serial.println(F("[RESET] Executing full firmware reset routine (Red Button)..."));
+
+    // 1. Immediately halt spray pump and heap tracker
+    if (spray_ != nullptr) {
+        spray_->stopPump();
+    }
+    utils::HeapTracker::stop();
+
+    // 2. Release all dynamic vectors and shrink capacity to reclaim heap
+    quantized_frames_.clear();
+    quantized_frames_.shrink_to_fit();
+    current_batch_.clear();
+    current_batch_.shrink_to_fit();
+    cleaning_queue_.clear();
+    cleaning_queue_.shrink_to_fit();
+    all_confirmed_hotspots_.clear();
+    all_confirmed_hotspots_.shrink_to_fit();
+    confirmed_anomaly_records_.clear();
+    confirmed_anomaly_records_.shrink_to_fit();
+
+    // 3. Reset domain state machines & histogram
+    histogram_.reset();
+    cleaning_sm_.restoreState(domain::CleaningStatus::IDLE, domain::AnomalyResult::OPEN, 0, 0);
+
+    // 4. Remove SD backups BEFORE clearing source event / backup ID strings
+    if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
+        backup_storage_->purgeTempFiles();
+        if (!inspection_source_event_id_.empty()) {
+            backup_storage_->removeScanBackup(inspection_source_event_id_);
+        }
+        if (!pending_sync_backup_id_.empty() && pending_sync_backup_id_ != inspection_source_event_id_) {
+            backup_storage_->removeScanBackup(pending_sync_backup_id_);
+        }
+    }
+
+    // 5. Clear operational strings, IDs, counters, and flags
+    inspection_source_event_id_.clear();
+    pending_sync_backup_id_.clear();
+    restored_operation_status_.clear();
+    current_cleaning_op_id_.clear();
+    active_anomaly_id_.clear();
+    last_completed_panel_ = 0;
+    inspection_crash_retries_ = 0;
+    inspection_started_at_ = 0;
+    inspection_scheduled_for_ = 0;
+    active_queue_index_ = 0;
+    active_hotspot_ = {};
+    scan_truncated_by_memory_ = false;
+    all_panels_accepted_ = true;
+    manual_inspection_requested_ = false;
+    manual_cleaning_requested_ = false;
+    manual_cleaning_active_ = false;
+    manual_cleaning_target_x_ = 0.0f;
+
+    // 6. Clear operational NVS (preserve module_id, device_token, config_version)
+    if (storage_ != nullptr) {
+        uint32_t persisted_cfg_ver = 0;
+        if (storage_->getConfigVersion(persisted_cfg_ver) && persisted_cfg_ver > 0) {
+            config_.config_version = persisted_cfg_ver;
+        }
+        storage_->clearInspectionProgress();
+        storage_->clearCleaningQueue();
+    }
+
+    // 7. Return carriage to home X=0 if homed
+    if (motion_ != nullptr && motion_->isHomed()) {
+        motion_->moveToXCm(0.0f);
+    }
+
+    // 8. Clear pending flags, queue reset_ack for next HTTP 200 ping, transition to IDLE, and persist NVS
+    if (cloud_ != nullptr) {
+        cloud_->clearManualInspectionPending();
+        cloud_->clearManualCleaningPending();
+        cloud_->clearResetPending();
+        cloud_->setResetAckPending(true);
+    }
+    transitionTo(AppState::IDLE, "user_reset");
+    saveCurrentStateToNvs();
+}
+
+void ThermoscanApp::handleErrorHalt() {
+    if (spray_ != nullptr) spray_->stopPump();
+    if (motion_ != nullptr) motion_->disableMotor();
+
+    if (cloud_ != nullptr && cloud_->isResetPending()) {
+        executeFullReset();
+        return;
+    }
+
+    const uint32_t now = getCurrentTime();
+    if (cloud_ != nullptr && now > 0 &&
+        (last_ping_time_ == 0 || (now - last_ping_time_) >= 5)) {
+        cloud_->sendPing();
+        last_ping_time_ = now;
+        if (cloud_->isResetPending()) {
+            executeFullReset();
+            return;
+        }
+    }
+}
+
 bool ThermoscanApp::init() {
     transitionTo(AppState::BOOT_INIT);
     handleBootInit();
@@ -170,8 +272,7 @@ void ThermoscanApp::tick() {
             handleSyncing();
             break;
         case AppState::ERROR_HALT:
-            if (spray_ != nullptr) spray_->stopPump();
-            if (motion_ != nullptr) motion_->disableMotor();
+            handleErrorHalt();
             break;
     }
 }

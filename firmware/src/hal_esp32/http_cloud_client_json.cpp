@@ -35,7 +35,8 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
                                          const char* firmware_state,
                                          const char* firmware_state_detail,
                                          const StateTransitionEntry* transitions,
-                                         size_t transition_count) {
+                                         size_t transition_count,
+                                         bool reset_ack) {
     JsonDocument doc;
     doc["water_available"] = water_ok;
     doc["limits_check_passed"] = limits_ok;
@@ -46,6 +47,9 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
     }
     if (manual_cleaning_ack) {
         doc["manual_cleaning_ack"] = true;
+    }
+    if (reset_ack) {
+        doc["reset_ack"] = true;
     }
     if (firmware_state != nullptr && firmware_state[0] != '\0') {
         doc["firmware_state"] = firmware_state;
@@ -82,7 +86,8 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
 
 std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
                                             const std::string& next_inspection_at,
-                                            bool manual_cleaning_ack) const {
+                                            bool manual_cleaning_ack,
+                                            bool reset_ack) const {
     StateTransitionEntry ordered[STATE_RING_CAPACITY];
     const size_t count = (state_ring_count_ <= STATE_RING_CAPACITY) ? state_ring_count_ : STATE_RING_CAPACITY;
     for (size_t i = 0; i < count; ++i) {
@@ -96,7 +101,8 @@ std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, boo
                          current_firmware_state_,
                          current_firmware_state_detail_,
                          ordered,
-                         count);
+                         count,
+                         reset_ack);
 }
 
 bool HttpCloudClient::parsePingResponse(const std::string& response_json) {
@@ -143,6 +149,13 @@ bool HttpCloudClient::parsePingResponse(const std::string& response_json) {
     } else {
         manual_cleaning_pending_ = false;
         manual_cleaning_target_x_cm_ = 0.0f;
+    }
+
+    if (respDoc["reset_pending"] == true ||
+        (!statusObj.isNull() && statusObj["reset_pending"] == true)) {
+        reset_pending_ = true;
+    } else {
+        reset_pending_ = false;
     }
 
     return true;

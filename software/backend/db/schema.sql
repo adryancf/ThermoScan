@@ -91,6 +91,7 @@ CREATE TABLE modules (
     power_sensors jsonb NULL CHECK (power_sensors IS NULL OR jsonb_typeof(power_sensors) = 'array'),
     manual_cleaning_pending boolean NOT NULL DEFAULT false,
     manual_cleaning_target_x_cm numeric(12,3) NULL,
+    reset_pending boolean NOT NULL DEFAULT false,
     firmware_state text NOT NULL DEFAULT 'UNKNOWN',
     firmware_state_detail text NULL,
     firmware_state_updated_at timestamptz NULL,

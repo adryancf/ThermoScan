@@ -1151,6 +1151,7 @@ class DeviceStatus {
     this.nextInspectionAt,
     this.configurationSync,
     this.manualInspectionPending = false,
+    this.resetPending = false,
     this.pingIntervalSeconds,
     this.onlineWindowSeconds,
     this.firmwareState,
@@ -1174,6 +1175,7 @@ class DeviceStatus {
   final String? nextInspectionAt;
   final ConfigurationSyncInfo? configurationSync;
   final bool manualInspectionPending;
+  final bool resetPending;
   final int? pingIntervalSeconds;
   final int? onlineWindowSeconds;
   final String? firmwareState;
@@ -1245,6 +1247,9 @@ class DeviceStatus {
       manualInspectionPending: (json['manual_inspection_pending'] ??
               json['manualInspectionPending']) as bool? ??
           false,
+      resetPending: (json['reset_pending'] ??
+              json['resetPending']) as bool? ??
+          false,
       pingIntervalSeconds: (json['ping_interval_seconds'] ??
               json['pingIntervalSeconds'] as num?)
           ?.toInt(),
@@ -1286,6 +1291,7 @@ class DeviceStatus {
         'firmware_state_detail': firmwareStateDetail,
       if (firmwareStateUpdatedAt != null)
         'firmware_state_updated_at': firmwareStateUpdatedAt,
+      'reset_pending': resetPending,
     };
   }
 }

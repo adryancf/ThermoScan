@@ -149,6 +149,7 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		ConfigurationSync:   syncDTO,
 		ManualCleaningPending:   row.ManualCleaningPending,
 		ManualCleaningTargetXCm: numericToFloatPtr(row.ManualCleaningTargetXCm),
+		ResetPending:            row.ResetPending,
 		PingIntervalSeconds:     s.PingIntervalSeconds(),
 		OnlineWindowSeconds:     s.OnlineWindowSeconds(),
 		FirmwareState:           row.FirmwareState,
@@ -264,6 +265,9 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 
 	if input.ManualCleaningAck != nil && *input.ManualCleaningAck {
 		_ = qtx.ClearManualCleaningPending(ctx, moduleID)
+	}
+	if input.ResetAck != nil && *input.ResetAck {
+		_ = qtx.ClearResetPending(ctx, moduleID)
 	}
 
 	if len(input.StateTransitions) > 0 {
@@ -732,4 +736,50 @@ func (s *Service) TriggerManualCleaning(ctx context.Context, principal auth.Prin
 		Status:            "scheduled",
 		TargetXPositionCm: targetX,
 	}, nil
+}
+
+// ResetRoutine requests an emergency/user reset on the module, aborting any active inspections or cleanings.
+func (s *Service) ResetRoutine(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) error {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return ErrForbidden
+	}
+
+	tx, err := s.database.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	qtx := s.queries.WithTx(tx)
+
+	mod, err := qtx.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	if !mod.IsActive {
+		return ErrForbidden
+	}
+
+	if _, _, err := s.resolveUserModuleRelationship(ctx, qtx, principal, mod.ID, mod.InstallerTechnicianID); err != nil {
+		return err
+	}
+
+	if err := qtx.SetResetPending(ctx, moduleID); err != nil {
+		return err
+	}
+	if err := qtx.AbortActiveInspectionsByModule(ctx, moduleID); err != nil {
+		return err
+	}
+	if err := qtx.AbortActiveCleaningsByModule(ctx, moduleID); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }

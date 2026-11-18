@@ -31,6 +31,14 @@ void ThermoscanApp::handleCleaning() {
             continue;
         }
 
+        if (cloud_ != nullptr) {
+            cloud_->sendPing();
+            if (cloud_->isResetPending()) {
+                executeFullReset();
+                return;
+            }
+        }
+
         active_queue_index_ = i;
         active_hotspot_.panel_index = qh.panel_index;
         active_hotspot_.target_x_cm = qh.target_x_cm;
@@ -193,6 +201,11 @@ void ThermoscanApp::handleCleaning() {
 }
 
 void ThermoscanApp::handleWaitingVerification() {
+    if (cloud_ != nullptr && cloud_->isResetPending()) {
+        executeFullReset();
+        return;
+    }
+
     const uint32_t now = getCurrentTime();
     const bool solar_ok = checkSolarWindow();
 
@@ -214,6 +227,10 @@ void ThermoscanApp::handleWaitingVerification() {
         (now - last_ping_time_) >= static_cast<uint32_t>(config_.ping_interval_seconds)) {
         cloud_->sendPing();
         last_ping_time_ = now;
+        if (cloud_->isResetPending()) {
+            executeFullReset();
+            return;
+        }
         if (cloud_->isConfigurationPending()) {
             config_update_pending_ = true;
             config_sync_failed_waiting_ping_ = false;
@@ -325,6 +342,20 @@ void ThermoscanApp::handleVerifying() {
 
         if (cloud_ != nullptr && (valid1 || valid2)) {
             cloud_->ingestTelemetryBatch(batch_input);
+        }
+
+        if (cloud_ != nullptr) {
+            bool heap_ok = true;
+#if defined(ARDUINO) || defined(ESP32)
+            heap_ok = (ESP.getFreeHeap() >= 45000);
+#endif
+            if (heap_ok) {
+                cloud_->sendPing();
+                if (cloud_->isResetPending()) {
+                    executeFullReset();
+                    return;
+                }
+            }
         }
 
         // Compare against panel baseline

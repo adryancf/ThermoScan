@@ -26,6 +26,7 @@ public:
 
     bool init() override;
     bool home() override;
+    bool isHomed() const override { return is_homed_; }
     bool moveToXCm(float target_x_cm) override;
     float getXPositionCm() const override;
     bool checkLimitsIntegrity() override;

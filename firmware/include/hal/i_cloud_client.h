@@ -156,6 +156,11 @@ public:
     virtual void clearManualCleaningPending() {}
     virtual void setManualCleaningAckPending(bool pending) { (void)pending; }
 
+    // Reset routine pending query, reset, and ack
+    virtual bool isResetPending() const { return false; }
+    virtual void clearResetPending() {}
+    virtual void setResetAckPending(bool pending) { (void)pending; }
+
     // Firmware state tracking (zero-heap-allocation ring buffer in concrete client)
     virtual void setFirmwareState(const char* state, const char* detail = nullptr) {
         (void)state;

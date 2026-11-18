@@ -331,6 +331,7 @@ type DeviceStatusDTO struct {
 	ManualInspectionPending bool                 `json:"manual_inspection_pending"`
 	ManualCleaningPending   bool                 `json:"manual_cleaning_pending"`
 	ManualCleaningTargetXCm *float64             `json:"manual_cleaning_target_x_cm,omitempty"`
+	ResetPending            bool                 `json:"reset_pending"`
 	PingIntervalSeconds     int                  `json:"ping_interval_seconds"`
 	OnlineWindowSeconds     int                  `json:"online_window_seconds"`
 	FirmwareState           string               `json:"firmware_state"`
@@ -360,6 +361,7 @@ type RecordDevicePingInput struct {
 	ThermalSensorActive *bool                  `json:"thermal_sensor_active"`
 	NextInspectionAt    *time.Time             `json:"next_inspection_at,omitempty"`
 	ManualCleaningAck   *bool                  `json:"manual_cleaning_ack,omitempty"`
+	ResetAck            *bool                  `json:"reset_ack,omitempty"`
 	FirmwareState       *string                `json:"firmware_state,omitempty"`
 	FirmwareStateDetail *string                `json:"firmware_state_detail,omitempty"`
 	StateTransitions    []StateTransitionInput `json:"state_transitions,omitempty"`

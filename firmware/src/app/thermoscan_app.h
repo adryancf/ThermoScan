@@ -104,6 +104,7 @@ public:
     // Safety and state restoration
     void executeEmergencyStop(const char* detail = nullptr);
     void returnToSafeIdle();
+    void executeFullReset();
 
 private:
     IThermalCamera* camera_{nullptr};
@@ -170,6 +171,7 @@ private:
     void handleWaitingVerification();
     void handleVerifying();
     void handleSyncing();
+    void handleErrorHalt();
 
     // Helpers
     void transitionTo(AppState new_state, const char* detail = nullptr);

@@ -1455,3 +1455,113 @@ func TestCleaningIngestIdempotencyAndVerificationSpatialProximity(t *testing.T) 
 		t.Fatalf("expected anomaly at 16cm to be 'resolved' with closed_at set, got status=%s closed_at=%v", anomRow.Status, anomRow.ClosedAt)
 	}
 }
+
+func TestCleanScanResolvesPriorOpenAnomalies(t *testing.T) {
+	ctx, conn, tx, q, router, techAuth, modID := setupTelemetryTestEnv(t)
+	defer conn.Close(ctx)
+	defer tx.Rollback(ctx)
+
+	doJSON := func(method, path, bearer string, body any) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		if body != nil {
+			_ = json.NewEncoder(&buf).Encode(body)
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		req.Header.Set("Content-Type", "application/json")
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// 1. First inspection detects an anomaly at X=20cm, and cleaning is refused (insufficient_water) -> anomaly stays 'open'
+	insp1 := "88000000-0000-0000-0000-000000000001"
+	meas1 := "88000000-0000-0000-0000-000000000011"
+	rec := doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": insp1,
+		"inspection_type":            "scheduled",
+		"batch": []map[string]any{
+			{"source_event_id": meas1, "x_position_cm": 20.0, "max_temperature_c": 55.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("telemetry 1: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp1+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":             "88000000-0000-0000-0000-000000000099",
+				"global_x_position_cm":        20.0,
+				"max_temperature_c":           55.0,
+				"origin_measurement_event_id": meas1,
+				"confirming_event_ids":        []string{meas1},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("finalize 1: %d: %s", rec.Code, rec.Body.String())
+	}
+	var fin1 struct {
+		LatestInspection struct {
+			ConfirmedAnomalies []struct {
+				ID string `json:"id"`
+			} `json:"confirmed_anomalies"`
+		} `json:"latest_inspection"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &fin1)
+	if len(fin1.LatestInspection.ConfirmedAnomalies) != 1 {
+		t.Fatalf("expected 1 anomaly, got %d", len(fin1.LatestInspection.ConfirmedAnomalies))
+	}
+	anomalyID := fin1.LatestInspection.ConfirmedAnomalies[0].ID
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, map[string]any{
+		"source_event_id":      "88000000-0000-0000-0000-000000000081",
+		"anomaly_event_id":     anomalyID,
+		"target_x_position_cm": 20.0,
+		"pump_actuated":        false,
+		"duration_seconds":     0.0,
+		"status":               "refused",
+		"failure_reason":       "insufficient_water",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("refused cleaning: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Subsequent clean full scan (0 hotspots) must resolve the prior open anomaly
+	insp2 := "88000000-0000-0000-0000-000000000002"
+	meas2 := "88000000-0000-0000-0000-000000000012"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": insp2,
+		"inspection_type":            "scheduled",
+		"batch": []map[string]any{
+			{"source_event_id": meas2, "x_position_cm": 20.0, "max_temperature_c": 35.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("telemetry 2: %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp2+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots":     []map[string]any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("finalize 2: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	anomUUID, _ := auth.ParseUUID(anomalyID)
+	modUUID, _ := auth.ParseUUID(modID)
+	anomRow, err := q.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{
+		ID:       anomUUID,
+		ModuleID: modUUID,
+	})
+	if err != nil {
+		t.Fatalf("get anomaly: %v", err)
+	}
+	if anomRow.Status != "resolved" || anomRow.ClosedAt == nil {
+		t.Fatalf("expected prior open anomaly to be 'resolved' after clean scan, got status=%s closed_at=%v", anomRow.Status, anomRow.ClosedAt)
+	}
+}

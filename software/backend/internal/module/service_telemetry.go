@@ -1082,6 +1082,35 @@ func (s *Service) FinalizeInspection(
 			if err != nil {
 				return nil, err
 			}
+			// Also resolve any older open anomalies on the same module at this position
+			// (e.g. left open from a previous refused/interrupted cleaning).
+			if openAnoms, listErr := qtx.ListOpenAnomalyEventsByModule(ctx, moduleID); listErr == nil {
+				for _, oa := range openAnoms {
+					if oa.ID.Bytes == origAnomaly.ID.Bytes {
+						continue
+					}
+					oaX, oaXErr := strconv.ParseFloat(oa.XPositionCm, 64)
+					samePos := oa.PanelIndex == origAnomaly.PanelIndex &&
+						origXErr == nil && oaXErr == nil && math.Abs(oaX-origX) <= 5.0
+					if !samePos {
+						continue
+					}
+					oaClosedAt := closedAt
+					if oaClosedAt.Before(oa.DetectedAt) {
+						oaClosedAt = oa.DetectedAt
+					}
+					if _, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+						Status:       "resolved",
+						RetryPending: false,
+						RetryReason:  pgtype.Text{Valid: false},
+						ClosedAt:     &oaClosedAt,
+						ID:           oa.ID,
+						ModuleID:     moduleID,
+					}); err != nil {
+						return nil, err
+					}
+				}
+			}
 		} else {
 			verifResultPg = pgtype.Text{String: "unresolved", Valid: true}
 			_, err = qtx.UpdateCleaningOperationPostResult(ctx, db.UpdateCleaningOperationPostResultParams{
@@ -1271,6 +1300,40 @@ func (s *Service) FinalizeInspection(
 		})
 		if err != nil {
 			return nil, err
+		}
+	}
+
+	// If a full non-verification inspection finishes with zero hotspots (neither in
+	// confirmed_hotspots nor already created per-panel), resolve any prior open anomalies.
+	if insp.Type != "verification" && len(input.ConfirmedHotspots) == 0 {
+		inspAnoms, err := qtx.ListAnomaliesByInspection(ctx, db.ListAnomaliesByInspectionParams{
+			InspectionID: insp.ID,
+			ModuleID:     moduleID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(inspAnoms) == 0 {
+			openAnomalies, err := qtx.ListOpenAnomalyEventsByModule(ctx, moduleID)
+			if err != nil {
+				return nil, err
+			}
+			for _, oa := range openAnomalies {
+				closedAt := finAt
+				if closedAt.Before(oa.DetectedAt) {
+					closedAt = oa.DetectedAt
+				}
+				if _, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+					Status:       "resolved",
+					RetryPending: false,
+					RetryReason:  pgtype.Text{Valid: false},
+					ClosedAt:     &closedAt,
+					ID:           oa.ID,
+					ModuleID:     moduleID,
+				}); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 

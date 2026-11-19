@@ -286,7 +286,14 @@ RETURNING id, module_id, origin_measurement_id, confirming_measurement_ids, sour
 SELECT a.id, a.module_id, a.origin_measurement_id, a.confirming_measurement_ids, a.source_event_id, a.panel_index, a.x_position_cm::text AS x_position_cm, a.detected_at, a.status, a.actuated_attempts_count, a.retry_pending, a.closed_at, a.created_at, a.updated_at
 FROM anomaly_events a
 JOIN measurements m ON m.id = a.origin_measurement_id
-WHERE m.inspection_id = $1 AND a.module_id = $2
+WHERE a.module_id = $2
+  AND (
+    m.inspection_id = $1
+    OR EXISTS (
+      SELECT 1 FROM measurements cm
+      WHERE cm.inspection_id = $1 AND cm.id = ANY(a.confirming_measurement_ids)
+    )
+  )
 ORDER BY a.detected_at ASC;
 
 -- name: CreateCleaningOperation :one
@@ -412,6 +419,12 @@ FROM anomaly_events
 WHERE module_id = $1 AND status = 'open'
 ORDER BY detected_at DESC
 LIMIT 1;
+
+-- name: ListOpenAnomalyEventsByModule :many
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE module_id = $1 AND status = 'open'
+ORDER BY detected_at DESC;
 
 -- name: UpdateAnomalyEventStatus :one
 UPDATE anomaly_events

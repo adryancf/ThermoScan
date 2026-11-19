@@ -181,9 +181,17 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		anomID = a.ID
 	}
 
-	// 2. Validate cleaning status
+	// 2. Validate cleaning status and numeric metrics
 	status := strings.TrimSpace(input.Status)
-	if status == "" {
+	switch status {
+	case "completed", "failed", "refused", "scheduled", "in_progress":
+	default:
+		return nil, ErrInvalidInput
+	}
+	if input.DurationSeconds < 0 || !isFinite(input.DurationSeconds) {
+		return nil, ErrInvalidInput
+	}
+	if input.EstimatedWaterVolumeMl < 0 || !isFinite(input.EstimatedWaterVolumeMl) {
 		return nil, ErrInvalidInput
 	}
 	postRes := "pending"
@@ -383,13 +391,15 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 	if input.PumpActuated {
 		attemptsInc = 1
 	}
-	_, _ = qtx.UpdateAnomalyEventStatus(ctx, db.UpdateAnomalyEventStatusParams{
+	if _, err := qtx.UpdateAnomalyEventStatus(ctx, db.UpdateAnomalyEventStatusParams{
 		Status:                "open",
 		ActuatedAttemptsCount: attemptsInc,
 		ClosedAt:              nil,
 		ID:                    anomID,
 		ModuleID:              moduleID,
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	_ = qtx.ClearManualCleaningPending(ctx, moduleID)
 

@@ -154,7 +154,11 @@ func (s *Service) ListInspectionMeasurementsPaged(
 	if limit > 3000 {
 		limit = 3000
 	}
-	offset := (page - 1) * limit
+	offset64 := int64(page-1) * int64(limit)
+	if offset64 > math.MaxInt32 {
+		return nil, ErrInvalidInput
+	}
+	offset := int32(offset64)
 
 	var panelIdxParam pgtype.Int4
 	if panelIndex != nil {
@@ -1192,6 +1196,10 @@ func (s *Service) FinalizeInspection(
 	var failReasonPg pgtype.Text
 	if input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) != "" {
 		failReasonPg = pgtype.Text{String: strings.TrimSpace(*input.FailureReason), Valid: true}
+	}
+
+	if insp.StartedAt != nil && finAt.Before(*insp.StartedAt) {
+		finAt = *insp.StartedAt
 	}
 
 	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{

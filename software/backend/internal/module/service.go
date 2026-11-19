@@ -82,6 +82,12 @@ func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (Modul
 		intervalDays = *in.InspectionIntervalDays
 	}
 
+	if in.HotspotThresholdDeltaC != nil {
+		if *in.HotspotThresholdDeltaC <= 0 || *in.HotspotThresholdDeltaC > 50.0 {
+			return ModuleDetailsDTO{}, ErrInvalidInput
+		}
+	}
+
 	if err := validateOptionalConfigFields(
 		in.PanelLengthCm,
 		in.PanelWidthCm,
@@ -348,6 +354,7 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 				MinimumSolarAngleDeg:       r.MinimumSolarAngleDeg,
 				InspectionIntervalDays:     r.InspectionIntervalDays,
 				ReservoirNominalCapacityMl: r.ReservoirNominalCapacityMl,
+				HotspotThresholdDeltaC:     r.HotspotThresholdDeltaC,
 				PowerSensors:               r.PowerSensors,
 				ConfiguredAt:               r.ConfiguredAt,
 				NextInspectionAt:           r.NextInspectionAt,
@@ -357,6 +364,9 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 				ConfigAppliedVersion:       r.ConfigAppliedVersion,
 				ConfigAppliedAt:            r.ConfigAppliedAt,
 				ConfigApplyError:           r.ConfigApplyError,
+				FirmwareState:              r.FirmwareState,
+				FirmwareStateDetail:        r.FirmwareStateDetail,
+				FirmwareStateUpdatedAt:     r.FirmwareStateUpdatedAt,
 			}
 			out = append(out, s.mapGetModuleRowToDTO(baseRow, RelAssignedClient, &emailEnabled))
 		}
@@ -640,6 +650,12 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 			return ModuleDetailsDTO{}, ErrInvalidInput
 		}
 		intervalDays = *in.InspectionIntervalDays
+	}
+
+	if in.HotspotThresholdDeltaC != nil {
+		if *in.HotspotThresholdDeltaC <= 0 || *in.HotspotThresholdDeltaC > 50.0 {
+			return ModuleDetailsDTO{}, ErrInvalidInput
+		}
 	}
 
 	if err := validateOptionalConfigFields(

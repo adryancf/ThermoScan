@@ -2,6 +2,7 @@ package module
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -86,7 +87,10 @@ func (h *Handler) handleRecordDevicePing(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req RecordDevicePingInput
-	_ = httpjson.DecodeJSON(r, &req)
+	if err := httpjson.DecodeJSON(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid JSON payload", "INVALID_JSON")
+		return
+	}
 
 	status, err := h.service.RecordDevicePing(r.Context(), principal, moduleID, req)
 	if err != nil {

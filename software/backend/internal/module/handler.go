@@ -388,7 +388,10 @@ func (h *Handler) handleListModuleStateLogs(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	httpjson.WriteJSON(w, http.StatusOK, map[string]any{"items": logs})
+	httpjson.WriteJSON(w, http.StatusOK, map[string]any{
+		"items": logs,
+		"logs":  logs,
+	})
 }
 
 func (h *Handler) handleListIntervalChangeLogs(w http.ResponseWriter, r *http.Request) {

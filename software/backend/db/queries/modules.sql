@@ -752,6 +752,7 @@ WHERE id = $1;
 UPDATE inspections
 SET status = 'cancelled',
     failure_reason = 'user_reset',
+    started_at = COALESCE(started_at, now()),
     finished_at = now()
 WHERE module_id = $1
   AND status IN ('scheduled', 'in_progress');
@@ -760,6 +761,7 @@ WHERE module_id = $1
 UPDATE cleaning_operations
 SET status = 'failed',
     failure_reason = 'user_reset',
+    started_at = COALESCE(started_at, now()),
     ended_at = now(),
     updated_at = now()
 WHERE module_id = $1

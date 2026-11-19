@@ -1,6 +1,9 @@
 package module
 
 import (
+	"encoding/json"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -339,10 +342,48 @@ type DeviceStatusDTO struct {
 	FirmwareStateUpdatedAt  *string              `json:"firmware_state_updated_at,omitempty"`
 }
 
+// FlexEpoch accepts either a Unix epoch integer or an RFC3339 timestamp string.
+type FlexEpoch int64
+
+func (f *FlexEpoch) UnmarshalJSON(data []byte) error {
+	s := strings.TrimSpace(string(data))
+	if s == "" || s == "null" {
+		*f = 0
+		return nil
+	}
+	if strings.HasPrefix(s, "\"") {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			return err
+		}
+		str = strings.TrimSpace(str)
+		if str == "" {
+			*f = 0
+			return nil
+		}
+		if t, err := time.Parse(time.RFC3339, str); err == nil {
+			*f = FlexEpoch(t.Unix())
+			return nil
+		}
+		n, err := strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			return err
+		}
+		*f = FlexEpoch(n)
+		return nil
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return err
+	}
+	*f = FlexEpoch(n)
+	return nil
+}
+
 type StateTransitionInput struct {
-	State      string  `json:"state"`
-	Detail     *string `json:"detail,omitempty"`
-	OccurredAt int64   `json:"occurred_at"`
+	State      string    `json:"state"`
+	Detail     *string   `json:"detail,omitempty"`
+	OccurredAt FlexEpoch `json:"occurred_at"`
 }
 
 type ModuleStateLogDTO struct {

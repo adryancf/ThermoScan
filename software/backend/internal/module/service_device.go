@@ -282,7 +282,7 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 			}
 			occurredAt := now
 			if tr.OccurredAt >= 1000000000 {
-				occurredAt = time.Unix(tr.OccurredAt, 0).UTC()
+				occurredAt = time.Unix(int64(tr.OccurredAt), 0).UTC()
 			}
 			if _, err := qtx.InsertModuleStateLog(ctx, db.InsertModuleStateLogParams{
 				ModuleID:   moduleID,

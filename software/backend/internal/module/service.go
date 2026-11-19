@@ -546,6 +546,7 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 		in.AzimuthSource != nil ||
 		in.TiltSource != nil ||
 		in.ReservoirNominalCapacityMl != nil ||
+		in.HotspotThresholdDeltaC != nil ||
 		in.PowerSensors != nil
 
 	hasSolarAngleEdit := in.MinimumSolarAngleDeg != nil
@@ -650,12 +651,6 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 			return ModuleDetailsDTO{}, ErrInvalidInput
 		}
 		intervalDays = *in.InspectionIntervalDays
-	}
-
-	if in.HotspotThresholdDeltaC != nil {
-		if *in.HotspotThresholdDeltaC <= 0 || *in.HotspotThresholdDeltaC > 50.0 {
-			return ModuleDetailsDTO{}, ErrInvalidInput
-		}
 	}
 
 	if err := validateOptionalConfigFields(

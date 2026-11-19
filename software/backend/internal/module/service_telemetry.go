@@ -574,6 +574,11 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		}
 	}
 
+	existingInsp, inspErr := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
+		ModuleID:      moduleID,
+		SourceEventID: inspSourceUUID,
+	})
+
 	if inspType == "verification" {
 		if !cleanOpUUID.Valid {
 			return nil, ErrInvalidInput
@@ -585,18 +590,14 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 		if err != nil {
 			return nil, ErrInvalidInput
 		}
-		if !cleanOp.PumpActuated || cleanOp.PostCleaningResult != "pending" {
+		if !cleanOp.PumpActuated || (inspErr != nil && cleanOp.PostCleaningResult != "pending") {
 			return nil, ErrInvalidInput
 		}
 	}
 
-	existingInsp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
-		ModuleID:      moduleID,
-		SourceEventID: inspSourceUUID,
-	})
-	if err == nil {
+	if inspErr == nil {
 		inspID = existingInsp.ID
-	} else if errors.Is(err, pgx.ErrNoRows) {
+	} else if errors.Is(inspErr, pgx.ErrNoRows) {
 		startedAt := now
 		if input.StartedAt != nil && !input.StartedAt.IsZero() {
 			startedAt = input.StartedAt.UTC()
@@ -1055,8 +1056,17 @@ func (s *Service) FinalizeInspection(
 				InspectionID: insp.ID,
 				ModuleID:     moduleID,
 			})
-			if len(existingAnoms) > 0 {
-				hotspotPersists = true
+			for _, ea := range existingAnoms {
+				if ea.SourceEventID.Bytes == origAnomaly.SourceEventID.Bytes {
+					hotspotPersists = true
+					break
+				}
+				eaX, eaXErr := strconv.ParseFloat(ea.XPositionCm, 64)
+				if ea.PanelIndex == origAnomaly.PanelIndex &&
+					origXErr == nil && eaXErr == nil && math.Abs(eaX-origX) <= 1.0 {
+					hotspotPersists = true
+					break
+				}
 			}
 		}
 
@@ -1179,6 +1189,10 @@ func (s *Service) FinalizeInspection(
 		}
 		baselineTemp = sum / float64(len(panelResults))
 	}
+	if insp.StartedAt != nil && finAt.Before(*insp.StartedAt) {
+		finAt = *insp.StartedAt
+	}
+
 	if len(panelResults) == 0 && cnt == 1 {
 		_, err = qtx.UpsertInspectionPanelResult(ctx, db.UpsertInspectionPanelResultParams{
 			InspectionID:         insp.ID,
@@ -1196,10 +1210,6 @@ func (s *Service) FinalizeInspection(
 	var failReasonPg pgtype.Text
 	if input.FailureReason != nil && strings.TrimSpace(*input.FailureReason) != "" {
 		failReasonPg = pgtype.Text{String: strings.TrimSpace(*input.FailureReason), Valid: true}
-	}
-
-	if insp.StartedAt != nil && finAt.Before(*insp.StartedAt) {
-		finAt = *insp.StartedAt
 	}
 
 	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{

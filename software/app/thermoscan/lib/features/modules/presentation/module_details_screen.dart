@@ -21,6 +21,7 @@ import 'package:thermoscan/features/modules/presentation/modules_controller.dart
 import 'package:thermoscan/features/modules/presentation/modules_home_screen.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/clean_thermal_preview_card.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/firmware_state_badge.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/routine_progress_stepper.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
 /// SCR-10: Module Details Screen with TabBar / TabBarView navigation
@@ -45,16 +46,29 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   bool _isTriggeringInspection = false;
   bool _isTriggeringCleaning = false;
   Timer? _statusRefreshTimer;
+  String? _lastObservedFirmwareState;
 
   @override
   void initState() {
     super.initState();
     _statusRefreshTimer = Timer.periodic(
-      const Duration(seconds: 5),
+      const Duration(seconds: 4),
       (_) {
-        if (mounted) {
-          ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
+        if (!mounted) return;
+        final curStatus =
+            ref.read(moduleDeviceStatusProvider(widget.moduleId)).valueOrNull;
+        final curState = curStatus?.firmwareState;
+        final isActive = RoutineProgressStepper.isVisibleForState(
+          curState,
+          resetPending: curStatus?.resetPending == true,
+        );
+        final justFinished = !isActive &&
+            RoutineProgressStepper.isVisibleForState(_lastObservedFirmwareState);
+        ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
+        if (isActive || justFinished) {
+          ref.invalidate(latestInspectionProvider(widget.moduleId));
         }
+        _lastObservedFirmwareState = curState;
       },
     );
   }
@@ -920,6 +934,20 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             // 2. Module Info Collapsible Card / Accordion (TOPO)
             _buildModuleInfoCard(mod, details, deviceStatus),
             const SizedBox(height: 16),
+
+            // 2b. Live 4-step routine tracker (only shown while active/halted/resetting)
+            if (RoutineProgressStepper.isVisibleForState(
+              deviceStatus?.firmwareState ?? mod.firmwareState,
+              resetPending: deviceStatus?.resetPending == true,
+            )) ...[
+              RoutineProgressStepper(
+                firmwareState: deviceStatus?.firmwareState ?? mod.firmwareState,
+                firmwareStateDetail:
+                    deviceStatus?.firmwareStateDetail ?? mod.firmwareStateDetail,
+                resetPending: deviceStatus?.resetPending == true,
+              ),
+              const SizedBox(height: 16),
+            ],
 
             // 3. Executive Health Hero Banner (com status de limpeza integrado)
             _buildExecutiveHealthBanner(

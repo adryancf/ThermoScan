@@ -245,8 +245,8 @@ class _ModuleConfigurationScreenState
   }
 
   Future<void> _openOrientationCalibration() async {
-    final curAz = double.tryParse(_azimuthCtrl.text.trim());
-    final curTilt = double.tryParse(_tiltCtrl.text.trim());
+    final curAz = _parseDouble(_azimuthCtrl.text);
+    final curTilt = _parseDouble(_tiltCtrl.text);
 
     final result = await OrientationCalibrationModal.show(
       context,
@@ -344,13 +344,13 @@ class _ModuleConfigurationScreenState
                       children: [
                         ArrayGeometryBlueprintWidget(
                           panelLengthCm:
-                              double.tryParse(_lengthCtrl.text.trim()) ?? 100.0,
+                              _parseDouble(_lengthCtrl.text) ?? 100.0,
                           panelWidthCm:
-                              double.tryParse(_widthCtrl.text.trim()) ?? 100.0,
+                              _parseDouble(_widthCtrl.text) ?? 100.0,
                           panelCount:
                               int.tryParse(_countCtrl.text.trim()) ?? 1,
                           panelSpacingCm:
-                              double.tryParse(_spacingCtrl.text.trim()) ?? 0.0,
+                              _parseDouble(_spacingCtrl.text) ?? 0.0,
                           onSwapDimensions: perms.canEditGeometryAndLocation
                               ? () {
                                   setState(() {
@@ -400,7 +400,7 @@ class _ModuleConfigurationScreenState
                                       if (v == null || v.trim().isEmpty) {
                                         return 'Required';
                                       }
-                                      final n = double.tryParse(v.trim());
+                                      final n = _parseDouble(v);
                                       if (n == null || n <= 0) {
                                         return 'Must be > 0';
                                       }
@@ -439,7 +439,7 @@ class _ModuleConfigurationScreenState
                                       if (v == null || v.trim().isEmpty) {
                                         return 'Required';
                                       }
-                                      final n = double.tryParse(v.trim());
+                                      final n = _parseDouble(v);
                                       if (n == null || n <= 0) {
                                         return 'Must be > 0';
                                       }
@@ -519,7 +519,7 @@ class _ModuleConfigurationScreenState
                                       if (v == null || v.trim().isEmpty) {
                                         return 'Required';
                                       }
-                                      final n = double.tryParse(v.trim());
+                                      final n = _parseDouble(v);
                                       if (n == null || n < 0) {
                                         return 'Must be >= 0';
                                       }
@@ -589,7 +589,7 @@ class _ModuleConfigurationScreenState
                                   if (v == null || v.trim().isEmpty) {
                                     return 'Required';
                                   }
-                                  final n = double.tryParse(v.trim());
+                                  final n = _parseDouble(v);
                                   if (n == null || n < -90 || n > 90) {
                                     return '-90 to 90';
                                   }
@@ -615,7 +615,7 @@ class _ModuleConfigurationScreenState
                                   if (v == null || v.trim().isEmpty) {
                                     return 'Required';
                                   }
-                                  final n = double.tryParse(v.trim());
+                                  final n = _parseDouble(v);
                                   if (n == null || n < -180 || n > 180) {
                                     return '-180 to 180';
                                   }
@@ -639,7 +639,7 @@ class _ModuleConfigurationScreenState
                             if (v == null || v.trim().isEmpty) {
                               return 'Elevation is required';
                             }
-                            if (double.tryParse(v.trim()) == null) {
+                            if (_parseDouble(v) == null) {
                               return 'Invalid elevation';
                             }
                             return null;
@@ -679,7 +679,7 @@ class _ModuleConfigurationScreenState
                                   if (v == null || v.trim().isEmpty) {
                                     return 'Required';
                                   }
-                                  final n = double.tryParse(v.trim());
+                                  final n = _parseDouble(v);
                                   if (n == null || n < 0 || n >= 360) {
                                     return '0 to <360';
                                   }
@@ -709,7 +709,7 @@ class _ModuleConfigurationScreenState
                                   if (v == null || v.trim().isEmpty) {
                                     return 'Required';
                                   }
-                                  final n = double.tryParse(v.trim());
+                                  final n = _parseDouble(v);
                                   if (n == null || n < 0 || n > 90) {
                                     return '0 to 90';
                                   }
@@ -737,7 +737,7 @@ class _ModuleConfigurationScreenState
                       children: [
                         SolarAngleSelectorWidget(
                           selectedAngle:
-                              double.tryParse(_solarAngleCtrl.text.trim()) ??
+                              _parseDouble(_solarAngleCtrl.text) ??
                                   15.0,
                           recommendedAngle: () {
                             final lat = mod.latitude?.abs();

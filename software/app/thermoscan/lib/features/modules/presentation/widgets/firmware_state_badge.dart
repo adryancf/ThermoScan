@@ -20,6 +20,12 @@ FirmwareStateDisplayInfo firmwareStateDisplayInfo(
   final normalizedDetail = (detail ?? '').trim().toLowerCase();
 
   switch (normalizedState) {
+    case 'BOOT_INIT':
+      return const FirmwareStateDisplayInfo(
+        label: 'Initializing',
+        color: Colors.blueGrey,
+        icon: Icons.power_settings_new,
+      );
     case 'IDLE':
       return const FirmwareStateDisplayInfo(
         label: 'Idle',
@@ -31,6 +37,18 @@ FirmwareStateDisplayInfo firmwareStateDisplayInfo(
         label: 'Scanning',
         color: Colors.blue,
         icon: Icons.radar,
+      );
+    case 'ANALYZING':
+      return const FirmwareStateDisplayInfo(
+        label: 'Analyzing',
+        color: Colors.deepPurple,
+        icon: Icons.analytics_outlined,
+      );
+    case 'SYNCING':
+      return const FirmwareStateDisplayInfo(
+        label: 'Syncing',
+        color: Colors.lightBlue,
+        icon: Icons.sync,
       );
     case 'CLEANING':
       return const FirmwareStateDisplayInfo(

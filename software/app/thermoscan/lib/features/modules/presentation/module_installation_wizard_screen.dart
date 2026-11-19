@@ -158,6 +158,11 @@ class _ModuleInstallationWizardScreenState
     );
   }
 
+  double? _parseDouble(String raw) =>
+      double.tryParse(raw.trim().replaceAll(',', '.'));
+
+  double _requireDouble(String raw) => double.parse(raw.trim().replaceAll(',', '.'));
+
   void _hydrateFromExistingDetails(ModuleDetails details) {
     if (_hydratedExisting) return;
     _hydratedExisting = true;
@@ -171,6 +176,10 @@ class _ModuleInstallationWizardScreenState
         details.companyClients.where((c) => c.isAssigned).map((c) => c.id),
       );
 
+    if (mod.minimumSolarAngleDeg != null) {
+      _solarAngleCtrl.text = mod.minimumSolarAngleDeg.toString();
+      _solarAngleSource = 'saved';
+    }
     if (mod.latitude != null) {
       _latCtrl.text = mod.latitude.toString();
       _autoEstimateSolarAngle(mod.latitude!);
@@ -228,18 +237,18 @@ class _ModuleInstallationWizardScreenState
       final repo = ref.read(moduleRepositoryProvider);
 
       // Collect whatever fields are currently available to persist into the draft
-      final length = double.tryParse(_lengthCtrl.text.trim());
-      final width = double.tryParse(_widthCtrl.text.trim());
+      final length = _parseDouble(_lengthCtrl.text);
+      final width = _parseDouble(_widthCtrl.text);
       final count = int.tryParse(_countCtrl.text.trim());
-      final spacing = double.tryParse(_spacingCtrl.text.trim());
-      final lat = double.tryParse(_latCtrl.text.trim());
-      final lng = double.tryParse(_lngCtrl.text.trim());
-      final elev = double.tryParse(_elevCtrl.text.trim());
-      final azimuth = double.tryParse(_azimuthCtrl.text.trim());
-      final tilt = double.tryParse(_tiltCtrl.text.trim());
-      final solarAngle = double.tryParse(_solarAngleCtrl.text.trim());
+      final spacing = _parseDouble(_spacingCtrl.text);
+      final lat = _parseDouble(_latCtrl.text);
+      final lng = _parseDouble(_lngCtrl.text);
+      final elev = _parseDouble(_elevCtrl.text);
+      final azimuth = _parseDouble(_azimuthCtrl.text);
+      final tilt = _parseDouble(_tiltCtrl.text);
+      final solarAngle = _parseDouble(_solarAngleCtrl.text);
       final interval = int.tryParse(_intervalCtrl.text.trim());
-      final reservoir = double.tryParse(_reservoirCtrl.text.trim());
+      final reservoir = _parseDouble(_reservoirCtrl.text);
 
       if (_persistedModuleId == null) {
         final created = await repo.createModule(
@@ -621,20 +630,20 @@ class _ModuleInstallationWizardScreenState
       final repo = ref.read(moduleRepositoryProvider);
       final name = _nameCtrl.text.trim();
       final mac = _macCtrl.text.trim();
-      final lat = double.parse(_latCtrl.text.trim());
-      final lng = double.parse(_lngCtrl.text.trim());
-      final elev = double.parse(_elevCtrl.text.trim());
-      final azimuth = double.parse(_azimuthCtrl.text.trim());
-      final tilt = double.parse(_tiltCtrl.text.trim());
-      final length = double.parse(_lengthCtrl.text.trim());
-      final width = double.parse(_widthCtrl.text.trim());
+      final lat = _requireDouble(_latCtrl.text);
+      final lng = _requireDouble(_lngCtrl.text);
+      final elev = _requireDouble(_elevCtrl.text);
+      final azimuth = _requireDouble(_azimuthCtrl.text);
+      final tilt = _requireDouble(_tiltCtrl.text);
+      final length = _requireDouble(_lengthCtrl.text);
+      final width = _requireDouble(_widthCtrl.text);
       final count = int.parse(_countCtrl.text.trim());
-      final spacing = double.parse(_spacingCtrl.text.trim());
-      final solarAngle = double.parse(_solarAngleCtrl.text.trim());
+      final spacing = _requireDouble(_spacingCtrl.text);
+      final solarAngle = _requireDouble(_solarAngleCtrl.text);
       final interval = int.parse(_intervalCtrl.text.trim());
       final reservoir = _reservoirCtrl.text.trim().isEmpty
           ? null
-          : double.parse(_reservoirCtrl.text.trim());
+          : _requireDouble(_reservoirCtrl.text);
 
       String targetModuleId;
       if (_persistedModuleId == null) {
@@ -1195,7 +1204,7 @@ class _ModuleInstallationWizardScreenState
                     if (v == null || v.trim().isEmpty) {
                       return 'Latitude is required';
                     }
-                    final n = double.tryParse(v.trim());
+                    final n = _parseDouble(v);
                     if (n == null || n < -90 || n > 90) {
                       return 'Enter a valid latitude between -90 and 90';
                     }
@@ -1215,7 +1224,7 @@ class _ModuleInstallationWizardScreenState
                     if (v == null || v.trim().isEmpty) {
                       return 'Longitude is required';
                     }
-                    final n = double.tryParse(v.trim());
+                    final n = _parseDouble(v);
                     if (n == null || n < -180 || n > 180) {
                       return 'Enter a valid longitude between -180 and 180';
                     }
@@ -1235,7 +1244,7 @@ class _ModuleInstallationWizardScreenState
                     if (v == null || v.trim().isEmpty) {
                       return 'Elevation is required';
                     }
-                    if (double.tryParse(v.trim()) == null) {
+                    if (_parseDouble(v) == null) {
                       return 'Enter a valid elevation in meters';
                     }
                     return null;
@@ -1260,8 +1269,8 @@ class _ModuleInstallationWizardScreenState
     final hasRecordedOrientation = _isOrientationLocked &&
         _azimuthCtrl.text.trim().isNotEmpty &&
         _tiltCtrl.text.trim().isNotEmpty;
-    final lockedAzimuth = double.tryParse(_azimuthCtrl.text.trim());
-    final lockedTilt = double.tryParse(_tiltCtrl.text.trim());
+    final lockedAzimuth = _parseDouble(_azimuthCtrl.text);
+    final lockedTilt = _parseDouble(_tiltCtrl.text);
 
     return Form(
       key: _step3FormKey,
@@ -1438,7 +1447,7 @@ class _ModuleInstallationWizardScreenState
                       if (v == null || v.trim().isEmpty) {
                         return 'Azimuth angle is required';
                       }
-                      final n = double.tryParse(v.trim());
+                      final n = _parseDouble(v);
                       if (n == null || n < 0 || n >= 360) {
                         return 'Enter an angle from 0° to less than 360°';
                       }
@@ -1458,7 +1467,7 @@ class _ModuleInstallationWizardScreenState
                       if (v == null || v.trim().isEmpty) {
                         return 'Tilt angle is required';
                       }
-                      final n = double.tryParse(v.trim());
+                      final n = _parseDouble(v);
                       if (n == null || n < 0 || n > 90) {
                         return 'Enter an angle between 0° and 90°';
                       }
@@ -1501,10 +1510,10 @@ class _ModuleInstallationWizardScreenState
 
   /// SCR-19: Photovoltaic Array Configuration
   Widget _buildStep4() {
-    final lengthVal = double.tryParse(_lengthCtrl.text.trim()) ?? 195.5;
-    final widthVal = double.tryParse(_widthCtrl.text.trim()) ?? 99.2;
+    final lengthVal = _parseDouble(_lengthCtrl.text) ?? 195.5;
+    final widthVal = _parseDouble(_widthCtrl.text) ?? 99.2;
     final countVal = int.tryParse(_countCtrl.text.trim()) ?? 1;
-    final spacingVal = double.tryParse(_spacingCtrl.text.trim()) ?? 2.5;
+    final spacingVal = _parseDouble(_spacingCtrl.text) ?? 2.5;
 
     return Form(
       key: _step4FormKey,
@@ -1598,7 +1607,7 @@ class _ModuleInstallationWizardScreenState
                               if (v == null || v.trim().isEmpty) {
                                 return 'Required';
                               }
-                              final n = double.tryParse(v.trim());
+                              final n = _parseDouble(v);
                               if (n == null || n <= 0) return 'Must be > 0';
                               return null;
                             },
@@ -1631,7 +1640,7 @@ class _ModuleInstallationWizardScreenState
                               if (v == null || v.trim().isEmpty) {
                                 return 'Required';
                               }
-                              final n = double.tryParse(v.trim());
+                              final n = _parseDouble(v);
                               if (n == null || n <= 0) return 'Must be > 0';
                               return null;
                             },
@@ -1747,7 +1756,7 @@ class _ModuleInstallationWizardScreenState
                               if (v == null || v.trim().isEmpty) {
                                 return 'Required';
                               }
-                              final n = double.tryParse(v.trim());
+                              final n = _parseDouble(v);
                               if (n == null || n < 0) return 'Must be >= 0';
                               return null;
                             },
@@ -1811,7 +1820,7 @@ class _ModuleInstallationWizardScreenState
 
                 SolarAngleSelectorWidget(
                   selectedAngle:
-                      double.tryParse(_solarAngleCtrl.text.trim()) ?? 15.0,
+                      _parseDouble(_solarAngleCtrl.text) ?? 15.0,
                   recommendedAngle: _recommendedSolarAngle,
                   sourceDescription: _solarAngleSource,
                   onChanged: (angle) {

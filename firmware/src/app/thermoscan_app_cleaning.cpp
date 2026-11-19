@@ -14,6 +14,13 @@
 namespace app {
 
 void ThermoscanApp::handleCleaning() {
+    if (motion_ != nullptr && !motion_->isHomed()) {
+        if (!motion_->home()) {
+            executeEmergencyStop("homing_failed");
+            return;
+        }
+    }
+
     if (manual_cleaning_active_) {
         manual_cleaning_active_ = false;
         if (cloud_ != nullptr) {
@@ -259,14 +266,6 @@ void ThermoscanApp::handleCleaning() {
     // Return carriage to home
     if (motion_ != nullptr) {
         motion_->moveToXCm(0.0f);
-    }
-
-    if (manual_cleaning_active_) {
-        manual_cleaning_active_ = false;
-        if (cloud_ != nullptr) {
-            cloud_->setManualCleaningAckPending(true);
-            cloud_->sendPing();
-        }
     }
 
     if (any_sprayed) {

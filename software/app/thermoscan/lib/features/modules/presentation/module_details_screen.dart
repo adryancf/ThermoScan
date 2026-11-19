@@ -2349,16 +2349,22 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                             ? Icons.wifi_rounded
                             : Icons.wifi_off_rounded,
                       ),
-                      if ((deviceStatus?.firmwareState ?? mod.firmwareState) !=
-                              null &&
-                          (deviceStatus?.firmwareState ?? mod.firmwareState)!
-                              .trim()
-                              .isNotEmpty)
+                      if (deviceStatus?.resetPending == true ||
+                          ((deviceStatus?.firmwareState ?? mod.firmwareState) !=
+                                  null &&
+                              (deviceStatus?.firmwareState ??
+                                      mod.firmwareState)!
+                                  .trim()
+                                  .isNotEmpty))
                         FirmwareStateBadge(
-                          firmwareState:
-                              deviceStatus?.firmwareState ?? mod.firmwareState,
-                          firmwareStateDetail: deviceStatus?.firmwareStateDetail ??
-                              mod.firmwareStateDetail,
+                          firmwareState: deviceStatus?.resetPending == true
+                              ? 'RESET_REQUESTED'
+                              : (deviceStatus?.firmwareState ??
+                                  mod.firmwareState),
+                          firmwareStateDetail: deviceStatus?.resetPending == true
+                              ? null
+                              : (deviceStatus?.firmwareStateDetail ??
+                                  mod.firmwareStateDetail),
                         ),
                       _buildStatusPill(
                         label: deviceStatus?.waterAvailable == true

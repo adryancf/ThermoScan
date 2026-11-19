@@ -143,6 +143,18 @@ FirmwareStateDisplayInfo firmwareStateDisplayInfo(
         color: Colors.amber.shade900,
         icon: Icons.warning_amber_rounded,
       );
+    case 'RESET_REQUESTED':
+      return FirmwareStateDisplayInfo(
+        label: 'Reset Requested...',
+        color: Colors.red.shade700,
+        icon: Icons.restart_alt,
+      );
+    case 'MANUAL_CLEANING_PENDING':
+      return FirmwareStateDisplayInfo(
+        label: 'Cleaning Requested...',
+        color: Colors.cyan.shade700,
+        icon: Icons.cleaning_services_outlined,
+      );
     default:
       final fallback = normalizedState.isEmpty ? 'Unknown State' : normalizedState;
       return FirmwareStateDisplayInfo(

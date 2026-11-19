@@ -223,9 +223,18 @@ void ThermoscanApp::handleErrorHalt() {
     const bool due_for_ping = (!has_pinged_ && now_ms > 0) ||
                               (has_pinged_ && (now_ms - last_ping_ms_) >= 5000UL);
     if (cloud_ != nullptr && due_for_ping) {
-        cloud_->sendPing();
+        const bool ping_ok = cloud_->sendPing();
         last_ping_ms_ = now_ms;
         has_pinged_ = true;
+        if (!ping_ok && cloud_->hadAuthError()) {
+            const bool due_for_reclaim = (!has_reclaimed_ && now_ms > 0) ||
+                                         (has_reclaimed_ && (now_ms - last_reclaim_ms_) >= 60000UL);
+            if (due_for_reclaim) {
+                last_reclaim_ms_ = now_ms;
+                has_reclaimed_ = true;
+                cloud_->claimDevice();
+            }
+        }
         if (cloud_->isResetPending()) {
             executeFullReset();
             return;

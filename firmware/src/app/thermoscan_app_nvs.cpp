@@ -247,8 +247,10 @@ void ThermoscanApp::handleBootInit() {
         if (has_backup && inspection_crash_retries_ < 2) {
             inspection_crash_retries_++;
             pending_sync_backup_id_ = inspection_source_event_id_;
+            // ANALYZING requires in-RAM all_confirmed_hotspots_, so re-scan from SCANNING;
+            // SYNCING only needs pending_sync_backup_id_ cleanup.
             transitionTo((restored_operation_status_ == "ANALYZING")
-                             ? AppState::ANALYZING
+                             ? AppState::SCANNING
                              : AppState::SYNCING);
             saveCurrentStateToNvs();
             Serial.printf("[APP] Recovering pending %s for inspection ID %s from SD backup (crash retry %u)\n",
@@ -300,7 +302,13 @@ void ThermoscanApp::handleBootInit() {
                           static_cast<unsigned>(inspection_crash_retries_),
                           inspection_source_event_id_.c_str());
             if (cloud_ != nullptr) {
-                cloud_->abortInspection(inspection_source_event_id_, "crash_recovery_exhausted");
+                if (!cloud_->abortInspection(inspection_source_event_id_, "crash_recovery_exhausted")) {
+                    pending_abort_insp_id_ = inspection_source_event_id_;
+                    pending_abort_reason_ = "crash_recovery_exhausted";
+                    if (storage_ != nullptr) {
+                        storage_->savePendingAbort(pending_abort_insp_id_, pending_abort_reason_);
+                    }
+                }
             }
             inspection_source_event_id_.clear();
             last_completed_panel_ = 0;

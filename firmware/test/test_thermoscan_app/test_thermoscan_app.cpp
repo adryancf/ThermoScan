@@ -1367,7 +1367,7 @@ void test_sd_backup_boot_recovery_analyzing_and_syncing(void) {
     MockTimeProvider time;
     MockBackupStorage backup;
 
-    // Case 1: Pending ANALYZING with .bin present and retries=0 -> recovers to ANALYZING
+    // Case 1: Pending ANALYZING with .bin present and retries=0 -> resumes SCANNING to rebuild hotspots
     storage.state.operation_status = "ANALYZING";
     storage.state.inspection_source_event_id = "insp-recover-analyzing";
     storage.state.inspection_crash_retries = 0;
@@ -1376,9 +1376,11 @@ void test_sd_backup_boot_recovery_analyzing_and_syncing(void) {
     ThermoscanApp app1(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time, &backup);
     TEST_ASSERT_TRUE(app1.init());
     TEST_ASSERT_EQUAL(1, backup.purge_calls);
-    TEST_ASSERT_EQUAL(AppState::ANALYZING, app1.getState());
+    TEST_ASSERT_EQUAL(AppState::SCANNING, app1.getState());
     TEST_ASSERT_EQUAL_UINT8(1, app1.getInspectionCrashRetries());
 
+    app1.tick(); // SCANNING -> ANALYZING
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app1.getState());
     app1.tick(); // ANALYZING -> SYNCING
     TEST_ASSERT_EQUAL(AppState::SYNCING, app1.getState());
     app1.tick(); // SYNCING -> IDLE (cleans up .bin)

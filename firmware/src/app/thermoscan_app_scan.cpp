@@ -225,6 +225,13 @@ bool ThermoscanApp::flushScanTelemetryBatch(std::vector<std::vector<float>>& bat
 }
 
 void ThermoscanApp::handleScanning() {
+    if (motion_ != nullptr && !motion_->isHomed()) {
+        if (!motion_->home()) {
+            executeEmergencyStop("homing_failed");
+            return;
+        }
+    }
+
     if (inspection_crash_retries_ == 0 && last_completed_panel_ == 0) {
         inspection_source_event_id_ = utils::generateUUIDv4();
         inspection_started_at_ = getCurrentTime();

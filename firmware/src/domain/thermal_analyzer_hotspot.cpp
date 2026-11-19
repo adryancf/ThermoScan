@@ -223,7 +223,7 @@ std::vector<HotspotEvent> ThermalAnalyzer::analyzeQuantizedScan(
         return {};
     }
 
-    const float threshold_c = baseline_temp_c + HOTSPOT_THRESHOLD_DELTA_C;
+    const float threshold_c = baseline_temp_c + hotspot_threshold_delta_c_;
     const int16_t threshold_q = static_cast<int16_t>(std::round(threshold_c * QuantizedThermalFrame::SCALE));
 
     // Extract candidates per frame

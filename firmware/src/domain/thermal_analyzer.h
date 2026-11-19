@@ -85,6 +85,12 @@ public:
 
     float getCalibratedFovWidthCm() const { return calibrated_fov_cm_; }
     float getSpatialToleranceCm() const { return spatial_tolerance_cm_; }
+    float getHotspotThresholdDeltaC() const { return hotspot_threshold_delta_c_; }
+    void setHotspotThresholdDeltaC(float delta_c) {
+        if (delta_c > 0.0f && delta_c <= 50.0f) {
+            hotspot_threshold_delta_c_ = delta_c;
+        }
+    }
 
     /**
      * @brief Checks if a pixel temperature reading is within valid sensor boundaries.
@@ -152,6 +158,7 @@ public:
 private:
     float calibrated_fov_cm_{FOV_OPTICAL_CM};
     float spatial_tolerance_cm_{SPATIAL_TOLERANCE_CM};
+    float hotspot_threshold_delta_c_{HOTSPOT_THRESHOLD_DELTA_C};
 };
 
 } // namespace domain

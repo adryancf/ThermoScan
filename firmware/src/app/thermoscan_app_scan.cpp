@@ -41,15 +41,19 @@ void ThermoscanApp::handleIdle() {
 
     // Determine ping interval: use fast ping (5s) when initial configuration is not yet synchronized,
     // otherwise use standard configured interval (default 5s)
-    const uint32_t effective_ping_interval = (config_.config_version == 0 || config_update_pending_)
-                                                 ? 5
-                                                 : static_cast<uint32_t>(config_.ping_interval_seconds);
+    const uint32_t effective_ping_interval_ms =
+        ((config_.config_version == 0 || config_update_pending_)
+             ? 5UL
+             : static_cast<uint32_t>(config_.ping_interval_seconds)) * 1000UL;
 
-    // Periodic telemetry ping (only if clock is synchronized, preventing loop when now == 0)
-    if (cloud_ != nullptr && now > 0 &&
-        (now - last_ping_time_) >= effective_ping_interval) {
+    // Periodic telemetry ping timed by monotonic uptime (works even when NTP/UTC clock is not synced)
+    const uint32_t now_ms = getUptimeMs();
+    const bool due_for_ping = (!has_pinged_ && now_ms > 0) ||
+                              (has_pinged_ && (now_ms - last_ping_ms_) >= effective_ping_interval_ms);
+    if (cloud_ != nullptr && due_for_ping) {
         cloud_->sendPing();
-        last_ping_time_ = now;
+        last_ping_ms_ = now_ms;
+        has_pinged_ = true;
         if (cloud_->isResetPending()) {
             executeFullReset();
             return;
@@ -73,16 +77,19 @@ void ThermoscanApp::handleIdle() {
 
     // Check for authorization error (HTTP 401): device token revoked or unregistered on backend
     if (cloud_ != nullptr && cloud_->hadAuthError()) {
-        const uint32_t reclaim_interval = 10; // retry claim every 10 seconds
-        if (last_reclaim_attempt_time_ == 0 || (now > 0 && (now - last_reclaim_attempt_time_) >= reclaim_interval)) {
-            last_reclaim_attempt_time_ = (now > 0) ? now : 1;
+        constexpr uint32_t reclaim_interval_ms = 10000UL; // retry claim every 10 seconds
+        const bool due_for_reclaim = !has_reclaimed_ || (now_ms - last_reclaim_ms_) >= reclaim_interval_ms;
+        if (due_for_reclaim) {
+            last_reclaim_ms_ = now_ms;
+            has_reclaimed_ = true;
             Serial.println(F("[APP] HTTP 401 detected: Device token revoked or invalid. Initiating automatic re-claim..."));
             if (cloud_->claimDevice()) {
                 Serial.println(F("[APP] Automatic hardware re-claim succeeded! Syncing new configuration..."));
                 cloud_->clearAuthError();
                 config_update_pending_ = true;
                 config_sync_failed_waiting_ping_ = false;
-                last_reclaim_attempt_time_ = 0;
+                has_reclaimed_ = false;
+                last_reclaim_ms_ = 0;
             } else {
                 Serial.println(F("[APP] Automatic re-claim attempt deferred/failed. Will retry on next interval."));
             }
@@ -92,6 +99,9 @@ void ThermoscanApp::handleIdle() {
     // 1. Manual commands have highest priority
     if (manual_inspection_requested_) {
         manual_inspection_requested_ = false;
+        if (cloud_ != nullptr) {
+            cloud_->clearManualInspectionPending();
+        }
         Serial.println(F("[APP] State transition: IDLE -> SCANNING (Starting manual inspection)"));
         transitionTo(AppState::SCANNING);
         return;
@@ -101,24 +111,6 @@ void ThermoscanApp::handleIdle() {
         manual_cleaning_requested_ = false;
         manual_cleaning_active_ = true;
         cleaning_queue_.clear();
-        domain::PanelPositionInfo pos = domain::resolvePanelPosition(
-            config_.panel_count, config_.panel_length_cm, config_.panel_spacing_cm, manual_cleaning_target_x_);
-        QueuedHotspot qh;
-        qh.panel_index = pos.panel_index;
-        qh.target_x_cm = manual_cleaning_target_x_;
-        qh.anomaly_event_id = utils::generateUUIDv4();
-        qh.cleaning_operation_id = "";
-        qh.attempts = 0;
-        qh.verification_status = "pending";
-        qh.baseline_temp_c = baseline_temp_c_;
-        cleaning_queue_.push_back(qh);
-
-        active_hotspot_.target_x_cm = manual_cleaning_target_x_;
-        active_hotspot_.confirmed = true;
-        cleaning_sm_.resetForNewAnomaly();
-        if (storage_ != nullptr) {
-            storage_->saveCleaningQueue(cleaning_queue_);
-        }
         transitionTo(AppState::CLEANING);
         return;
     }
@@ -137,6 +129,84 @@ void ThermoscanApp::handleIdle() {
             return;
         }
     }
+}
+
+bool ThermoscanApp::flushScanTelemetryBatch(std::vector<std::vector<float>>& batch_frames_data,
+                                            std::vector<PowerSnapshot>& batch_power_data,
+                                            std::vector<std::string>& failed_meas_ids) {
+    if (current_batch_.empty()) {
+        return true;
+    }
+
+    if (cloud_ != nullptr) {
+        IngestTelemetryBatchInput batch_input;
+        batch_input.inspection_source_event_id = inspection_source_event_id_;
+        batch_input.inspection_type = "scheduled";
+        batch_input.started_at_epoch = inspection_started_at_;
+        batch_input.scheduled_for_epoch = inspection_scheduled_for_;
+        batch_input.batch = current_batch_;
+
+        bool ingested = false;
+        for (int retry = 0; retry < 3; ++retry) {
+            if (cloud_->ingestTelemetryBatch(batch_input)) {
+                ingested = true;
+                break;
+            }
+#if defined(ARDUINO) || defined(ESP32)
+            delay(300 * (retry + 1));
+#endif
+        }
+
+        // Fallback: If batch failed (e.g. heap exhaustion during large JSON/TLS),
+        // retry sending each item individually to minimize memory peak
+        if (!ingested) {
+            if (current_batch_.size() > 1) {
+                Serial.println(F("[SCAN] Batch submission failed. Retrying telemetry item-by-item..."));
+                for (size_t single_idx = 0; single_idx < current_batch_.size(); ++single_idx) {
+                    IngestTelemetryBatchInput single_input;
+                    single_input.inspection_source_event_id = inspection_source_event_id_;
+                    single_input.inspection_type = "scheduled";
+                    single_input.started_at_epoch = inspection_started_at_;
+                    single_input.scheduled_for_epoch = inspection_scheduled_for_;
+                    single_input.batch.push_back(current_batch_[single_idx]);
+
+                    bool single_ok = false;
+                    for (int retry = 0; retry < 2; ++retry) {
+                        if (cloud_->ingestTelemetryBatch(single_input)) {
+                            single_ok = true;
+                            break;
+                        }
+#if defined(ARDUINO) || defined(ESP32)
+                        delay(200);
+#endif
+                    }
+                    if (!single_ok) {
+                        failed_meas_ids.push_back(current_batch_[single_idx].source_event_id);
+                    }
+                }
+            } else {
+                failed_meas_ids.push_back(current_batch_[0].source_event_id);
+            }
+        }
+    }
+
+    current_batch_.clear();
+    batch_frames_data.clear();
+    batch_power_data.clear();
+
+    if (cloud_ != nullptr) {
+        bool heap_ok = true;
+#if defined(ARDUINO) || defined(ESP32)
+        heap_ok = (ESP.getFreeHeap() >= 45000);
+#endif
+        if (heap_ok) {
+            cloud_->sendPing();
+            if (cloud_->isResetPending()) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 void ThermoscanApp::handleScanning() {
@@ -168,6 +238,7 @@ void ThermoscanApp::handleScanning() {
     utils::HeapTracker::start();
 
     const uint8_t total_panels = (config_.panel_count > 0) ? static_cast<uint8_t>(config_.panel_count) : 1;
+    panel_baselines_.assign(static_cast<size_t>(total_panels) + 1, 25.0f);
     Serial.printf("[SCAN] %s inspection scan cycle. Event ID: %s, Total Panels: %u, Resuming from Panel: %u\n",
                   (last_completed_panel_ > 0 ? "Resuming" : "Starting"),
                   inspection_source_event_id_.c_str(), total_panels, static_cast<unsigned>(last_completed_panel_ + 1));
@@ -202,6 +273,7 @@ void ThermoscanApp::handleScanning() {
 
         std::vector<std::vector<float>> batch_frames_data;
         std::vector<PowerSnapshot> batch_power_data;
+        std::vector<std::string> failed_meas_ids;
         const size_t BATCH_CHUNK_SIZE = thermoscan_config::TELEMETRY_BATCH_CHUNK_SIZE;
         batch_frames_data.reserve(BATCH_CHUNK_SIZE);
         batch_power_data.reserve(BATCH_CHUNK_SIZE);
@@ -249,7 +321,21 @@ void ThermoscanApp::handleScanning() {
                 effective_power = best_panel_power;
             }
 
+            float max_temp = -999.0f;
+            bool has_valid_pixel = false;
             if (frame_ok) {
+                for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+                    const float t = frame.pixels[i];
+                    if (domain::ThermalAnalyzer::isValidPixel(t)) {
+                        if (!has_valid_pixel || t > max_temp) {
+                            max_temp = t;
+                        }
+                        has_valid_pixel = true;
+                    }
+                }
+            }
+
+            if (frame_ok && has_valid_pixel) {
                 if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
                     backup_storage_->appendRawFrame(current_x, frame.pixels);
                 }
@@ -262,11 +348,6 @@ void ThermoscanApp::handleScanning() {
                 domain::QuantizedThermalFrame qf;
                 qf.loadFromThermalFrame(frame, current_x, meas_time, meas_id);
                 quantized_frames_.push_back(qf);
-
-                float max_temp = -999.0f;
-                for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-                    if (frame.pixels[i] > max_temp) max_temp = frame.pixels[i];
-                }
 
                 std::vector<float> frame_copy(frame.pixels, frame.pixels + ThermalFrame::PIXEL_COUNT);
                 batch_frames_data.push_back(std::move(frame_copy));
@@ -297,69 +378,10 @@ void ThermoscanApp::handleScanning() {
                 Serial.printf("[SCAN] Panel %u: X = %.1f cm | T_max = %.1f C | Accumulated batch: %u/%u\n",
                               p, current_x, max_temp, current_batch_.size(), static_cast<unsigned>(BATCH_CHUNK_SIZE));
 
-                const bool is_last_step = ((current_x + STEP_SIZE_CM) > (p_end + 1e-3f)) ||
-                                          (quantized_frames_.size() >= MAX_PANEL_ACQUISITIONS);
-
-                if (current_batch_.size() >= BATCH_CHUNK_SIZE || is_last_step) {
-                    if (cloud_ != nullptr) {
-                        IngestTelemetryBatchInput batch_input;
-                        batch_input.inspection_source_event_id = inspection_source_event_id_;
-                        batch_input.inspection_type = "scheduled";
-                        batch_input.started_at_epoch = inspection_started_at_;
-                        batch_input.scheduled_for_epoch = inspection_scheduled_for_;
-                        batch_input.batch = current_batch_;
-
-                        bool ingested = false;
-                        for (int retry = 0; retry < 3; ++retry) {
-                            if (cloud_->ingestTelemetryBatch(batch_input)) {
-                                ingested = true;
-                                break;
-                            }
-#if defined(ARDUINO) || defined(ESP32)
-                            delay(300 * (retry + 1));
-#endif
-                        }
-
-                        // Fallback: If batch of items failed (e.g. heap exhaustion during large JSON/TLS),
-                        // retry sending each item individually to minimize memory peak
-                        if (!ingested && current_batch_.size() > 1) {
-                            Serial.println(F("[SCAN] Batch submission failed. Retrying telemetry item-by-item..."));
-                            for (size_t single_idx = 0; single_idx < current_batch_.size(); ++single_idx) {
-                                IngestTelemetryBatchInput single_input;
-                                single_input.inspection_source_event_id = inspection_source_event_id_;
-                                single_input.inspection_type = "scheduled";
-                                single_input.started_at_epoch = inspection_started_at_;
-                                single_input.scheduled_for_epoch = inspection_scheduled_for_;
-                                single_input.batch.push_back(current_batch_[single_idx]);
-
-                                for (int retry = 0; retry < 2; ++retry) {
-                                    if (cloud_->ingestTelemetryBatch(single_input)) {
-                                        break;
-                                    }
-#if defined(ARDUINO) || defined(ESP32)
-                                    delay(200);
-#endif
-                                }
-                            }
-                        }
-                    }
-
-                    current_batch_.clear();
-                    batch_frames_data.clear();
-                    batch_power_data.clear();
-
-                    if (cloud_ != nullptr) {
-                        bool heap_ok = true;
-#if defined(ARDUINO) || defined(ESP32)
-                        heap_ok = (ESP.getFreeHeap() >= 45000);
-#endif
-                        if (heap_ok) {
-                            cloud_->sendPing();
-                            if (cloud_->isResetPending()) {
-                                executeFullReset();
-                                return;
-                            }
-                        }
+                if (current_batch_.size() >= BATCH_CHUNK_SIZE) {
+                    if (!flushScanTelemetryBatch(batch_frames_data, batch_power_data, failed_meas_ids)) {
+                        executeFullReset();
+                        return;
                     }
                 }
             } else {
@@ -369,12 +391,31 @@ void ThermoscanApp::handleScanning() {
             current_x += STEP_SIZE_CM;
         }
 
+        // Guaranteed flush of any remaining frames in current_batch_ (even if the last step failed)
+        if (!current_batch_.empty()) {
+            if (!flushScanTelemetryBatch(batch_frames_data, batch_power_data, failed_meas_ids)) {
+                executeFullReset();
+                return;
+            }
+        }
+
+        // Drop any frames that failed cloud ingestion so confirmed hotspots never reference missing IDs
+        if (!failed_meas_ids.empty()) {
+            quantized_frames_.erase(
+                std::remove_if(quantized_frames_.begin(), quantized_frames_.end(),
+                               [&failed_meas_ids](const domain::QuantizedThermalFrame& qf) {
+                                   return std::find(failed_meas_ids.begin(), failed_meas_ids.end(),
+                                                    qf.source_event_id) != failed_meas_ids.end();
+                               }),
+                quantized_frames_.end());
+        }
+
         // Panel baseline calculation
         float panel_baseline = histogram_.calculateMedian();
         if (panel_baseline <= 0.0f) {
             panel_baseline = 25.0f;
         }
-        if (p < 16) {
+        if (p < panel_baselines_.size()) {
             panel_baselines_[p] = panel_baseline;
         }
         baseline_temp_c_ = panel_baseline;
@@ -480,6 +521,9 @@ void ThermoscanApp::handleScanning() {
     }
 
     Serial.println(F("[SCAN] Scan completed. State transition: SCANNING -> ANALYZING."));
+    if (cloud_ != nullptr) {
+        cloud_->clearManualInspectionPending();
+    }
     quantized_frames_.clear();
     quantized_frames_.shrink_to_fit();
     saveCurrentStateToNvs();
@@ -617,7 +661,7 @@ void ThermoscanApp::handleAnalyzing() {
                 }
             }
             qh.verification_status = "pending";
-            qh.baseline_temp_c = (ho.panel_index < 16 && panel_baselines_[ho.panel_index] > 0.0f)
+            qh.baseline_temp_c = (ho.panel_index < panel_baselines_.size() && panel_baselines_[ho.panel_index] > 0.0f)
                                  ? panel_baselines_[ho.panel_index] : baseline_temp_c_;
             qh.spray_interrupted = false;
             cleaning_queue_.push_back(qh);

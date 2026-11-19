@@ -302,6 +302,7 @@ bool NvsStorage::saveGeometry(float length_cm, float width_cm, int32_t panel_cou
 
 bool NvsStorage::getGeometry(float& length_cm, float& width_cm, int32_t& panel_count, float& spacing_cm) {
     if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_PANEL_LEN)) return false;
     length_cm = preferences_.getFloat(KEY_PANEL_LEN, 100.0f);
     width_cm = preferences_.getFloat(KEY_PANEL_WIDTH, 50.0f);
     panel_count = preferences_.getInt(KEY_PANEL_COUNT, 1);
@@ -316,6 +317,7 @@ bool NvsStorage::saveMinSolarAngle(float angle_deg) {
 
 bool NvsStorage::getMinSolarAngle(float& out) {
     if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_MIN_SOLAR)) return false;
     out = preferences_.getFloat(KEY_MIN_SOLAR, 30.0f);
     return true;
 }
@@ -327,6 +329,7 @@ bool NvsStorage::saveIntervalDays(int32_t days) {
 
 bool NvsStorage::getIntervalDays(int32_t& out) {
     if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_INTERVAL_D)) return false;
     out = preferences_.getInt(KEY_INTERVAL_D, 7);
     return true;
 }
@@ -338,7 +341,40 @@ bool NvsStorage::savePingIntervalSeconds(int32_t seconds) {
 
 bool NvsStorage::getPingIntervalSeconds(int32_t& out) {
     if (!initialized_ && !init()) return false;
-    out = preferences_.getInt(KEY_PING_INT, 30);
+    if (!preferences_.isKey(KEY_PING_INT)) return false;
+    out = preferences_.getInt(KEY_PING_INT, 5);
+    return true;
+}
+
+bool NvsStorage::saveLocationAndOrientation(float latitude, float longitude, float azimuth, float tilt) {
+    if (!initialized_ && !init()) return false;
+    bool ok = true;
+    ok &= (preferences_.putFloat(KEY_LAT, latitude) > 0);
+    ok &= (preferences_.putFloat(KEY_LON, longitude) > 0);
+    ok &= (preferences_.putFloat(KEY_AZIMUTH, azimuth) > 0);
+    ok &= (preferences_.putFloat(KEY_TILT, tilt) > 0);
+    return ok;
+}
+
+bool NvsStorage::getLocationAndOrientation(float& latitude, float& longitude, float& azimuth, float& tilt) {
+    if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_LAT) || !preferences_.isKey(KEY_LON)) return false;
+    latitude = preferences_.getFloat(KEY_LAT, latitude);
+    longitude = preferences_.getFloat(KEY_LON, longitude);
+    azimuth = preferences_.getFloat(KEY_AZIMUTH, azimuth);
+    tilt = preferences_.getFloat(KEY_TILT, tilt);
+    return true;
+}
+
+bool NvsStorage::saveHotspotThresholdDeltaC(float delta_c) {
+    if (!initialized_ && !init()) return false;
+    return preferences_.putFloat(KEY_HS_DELTA, delta_c) > 0;
+}
+
+bool NvsStorage::getHotspotThresholdDeltaC(float& out) {
+    if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_HS_DELTA)) return false;
+    out = preferences_.getFloat(KEY_HS_DELTA, out);
     return true;
 }
 

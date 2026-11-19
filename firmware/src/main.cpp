@@ -27,8 +27,8 @@
 #endif
 
 #ifndef BACKEND_URL
-#endif
 #define BACKEND_URL "https://api-thermoscan.realan.space"
+#endif
 
 // loop() runs scans, MLX90640 capture (I2C) and HTTPS on this task. The default 8 KB stack
 // overflowed on the first capture (Stack canary watchpoint triggered (loopTask)).
@@ -74,6 +74,10 @@ static diagnostics::WebDiagnosticsServer g_web_server(&g_diagnostics, &g_console
 // Route all direct Serial.print / printf in main.cpp to g_dual_serial (Hardware + Web Buffer)
 #define Serial g_dual_serial
 
+// Track whether Wi-Fi-dependent services (SNTP + WebServer) have been initialized
+static bool g_wifi_services_started = false;
+static unsigned long g_last_wifi_check_ms = 0;
+
 void setup() {
     g_dual_serial.begin(115200);
     diagnostics::installEspLogHook();
@@ -117,6 +121,7 @@ void setup() {
 
         // Web Diagnostics Server initialization
         g_web_server.begin("thermoscan");
+        g_wifi_services_started = true;
         Serial.printf("[WEB] Bench diagnostics dashboard available at: http://%s or http://thermoscan.local\n", WiFi.localIP().toString().c_str());
     } else {
         Serial.println(F("[WIFI] Warning: WiFi not connected. Operating in standalone offline mode."));
@@ -160,7 +165,32 @@ void setup() {
 }
 
 void loop() {
-    g_web_server.tick();
+    const unsigned long now_ms = millis();
+    if (now_ms - g_last_wifi_check_ms >= 10000UL) {
+        g_last_wifi_check_ms = now_ms;
+        if (WiFi.status() != WL_CONNECTED) {
+            Serial.println(F("[WIFI] Disconnected. Attempting reconnect..."));
+            WiFi.reconnect();
+        } else {
+            if (!g_wifi_services_started) {
+                Serial.print(F("[WIFI] Reconnected! Local IP: "));
+                Serial.println(WiFi.localIP());
+                g_time_provider.syncNtp();
+                g_web_server.begin("thermoscan");
+                g_wifi_services_started = true;
+                Serial.printf("[WEB] Bench diagnostics dashboard available at: http://%s or http://thermoscan.local\n", WiFi.localIP().toString().c_str());
+            }
+            if (g_cloud.getModuleId().empty() || g_cloud.getDeviceToken().empty()) {
+                if (g_cloud.claimDevice()) {
+                    Serial.printf("[CLOUD] Late claim succeeded! Module ID: %s\n", g_cloud.getModuleId().c_str());
+                }
+            }
+        }
+    }
+
+    if (g_wifi_services_started) {
+        g_web_server.tick();
+    }
 
     // Process incoming serial commands for bench diagnostics
     if (Serial.available()) {

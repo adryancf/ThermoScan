@@ -166,6 +166,18 @@ void ThermoscanApp::handleSyncing() {
         return;
     }
 
+    // 8. Hotspot threshold delta validation (optional > 0..50 °C)
+    float hs_delta = config_.hotspot_threshold_delta_c;
+    if (doc["hotspot_threshold_delta_c"].is<float>()) {
+        hs_delta = doc["hotspot_threshold_delta_c"].as<float>();
+        if (hs_delta <= 0.0f || hs_delta > 50.0f) {
+            last_config_error_ = "invalid_hotspot_threshold";
+            config_sync_failed_waiting_ping_ = true;
+            transitionTo(AppState::IDLE);
+            return;
+        }
+    }
+
     // All parameters validated successfully!
     last_config_error_.clear();
     const bool interval_changed = (interval_d != config_.interval_days);
@@ -183,6 +195,8 @@ void ThermoscanApp::handleSyncing() {
     config_.longitude = lon;
     config_.azimuth = azimuth;
     config_.tilt = tilt;
+    config_.hotspot_threshold_delta_c = hs_delta;
+    thermal_analyzer_.setHotspotThresholdDeltaC(hs_delta);
 
     // Apply to NVS Flash
     if (storage_ != nullptr) {
@@ -191,6 +205,8 @@ void ThermoscanApp::handleSyncing() {
         storage_->saveMinSolarAngle(min_solar);
         storage_->saveIntervalDays(interval_d);
         storage_->savePingIntervalSeconds(ping_s);
+        storage_->saveLocationAndOrientation(lat, lon, azimuth, tilt);
+        storage_->saveHotspotThresholdDeltaC(hs_delta);
     }
 
     // Recalculate scheduled inspection timestamp if interval changed or if first provisioned

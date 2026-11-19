@@ -2,14 +2,79 @@
 
 #if defined(ARDUINO) || defined(ESP32)
 #include <Arduino.h>
+#include <sys/time.h>
 #include "diagnostics/web_diagnostics.h"
 #define Serial diagnostics::getGlobalDualSerial()
 #endif
 
+#include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <cmath>
 
 namespace hal_esp32 {
+
+#if defined(ARDUINO) || defined(ESP32)
+static bool parseHttpDateToEpoch(const char* date_str, uint32_t& out_epoch) {
+    if (date_str == nullptr || date_str[0] == '\0') return false;
+    int day = 0, year = 0, hour = 0, min = 0, sec = 0;
+    char mon_str[4] = {0};
+    if (std::sscanf(date_str, "%*3[^,], %d %3s %d %d:%d:%d",
+                    &day, mon_str, &year, &hour, &min, &sec) != 6) {
+        return false;
+    }
+    static const char* kMonths[12] = {
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    };
+    int month = 0;
+    for (int i = 0; i < 12; ++i) {
+        if (std::strncmp(mon_str, kMonths[i], 3) == 0) {
+            month = i + 1;
+            break;
+        }
+    }
+    if (month == 0 || year < 2024 || day < 1 || day > 31) return false;
+
+    // Howard Hinnant's civil-from-days algorithm (UTC, zero timezone/locale issues)
+    int y = year - (month <= 2 ? 1 : 0);
+    int era = (y >= 0 ? y : y - 399) / 400;
+    int yoe = y - era * 400;
+    int doy = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day - 1;
+    int doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    int64_t days = static_cast<int64_t>(era) * 146097LL + static_cast<int64_t>(doe) - 719468LL;
+    int64_t epoch = days * 86400LL + hour * 3600LL + min * 60LL + sec;
+    if (epoch <= 1700000000LL) return false;
+    out_epoch = static_cast<uint32_t>(epoch);
+    return true;
+}
+
+static void syncClockFromHttpDateIfNeeded(HTTPClient& http) {
+    time_t now = 0;
+    time(&now);
+    if (now > 1700000000) return;
+    if (!http.hasHeader("Date")) return;
+    String date_val = http.header("Date");
+    uint32_t epoch = 0;
+    if (parseHttpDateToEpoch(date_val.c_str(), epoch)) {
+        struct timeval tv{};
+        tv.tv_sec = static_cast<time_t>(epoch);
+        tv.tv_usec = 0;
+        settimeofday(&tv, nullptr);
+        Serial.printf("[CLOCK] Synced UTC clock from backend HTTP Date header: %u\n", epoch);
+    }
+}
+#endif
+
+static void configureHttpTimeouts(HTTPClient& http, uint16_t timeout_ms = 6000) {
+#if defined(ARDUINO) || defined(ESP32)
+    http.setConnectTimeout(4000);
+    http.setTimeout(timeout_ms);
+#else
+    (void)http;
+    (void)timeout_ms;
+#endif
+}
 
 static std::string formatEpochToRFC3339(uint32_t epoch) {
     if (epoch == 0) return "";
@@ -106,7 +171,12 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     http.addHeader("Content-Type", "application/json");
+#if defined(ARDUINO) || defined(ESP32)
+    const char* date_hdr[] = {"Date"};
+    http.collectHeaders(date_hdr, 1);
+#endif
 
     JsonDocument doc;
     doc["mac_address"] = WiFi.macAddress();
@@ -125,6 +195,9 @@ bool HttpCloudClient::claimWithDiagnostics(bool water_ok, bool limits_ok, bool t
         return false;
     }
 
+#if defined(ARDUINO) || defined(ESP32)
+    syncClockFromHttpDateIfNeeded(http);
+#endif
     String response = http.getString();
     http.end();
 
@@ -182,7 +255,12 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     appendAuthHeader(http);
+#if defined(ARDUINO) || defined(ESP32)
+    const char* date_hdr[] = {"Date"};
+    http.collectHeaders(date_hdr, 1);
+#endif
 
     std::string next_insp_str;
     if (storage_ != nullptr) {
@@ -205,6 +283,9 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     }
 
     if (httpCode == HTTP_CODE_OK) {
+#if defined(ARDUINO) || defined(ESP32)
+        syncClockFromHttpDateIfNeeded(http);
+#endif
         String response = http.getString();
         http.end();
 
@@ -236,6 +317,7 @@ bool HttpCloudClient::getConfiguration(std::string& out_config_json) {
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     appendAuthHeader(http);
 
     int httpCode = http.GET();
@@ -276,6 +358,7 @@ bool HttpCloudClient::ackConfigurationAdvanced(uint32_t config_version,
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     appendAuthHeader(http);
 
     JsonDocument doc;
@@ -338,6 +421,7 @@ bool HttpCloudClient::ingestTelemetryBatch(const IngestTelemetryBatchInput& inpu
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 10000);
     appendAuthHeader(http);
 
 #if defined(ARDUINO) || defined(ESP32)
@@ -383,6 +467,7 @@ bool HttpCloudClient::submitPanelThermalResult(const std::string& inspection_sou
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     appendAuthHeader(http);
 
     std::string requestBody = buildPanelThermalResultJson(input);
@@ -446,6 +531,7 @@ bool HttpCloudClient::finalizeInspection(const std::string& inspection_source_ev
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     appendAuthHeader(http);
 
     std::string requestBody = buildFinalizeJson(input);
@@ -512,6 +598,7 @@ bool HttpCloudClient::abortInspection(const std::string& inspection_source_event
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     appendAuthHeader(http);
 
     std::string requestBody = buildAbortInspectionJson(failure_reason);
@@ -548,6 +635,7 @@ bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std
 
     HTTPClient http;
     http.begin(url.c_str());
+    configureHttpTimeouts(http, 6000);
     appendAuthHeader(http);
 
     std::string requestBody = buildCleaningReportJson(input);

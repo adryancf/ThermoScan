@@ -63,7 +63,7 @@ std::vector<HotspotCandidate> ThermalAnalyzer::findCandidates(const ScanAcquisit
         return candidates;
     }
 
-    const float threshold = baseline_temp_c + HOTSPOT_THRESHOLD_DELTA_C;
+    const float threshold = baseline_temp_c + hotspot_threshold_delta_c_;
 
     for (int row = 0; row < MLX_ROWS; ++row) {
         for (int col = 0; col < MLX_COLS; ++col) {

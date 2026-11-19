@@ -19,8 +19,12 @@ uint32_t Esp32TimeProvider::getEpochSeconds() const {
 }
 
 bool Esp32TimeProvider::isTimeSynchronized() const {
-    // Timestamps > 1700000000 (after Nov 2023) verify NTP sync
+    // Timestamps > 1700000000 (after Nov 2023) verify NTP or HTTP Date sync
     return getEpochSeconds() > 1700000000;
+}
+
+uint32_t Esp32TimeProvider::getUptimeMs() const {
+    return static_cast<uint32_t>(millis());
 }
 
 } // namespace hal_esp32

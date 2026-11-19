@@ -93,6 +93,10 @@ public:
     virtual bool getIntervalDays(int32_t& /*out*/) { return true; }
     virtual bool savePingIntervalSeconds(int32_t /*seconds*/) { return true; }
     virtual bool getPingIntervalSeconds(int32_t& /*out*/) { return true; }
+    virtual bool saveLocationAndOrientation(float /*latitude*/, float /*longitude*/, float /*azimuth*/, float /*tilt*/) { return true; }
+    virtual bool getLocationAndOrientation(float& /*latitude*/, float& /*longitude*/, float& /*azimuth*/, float& /*tilt*/) { return false; }
+    virtual bool saveHotspotThresholdDeltaC(float /*delta_c*/) { return true; }
+    virtual bool getHotspotThresholdDeltaC(float& /*out*/) { return false; }
 
     // Bench diagnostics helper
     virtual bool saveTestKey(const std::string& /*key*/, const std::string& /*val*/) { return true; }

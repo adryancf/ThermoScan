@@ -62,6 +62,38 @@ void ThermoscanApp::restoreStateFromNvs() {
         config_.ping_interval_seconds = saved_ping_int;
     }
 
+    float saved_min_solar = config_.min_solar_angle;
+    if (storage_->getMinSolarAngle(saved_min_solar) && saved_min_solar >= 0.0f && saved_min_solar <= 90.0f) {
+        config_.min_solar_angle = saved_min_solar;
+    }
+
+    int32_t saved_interval_d = config_.interval_days;
+    if (storage_->getIntervalDays(saved_interval_d) && saved_interval_d >= 1) {
+        config_.interval_days = saved_interval_d;
+    }
+
+    float saved_lat = config_.latitude;
+    float saved_lon = config_.longitude;
+    float saved_azim = config_.azimuth;
+    float saved_tilt = config_.tilt;
+    if (storage_->getLocationAndOrientation(saved_lat, saved_lon, saved_azim, saved_tilt)) {
+        if (saved_lat >= -90.0f && saved_lat <= 90.0f &&
+            saved_lon >= -180.0f && saved_lon <= 180.0f &&
+            saved_azim >= 0.0f && saved_azim < 360.0f &&
+            saved_tilt >= 0.0f && saved_tilt <= 90.0f) {
+            config_.latitude = saved_lat;
+            config_.longitude = saved_lon;
+            config_.azimuth = saved_azim;
+            config_.tilt = saved_tilt;
+        }
+    }
+
+    float saved_hs_delta = config_.hotspot_threshold_delta_c;
+    if (storage_->getHotspotThresholdDeltaC(saved_hs_delta) && saved_hs_delta > 0.0f && saved_hs_delta <= 50.0f) {
+        config_.hotspot_threshold_delta_c = saved_hs_delta;
+        thermal_analyzer_.setHotspotThresholdDeltaC(saved_hs_delta);
+    }
+
     StorageState s;
     if (storage_->loadAll(s)) {
         if (s.config_version > 0) {
@@ -161,18 +193,29 @@ void ThermoscanApp::handleBootInit() {
     }
 
     // Hardware subsystems initialization
-    bool init_ok = true;
-    if (storage_ != nullptr) init_ok &= storage_->init();
+    bool essential_init_ok = true;
+    if (storage_ != nullptr) essential_init_ok &= storage_->init();
     if (backup_storage_ != nullptr) {
         if (backup_storage_->init() && backup_storage_->isAvailable()) {
             backup_storage_->purgeTempFiles();
         }
     }
-    if (motion_ != nullptr)  init_ok &= motion_->init();
-    if (spray_ != nullptr)   init_ok &= spray_->init();
-    if (camera_ != nullptr)  init_ok &= camera_->init();
-    if (power_meter_ != nullptr) init_ok &= power_meter_->init();
-    if (cloud_ != nullptr)   init_ok &= cloud_->init();
+    if (motion_ != nullptr)  essential_init_ok &= motion_->init();
+    if (spray_ != nullptr)   essential_init_ok &= spray_->init();
+    if (camera_ != nullptr) {
+        if (!camera_->init()) {
+            essential_init_ok = false;
+            Serial.println(F("[ERR] MLX90640 thermal camera initialization failed (will retry on capture)."));
+        }
+    }
+    if (power_meter_ != nullptr && !power_meter_->init()) {
+        Serial.println(F("[INIT] Warning: Power meter (INA228) not detected on I2C (optional)."));
+    }
+    if (cloud_ != nullptr)   essential_init_ok &= cloud_->init();
+
+    if (!essential_init_ok) {
+        Serial.println(F("[ERR] One or more essential hardware subsystems reported initialization issues."));
+    }
 
     // Hardware self-diagnosis
     if (motion_ != nullptr && !motion_->checkLimitsIntegrity()) {

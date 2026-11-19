@@ -14,6 +14,70 @@
 namespace app {
 
 void ThermoscanApp::handleCleaning() {
+    if (manual_cleaning_active_) {
+        manual_cleaning_active_ = false;
+        if (cloud_ != nullptr) {
+            cloud_->sendPing();
+            if (cloud_->isResetPending()) {
+                executeFullReset();
+                return;
+            }
+        }
+
+        const domain::PanelPositionInfo pos = domain::resolvePanelPosition(
+            config_.panel_count, config_.panel_length_cm, config_.panel_spacing_cm, manual_cleaning_target_x_);
+        const bool water_ok = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
+        const bool temp_ok = (baseline_temp_c_ <= MAX_BASE_TEMP_C);
+
+        if (!pos.within_bounds || pos.in_gap || !water_ok || !temp_ok) {
+            Serial.printf("[CLEANING] Manual cleaning REFUSED at X = %.1f cm (bounds=%d, gap=%d, water=%d, base=%.1f C)\n",
+                          manual_cleaning_target_x_, pos.within_bounds, pos.in_gap, water_ok, baseline_temp_c_);
+        } else {
+            Serial.printf("[CLEANING] Manual demo wash at X = %.1f cm (nozzle %.1f deg)...\n",
+                          manual_cleaning_target_x_, NOZZLE_DEFAULT_ANGLE);
+            if (motion_ != nullptr) {
+                motion_->moveToXCm(manual_cleaning_target_x_);
+            }
+            if (spray_ != nullptr) {
+                spray_->setNozzleAngle(NOZZLE_DEFAULT_ANGLE);
+#if defined(ARDUINO) || defined(ESP32)
+                delay(SERVO_SETTLE_DELAY_MS);
+#endif
+                spray_->startPump();
+                constexpr uint32_t step_ms = thermoscan_config::SPRAY_STEP_MS;
+                const int total_steps = static_cast<int>(DEFAULT_SPRAY_DURATION_MS / step_ms);
+                for (int step = 0; step < total_steps; ++step) {
+                    const bool fluid = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
+                    if (!fluid) {
+                        Serial.println(F("[CLEANING] Manual spray interrupted: Water depletion detected!"));
+                        break;
+                    }
+#if defined(ARDUINO) || defined(ESP32)
+                    delay(step_ms);
+#endif
+                }
+                if ((DEFAULT_SPRAY_DURATION_MS % step_ms) > 0) {
+#if defined(ARDUINO) || defined(ESP32)
+                    delay(DEFAULT_SPRAY_DURATION_MS % step_ms);
+#endif
+                }
+                spray_->stopPump();
+            }
+            if (motion_ != nullptr) {
+                motion_->moveToXCm(0.0f);
+            }
+        }
+
+        cleaning_queue_.clear();
+        if (cloud_ != nullptr) {
+            cloud_->setManualCleaningAckPending(true);
+            cloud_->sendPing();
+        }
+        saveCurrentStateToNvs();
+        transitionTo(AppState::IDLE);
+        return;
+    }
+
     if (cleaning_queue_.empty()) {
         transitionTo(AppState::SYNCING);
         return;
@@ -108,7 +172,7 @@ void ThermoscanApp::handleCleaning() {
 
         Serial.printf("[CLEANING] Triggering water spray...\n");
         cleaning_sm_.startSpray();
-        const uint32_t start_time = getCurrentTime();
+        const uint32_t spray_start_ms = getUptimeMs();
 
         if (spray_ != nullptr) {
             spray_->startPump();
@@ -136,6 +200,7 @@ void ThermoscanApp::handleCleaning() {
 #endif
         }
 
+        const uint32_t spray_end_ms = getUptimeMs();
         const uint32_t end_time = getCurrentTime();
         if (!spray_interrupted) {
             if (spray_ != nullptr) spray_->stopPump();
@@ -152,7 +217,11 @@ void ThermoscanApp::handleCleaning() {
         cr.target_x_position_cm = qh.target_x_cm;
         cr.pump_actuated = true;
         cr.attempt_number = cleaning_sm_.getEffectiveAttempts();
-        cr.duration_seconds = (end_time >= start_time) ? (end_time - start_time) : 3.5f;
+        if (spray_end_ms > spray_start_ms) {
+            cr.duration_seconds = static_cast<float>(spray_end_ms - spray_start_ms) / 1000.0f;
+        } else {
+            cr.duration_seconds = static_cast<float>(DEFAULT_SPRAY_DURATION_MS) / 1000.0f;
+        }
         cr.status = (cleaning_sm_.getStatus() == domain::CleaningStatus::COMPLETED) ? "completed" : "failed";
         cr.failure_reason = cleaning_sm_.getReason();
 
@@ -222,11 +291,15 @@ void ThermoscanApp::handleWaitingVerification() {
         transitionTo(AppState::WAITING_VERIFICATION, wait_detail);
     }
 
-    // Send periodic health pings while in cooldown wait (if now > 0)
-    if (cloud_ != nullptr && now > 0 &&
-        (now - last_ping_time_) >= static_cast<uint32_t>(config_.ping_interval_seconds)) {
+    // Send periodic health pings while in cooldown wait (timed by monotonic uptime)
+    const uint32_t now_ms = getUptimeMs();
+    const uint32_t ping_interval_ms = static_cast<uint32_t>(config_.ping_interval_seconds) * 1000UL;
+    const bool due_for_ping = (!has_pinged_ && now_ms > 0) ||
+                              (has_pinged_ && (now_ms - last_ping_ms_) >= ping_interval_ms);
+    if (cloud_ != nullptr && due_for_ping) {
         cloud_->sendPing();
-        last_ping_time_ = now;
+        last_ping_ms_ = now_ms;
+        has_pinged_ = true;
         if (cloud_->isResetPending()) {
             executeFullReset();
             return;
@@ -276,71 +349,94 @@ void ThermoscanApp::handleVerifying() {
         batch_input.started_at_epoch = now;
         batch_input.scheduled_for_epoch = now;
 
+        auto findPeakInFrame = [](const ThermalFrame& f, float& out_max_t, int& out_row) -> bool {
+            float peak = -999.0f;
+            int peak_row = 0;
+            bool found = false;
+            for (size_t idx = 0; idx < ThermalFrame::PIXEL_COUNT; ++idx) {
+                const float t = f.pixels[idx];
+                if (domain::ThermalAnalyzer::isValidPixel(t)) {
+                    if (!found || t > peak) {
+                        peak = t;
+                        peak_row = static_cast<int>(idx / domain::ThermalAnalyzer::MLX_COLS);
+                    }
+                    found = true;
+                }
+            }
+            out_max_t = peak;
+            out_row = peak_row;
+            return found;
+        };
+
         // Measurement 1
         if (motion_ != nullptr) motion_->moveToXCm(x1);
-        ThermalFrame frame1;
+        ThermalFrame frame1{};
         bool valid1 = (camera_ != nullptr) ? camera_->captureFrame(frame1) : false;
-        PowerSnapshot power1;
+        PowerSnapshot power1{};
         if (power_meter_ != nullptr) power_meter_->readSnapshotForPanel(qh.panel_index, power1);
 
-        TelemetryMeasurementItem item1;
-        item1.source_event_id = utils::generateUUIDv4();
-        item1.panel_index = qh.panel_index;
-        item1.measured_at_epoch = now;
-        item1.x_position_cm = x1;
         float max_t1 = -999.0f;
+        int row1 = 0;
         if (valid1) {
-            for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-                if (frame1.pixels[i] > max_t1) max_t1 = frame1.pixels[i];
+            valid1 = findPeakInFrame(frame1, max_t1, row1);
+        }
+
+        TelemetryMeasurementItem item1;
+        if (valid1) {
+            item1.source_event_id = utils::generateUUIDv4();
+            item1.panel_index = qh.panel_index;
+            item1.measured_at_epoch = now;
+            item1.x_position_cm = x1;
+            item1.max_temperature_c = max_t1;
+            if (power1.valid) {
+                item1.voltage_v = &power1.voltage_v;
+                item1.current_a = &power1.current_a;
+                item1.power_w = &power1.power_w;
+            } else {
+                item1.voltage_v = nullptr;
+                item1.current_a = nullptr;
+                item1.power_w = nullptr;
             }
+            item1.thermal_frame = frame1.pixels;
+            item1.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
+            batch_input.batch.push_back(item1);
         }
-        item1.max_temperature_c = max_t1;
-        if (power1.valid) {
-            item1.voltage_v = &power1.voltage_v;
-            item1.current_a = &power1.current_a;
-            item1.power_w = &power1.power_w;
-        } else {
-            item1.voltage_v = nullptr;
-            item1.current_a = nullptr;
-            item1.power_w = nullptr;
-        }
-        item1.thermal_frame = frame1.pixels;
-        item1.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
-        batch_input.batch.push_back(item1);
 
         // Measurement 2
         if (motion_ != nullptr) motion_->moveToXCm(x2);
-        ThermalFrame frame2;
+        ThermalFrame frame2{};
         bool valid2 = (camera_ != nullptr) ? camera_->captureFrame(frame2) : false;
-        PowerSnapshot power2;
+        PowerSnapshot power2{};
         if (power_meter_ != nullptr) power_meter_->readSnapshotForPanel(qh.panel_index, power2);
 
-        TelemetryMeasurementItem item2;
-        item2.source_event_id = utils::generateUUIDv4();
-        item2.panel_index = qh.panel_index;
-        item2.measured_at_epoch = now + 1;
-        item2.x_position_cm = x2;
         float max_t2 = -999.0f;
+        int row2 = 0;
         if (valid2) {
-            for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
-                if (frame2.pixels[i] > max_t2) max_t2 = frame2.pixels[i];
-            }
+            valid2 = findPeakInFrame(frame2, max_t2, row2);
         }
-        item2.max_temperature_c = max_t2;
-        if (power2.valid) {
-            item2.voltage_v = &power2.voltage_v;
-            item2.current_a = &power2.current_a;
-            item2.power_w = &power2.power_w;
-        } else {
-            item2.voltage_v = nullptr;
-            item2.current_a = nullptr;
-            item2.power_w = nullptr;
-        }
-        item2.thermal_frame = frame2.pixels;
-        item2.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
-        batch_input.batch.push_back(item2);
 
-        if (cloud_ != nullptr && (valid1 || valid2)) {
+        TelemetryMeasurementItem item2;
+        if (valid2) {
+            item2.source_event_id = utils::generateUUIDv4();
+            item2.panel_index = qh.panel_index;
+            item2.measured_at_epoch = (now > 0) ? (now + 1) : 0;
+            item2.x_position_cm = x2;
+            item2.max_temperature_c = max_t2;
+            if (power2.valid) {
+                item2.voltage_v = &power2.voltage_v;
+                item2.current_a = &power2.current_a;
+                item2.power_w = &power2.power_w;
+            } else {
+                item2.voltage_v = nullptr;
+                item2.current_a = nullptr;
+                item2.power_w = nullptr;
+            }
+            item2.thermal_frame = frame2.pixels;
+            item2.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
+            batch_input.batch.push_back(item2);
+        }
+
+        if (cloud_ != nullptr && !batch_input.batch.empty()) {
             cloud_->ingestTelemetryBatch(batch_input);
         }
 
@@ -358,13 +454,14 @@ void ThermoscanApp::handleVerifying() {
             }
         }
 
-        // Compare against panel baseline
-        float verif_baseline = (qh.baseline_temp_c > 0.0f) ? qh.baseline_temp_c : baseline_temp_c_;
+        // Compare against panel baseline using configured threshold delta
+        const float verif_baseline = (qh.baseline_temp_c > 0.0f) ? qh.baseline_temp_c : baseline_temp_c_;
+        const float delta_threshold = config_.hotspot_threshold_delta_c;
         bool hotspot_still_present = false;
-        if (valid1 && (max_t1 - verif_baseline) >= HOTSPOT_THRESHOLD_DELTA_C) {
+        if (valid1 && (max_t1 - verif_baseline) >= delta_threshold) {
             hotspot_still_present = true;
         }
-        if (valid2 && (max_t2 - verif_baseline) >= HOTSPOT_THRESHOLD_DELTA_C) {
+        if (valid2 && (max_t2 - verif_baseline) >= delta_threshold) {
             hotspot_still_present = true;
         }
 
@@ -386,18 +483,29 @@ void ThermoscanApp::handleVerifying() {
 
         if (cloud_ != nullptr) {
             FinalizeInspectionInput vfin;
-            vfin.finished_at_epoch = now + 2;
+            vfin.finished_at_epoch = (now > 0) ? (now + 2) : 0;
             vfin.baseline_temperature_c = verif_baseline;
             if (hotspot_still_present) {
                 ConfirmedHotspotOutput ho;
                 ho.source_event_id = utils::generateUUIDv4();
                 ho.panel_index = qh.panel_index;
                 ho.global_x_position_cm = x1;
-                ho.max_temperature_c = (max_t1 > max_t2) ? max_t1 : max_t2;
-                ho.detected_at_epoch = now + 1;
-                ho.origin_measurement_event_id = item1.source_event_id;
-                ho.confirming_event_ids.push_back(item1.source_event_id);
-                ho.confirming_event_ids.push_back(item2.source_event_id);
+                if (valid1 && (!valid2 || max_t1 >= max_t2)) {
+                    ho.max_temperature_c = max_t1;
+                    ho.row_index = row1;
+                    ho.origin_measurement_event_id = item1.source_event_id;
+                } else {
+                    ho.max_temperature_c = max_t2;
+                    ho.row_index = row2;
+                    ho.origin_measurement_event_id = item2.source_event_id;
+                }
+                ho.detected_at_epoch = (now > 0) ? (now + 1) : 0;
+                if (valid1) {
+                    ho.confirming_event_ids.push_back(item1.source_event_id);
+                }
+                if (valid2) {
+                    ho.confirming_event_ids.push_back(item2.source_event_id);
+                }
                 vfin.confirmed_hotspots.push_back(ho);
             }
             cloud_->finalizeInspection(verif_insp_id, vfin);

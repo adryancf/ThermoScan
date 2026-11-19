@@ -33,7 +33,14 @@ constexpr float HOTSPOT_THRESHOLD_DELTA_C     = 8.0f;     // Thermal delta over 
 constexpr float CRITICAL_HOTSPOT_DELTA_C      = 20.0f;    // Critical hotspot delta over baseline (°C)
 constexpr float CRITICAL_HOTSPOT_MAX_TEMP_C   = 65.0f;    // Critical hotspot absolute maximum temperature (°C)
 constexpr uint32_t MAX_CLEANING_ATTEMPTS      = 3;        // Maximum consecutive spray cleaning attempts per anomaly
-constexpr uint32_t POST_CLEANING_WAIT_SECONDS = 1800;     // Cooldown / dry wait time before post-cleaning verification (30 min)
+
+#ifndef POST_CLEANING_WAIT_SECONDS
+#define POST_CLEANING_WAIT_SECONDS 60
+#endif
+
+#ifndef DEMO_BYPASS_SOLAR_WINDOW
+#define DEMO_BYPASS_SOLAR_WINDOW 0
+#endif
 
 #ifndef SPRAY_DURATION_MS
 #define SPRAY_DURATION_MS 2500  // Default: 2.5 seconds (2500 ms)

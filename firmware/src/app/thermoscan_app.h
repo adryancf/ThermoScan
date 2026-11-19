@@ -55,6 +55,7 @@ struct AppConfig {
     float longitude{-46.6333f};
     float azimuth{0.0f};   // North-facing in Southern hemisphere
     float tilt{20.0f};     // 20 degrees tilt
+    float hotspot_threshold_delta_c{HOTSPOT_THRESHOLD_DELTA_C};
 };
 
 /**
@@ -141,15 +142,17 @@ private:
     domain::HotspotEvent active_hotspot_{};
     std::string active_anomaly_id_{};
     float baseline_temp_c_{25.0f};
-    float panel_baselines_[16]{};
+    std::vector<float> panel_baselines_{};
 
     std::vector<QueuedHotspot> cleaning_queue_;
     std::vector<ConfirmedHotspotOutput> all_confirmed_hotspots_;
     std::vector<ConfirmedAnomalyRecord> confirmed_anomaly_records_;
     size_t active_queue_index_{0};
 
-    uint32_t last_ping_time_{0};
-    uint32_t last_reclaim_attempt_time_{0};
+    uint32_t last_ping_ms_{0};
+    bool has_pinged_{false};
+    uint32_t last_reclaim_ms_{0};
+    bool has_reclaimed_{false};
     uint32_t next_inspection_time_{0};
     bool manual_inspection_requested_{false};
     bool manual_cleaning_requested_{false};
@@ -176,9 +179,13 @@ private:
     // Helpers
     void transitionTo(AppState new_state, const char* detail = nullptr);
     uint32_t getCurrentTime() const;
+    uint32_t getUptimeMs() const;
     bool checkSolarWindow() const;
     void saveCurrentStateToNvs();
     void restoreStateFromNvs();
+    bool flushScanTelemetryBatch(std::vector<std::vector<float>>& batch_frames_data,
+                                 std::vector<PowerSnapshot>& batch_power_data,
+                                 std::vector<std::string>& failed_meas_ids);
 };
 
 } // namespace app

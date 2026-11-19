@@ -54,7 +54,21 @@ uint32_t ThermoscanApp::getCurrentTime() const {
     return 0;
 }
 
+uint32_t ThermoscanApp::getUptimeMs() const {
+    if (time_provider_ != nullptr) {
+        return time_provider_->getUptimeMs();
+    }
+#if defined(ARDUINO) || defined(ESP32)
+    return static_cast<uint32_t>(millis());
+#else
+    return 0;
+#endif
+}
+
 bool ThermoscanApp::checkSolarWindow() const {
+#if DEMO_BYPASS_SOLAR_WINDOW
+    return true;
+#else
     const uint32_t now = getCurrentTime();
     if (now == 0) {
         // Without reliable wall-clock time, do not assume a valid solar window
@@ -66,6 +80,7 @@ bool ThermoscanApp::checkSolarWindow() const {
                                      config_.tilt,
                                      config_.min_solar_angle,
                                      now);
+#endif
 }
 
 void ThermoscanApp::transitionTo(AppState new_state, const char* detail) {
@@ -160,6 +175,10 @@ void ThermoscanApp::executeFullReset() {
     manual_cleaning_requested_ = false;
     manual_cleaning_active_ = false;
     manual_cleaning_target_x_ = 0.0f;
+    has_pinged_ = false;
+    last_ping_ms_ = 0;
+    has_reclaimed_ = false;
+    last_reclaim_ms_ = 0;
 
     // 6. Clear operational NVS (preserve module_id, device_token, config_version)
     if (storage_ != nullptr) {
@@ -196,11 +215,13 @@ void ThermoscanApp::handleErrorHalt() {
         return;
     }
 
-    const uint32_t now = getCurrentTime();
-    if (cloud_ != nullptr && now > 0 &&
-        (last_ping_time_ == 0 || (now - last_ping_time_) >= 5)) {
+    const uint32_t now_ms = getUptimeMs();
+    const bool due_for_ping = (!has_pinged_ && now_ms > 0) ||
+                              (has_pinged_ && (now_ms - last_ping_ms_) >= 5000UL);
+    if (cloud_ != nullptr && due_for_ping) {
         cloud_->sendPing();
-        last_ping_time_ = now;
+        last_ping_ms_ = now_ms;
+        has_pinged_ = true;
         if (cloud_->isResetPending()) {
             executeFullReset();
             return;

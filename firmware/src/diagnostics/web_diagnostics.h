@@ -16,7 +16,7 @@ namespace diagnostics {
 // ============================================================================
 class SystemLogRingBuffer {
 public:
-    static constexpr size_t BUFFER_SIZE = 32768; // 32 KB persistent log capacity
+    static constexpr size_t BUFFER_SIZE = 16384; // 16 KB persistent log capacity (leaves TLS heap headroom)
 
     void append(const char* data, size_t len) {
         if (!data || len == 0) return;

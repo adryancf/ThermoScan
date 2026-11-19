@@ -22,6 +22,7 @@ public:
     void syncNtp();
     uint32_t getEpochSeconds() const override;
     bool isTimeSynchronized() const override;
+    uint32_t getUptimeMs() const override;
 
 private:
     const char* ntp_server1_;

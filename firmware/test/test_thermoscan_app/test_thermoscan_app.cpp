@@ -136,6 +136,13 @@ public:
     float min_solar{30.0f};
     int32_t interval_d{7};
     int32_t ping_s{300};
+    float lat{-23.5505f};
+    float lon{-46.6333f};
+    float azim{0.0f};
+    float tilt_deg{20.0f};
+    float hs_delta{8.0f};
+    bool has_location_saved{false};
+    bool has_hs_delta_saved{false};
 
     bool init() override { return true; }
     bool saveModuleId(const std::string& moduleId) override { state.module_id = moduleId; return true; }
@@ -166,8 +173,31 @@ public:
     bool getCleaningQueue(std::vector<QueuedHotspot>& out) override { out = saved_queue; return !out.empty(); }
     bool clearCleaningQueue() override { saved_queue.clear(); return true; }
     bool saveMinSolarAngle(float ang) override { min_solar = ang; return true; }
+    bool getMinSolarAngle(float& out) override { out = min_solar; return true; }
     bool saveIntervalDays(int32_t d) override { interval_d = d; return true; }
+    bool getIntervalDays(int32_t& out) override { out = interval_d; return true; }
     bool savePingIntervalSeconds(int32_t s) override { ping_s = s; return true; }
+    bool getPingIntervalSeconds(int32_t& out) override { out = ping_s; return true; }
+    bool saveLocationAndOrientation(float latitude, float longitude, float azimuth, float tilt) override {
+        lat = latitude; lon = longitude; azim = azimuth; tilt_deg = tilt;
+        has_location_saved = true;
+        return true;
+    }
+    bool getLocationAndOrientation(float& latitude, float& longitude, float& azimuth, float& tilt) override {
+        if (!has_location_saved) return false;
+        latitude = lat; longitude = lon; azimuth = azim; tilt = tilt_deg;
+        return true;
+    }
+    bool saveHotspotThresholdDeltaC(float delta_c) override {
+        hs_delta = delta_c;
+        has_hs_delta_saved = true;
+        return true;
+    }
+    bool getHotspotThresholdDeltaC(float& out) override {
+        if (!has_hs_delta_saved) return false;
+        out = hs_delta;
+        return true;
+    }
     bool saveInspectionProgress(const std::string& source_event_id, uint8_t last_completed_panel, uint8_t crash_retries) override {
         state.inspection_source_event_id = source_event_id;
         state.last_completed_panel = last_completed_panel;
@@ -309,9 +339,11 @@ class MockTimeProvider : public ITimeProvider {
 public:
     uint32_t epoch{1730000000};
     bool sync{true};
+    uint32_t uptime_ms{0};
 
     uint32_t getEpochSeconds() const override { return epoch; }
     bool isTimeSynchronized() const override { return sync; }
+    uint32_t getUptimeMs() const override { return (uptime_ms > 0) ? uptime_ms : (sync ? epoch * 1000U : 0U); }
 };
 
 class MockBackupStorage : public IBackupStorage {
@@ -523,24 +555,39 @@ void test_cleaning_refusal_without_pump(void) {
     MockCloudClient cloud;
     MockTimeProvider time;
 
+    motion.camera = &cam;
+    storage.panel_len = 20.0f;
+    cam.hotspots.push_back({10.0f, 5});
+
     // Deplete water reservoir
     water.available = false;
 
     ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
     app.init();
 
-    // Trigger manual cleaning
-    app.triggerManualCleaning(14.0f);
-    app.tick(); // IDLE -> CLEANING
-    app.tick(); // CLEANING evaluates pre-spray: water missing -> REFUSED!
+    // 1. Automatic cleaning refusal after confirmed scan hotspot still reports refused to backend
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    app.tick(); // SCANNING -> ANALYZING
+    app.tick(); // ANALYZING -> CLEANING
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+    app.tick(); // CLEANING evaluates pre-spray: water missing -> REFUSED -> SYNCING
     TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
 
-    // Verify: pump was NEVER actuated
+    // Verify: pump was NEVER actuated and refusal was reported
     TEST_ASSERT_FALSE(spray.isPumpActive());
     TEST_ASSERT_EQUAL(1, cloud.cleaning_reports_ingested);
     TEST_ASSERT_FALSE(cloud.last_cleaning_report.pump_actuated);
     TEST_ASSERT_EQUAL(0, cloud.last_cleaning_report.attempt_number);
     TEST_ASSERT_EQUAL_STRING("refused", cloud.last_cleaning_report.status.c_str());
+
+    // 2. Manual cleaning refusal also never actuates pump and returns safely to IDLE
+    app.tick(); // SYNCING -> IDLE
+    app.triggerManualCleaning(14.0f);
+    app.tick(); // IDLE -> CLEANING
+    app.tick(); // CLEANING refuses water-depleted manual wash -> IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_FALSE(spray.isPumpActive());
 }
 
 void test_unsynced_clock_prevents_ping_and_solar_window(void) {
@@ -1182,19 +1229,16 @@ void test_manual_cleaning_from_device_status_and_ack(void) {
     TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
     TEST_ASSERT_FALSE(cloud.isManualCleaningPending());
 
-    app.tick(); // CLEANING moves to 42.5 cm, sprays, returns home, sends ping with ack -> WAITING_VERIFICATION
-    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    app.tick(); // CLEANING moves to 42.5 cm, sprays, returns home, sends ping with ack -> IDLE (simplified manual demo mode)
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
 
     // Verify carriage visited 42.5 cm and then returned to 0.0 cm
     TEST_ASSERT_EQUAL(2, motion.visited_x.size());
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.5f, motion.visited_x[0]);
     TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, motion.visited_x[1]);
 
-    // Verify spray report was ingested as completed
-    TEST_ASSERT_EQUAL(1, cloud.cleaning_reports_ingested);
-    TEST_ASSERT_TRUE(cloud.last_cleaning_report.pump_actuated);
-    TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.5f, cloud.last_cleaning_report.target_x_position_cm);
-    TEST_ASSERT_EQUAL_STRING("completed", cloud.last_cleaning_report.status.c_str());
+    // Simplified manual cleaning does NOT post a fake anomaly to /cleanings or enter 30-min verification
+    TEST_ASSERT_EQUAL(0, cloud.cleaning_reports_ingested);
 
     // Verify manual_cleaning_ack was sent via ping
     TEST_ASSERT_EQUAL(1, cloud.manual_cleaning_acks_sent);
@@ -1511,13 +1555,15 @@ void test_execute_full_reset_from_cleaning_halts_pump_and_clears_queue(void) {
     storage.state.module_id = "mod-reset-2";
     storage.saveConfigVersion(7);
     time.epoch = 1730721600;
+    QueuedHotspot qh;
+    qh.panel_index = 1;
+    qh.target_x_cm = 35.0f;
+    qh.anomaly_event_id = "anom-reset-1";
+    qh.verification_status = "pending";
+    storage.saved_queue.push_back(qh);
 
     ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
     TEST_ASSERT_TRUE(app.init());
-
-    // Enter CLEANING via manual cleaning trigger
-    app.triggerManualCleaning(35.0f);
-    app.tick();
     TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
     TEST_ASSERT_EQUAL_UINT(1, app.getCleaningQueue().size());
 
@@ -1613,6 +1659,115 @@ void test_execute_full_reset_from_error_halt_recovers_to_idle(void) {
     TEST_ASSERT_EQUAL_UINT32(11, storage.state.config_version);
 }
 
+void test_uptime_ping_works_without_ntp_sync(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    // Simulate local router without internet: NTP is not synced (epoch == 0), but uptime_ms advances
+    time.epoch = 0;
+    time.sync = false;
+    time.uptime_ms = 1000;
+    storage.ping_s = 5;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+    const int pings_after_init = cloud.pings_sent;
+
+    // First tick with uptime_ms > 0 sends ping; tight ticks at same uptime_ms must not spam
+    app.tick();
+    TEST_ASSERT_EQUAL(pings_after_init + 1, cloud.pings_sent);
+    for (int i = 0; i < 5; ++i) {
+        app.tick();
+    }
+    TEST_ASSERT_EQUAL(pings_after_init + 1, cloud.pings_sent);
+
+    // Advancing uptime by 5000 ms triggers next ping even without NTP
+    time.uptime_ms += 5000;
+    app.tick();
+    TEST_ASSERT_EQUAL(pings_after_init + 2, cloud.pings_sent);
+}
+
+void test_nvs_restores_full_config_including_solar_interval_location_and_threshold(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    cloud.config_json_payload =
+        "{\"config_version\":9,\"geometry\":{\"panel_length_cm\":150.0,\"panel_width_cm\":80.0,\"panel_count\":3,\"panel_spacing_cm\":4.0},"
+        "\"min_solar_angle\":22.5,\"interval_days\":10,\"ping_interval_seconds\":15,"
+        "\"latitude\":-25.42,\"longitude\":-49.27,\"azimuth_deg\":15.0,\"tilt_deg\":24.0,\"hotspot_threshold_delta_c\":12.5}";
+
+    {
+        ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+        TEST_ASSERT_TRUE(app.init());
+        app.setConfigUpdatePending(true);
+        app.tick(); // IDLE -> SYNCING
+        app.tick(); // SYNCING applies and persists to NVS
+        TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    }
+
+    // Simulate reboot with fresh ThermoscanApp instance reading from same MockStorage
+    ThermoscanApp rebooted(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(rebooted.init());
+    TEST_ASSERT_EQUAL_UINT32(9, rebooted.getConfig().config_version);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 22.5f, rebooted.getConfig().min_solar_angle);
+    TEST_ASSERT_EQUAL_INT32(10, rebooted.getConfig().interval_days);
+    TEST_ASSERT_EQUAL_INT32(15, rebooted.getConfig().ping_interval_seconds);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -25.42f, rebooted.getConfig().latitude);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, -49.27f, rebooted.getConfig().longitude);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 15.0f, rebooted.getConfig().azimuth);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 24.0f, rebooted.getConfig().tilt);
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.5f, rebooted.getConfig().hotspot_threshold_delta_c);
+}
+
+void test_scan_flushes_residual_batch_when_last_frame_fails(void) {
+    class FailOnLastCamera : public MockThermalCamera {
+    public:
+        bool captureFrame(ThermalFrame& out) override {
+            // Panel length 8 cm -> steps at 0, 2, 4, 6, 8 (batch chunk is 3).
+            // Step x=8.0 fails all retries, leaving 1 residual frame (x=6.0) in current_batch_.
+            if (current_x >= 7.9f) {
+                out.valid = false;
+                return false;
+            }
+            return MockThermalCamera::captureFrame(out);
+        }
+    };
+
+    FailOnLastCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    motion.camera = &cam;
+    storage.panel_cnt = 1;
+    storage.panel_len = 8.0f;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    app.tick(); // SCANNING sends batch 1 (0,2,4) + residual batch 2 (6) even though x=8 failed
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app.getState());
+    TEST_ASSERT_EQUAL(2, cloud.batches_ingested);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1650,5 +1805,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_execute_full_reset_from_cleaning_halts_pump_and_clears_queue);
     RUN_TEST(test_execute_full_reset_from_waiting_verification);
     RUN_TEST(test_execute_full_reset_from_error_halt_recovers_to_idle);
+    RUN_TEST(test_uptime_ping_works_without_ntp_sync);
+    RUN_TEST(test_nvs_restores_full_config_including_solar_interval_location_and_threshold);
+    RUN_TEST(test_scan_flushes_residual_batch_when_last_frame_fails);
     return UNITY_END();
 }

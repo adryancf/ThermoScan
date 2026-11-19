@@ -77,6 +77,12 @@ public:
     bool savePingIntervalSeconds(int32_t seconds) override;
     bool getPingIntervalSeconds(int32_t& out) override;
 
+    bool saveLocationAndOrientation(float latitude, float longitude, float azimuth, float tilt) override;
+    bool getLocationAndOrientation(float& latitude, float& longitude, float& azimuth, float& tilt) override;
+
+    bool saveHotspotThresholdDeltaC(float delta_c) override;
+    bool getHotspotThresholdDeltaC(float& out) override;
+
     bool saveTestKey(const std::string& key, const std::string& val) override;
     bool getTestKey(const std::string& key, std::string& out) override;
     bool removeTestKey(const std::string& key) override;
@@ -108,6 +114,11 @@ private:
     static constexpr const char* KEY_MIN_SOLAR    = "min_solar";
     static constexpr const char* KEY_INTERVAL_D   = "interval_d";
     static constexpr const char* KEY_PING_INT     = "ping_int";
+    static constexpr const char* KEY_LAT          = "cfg_lat";
+    static constexpr const char* KEY_LON          = "cfg_lon";
+    static constexpr const char* KEY_AZIMUTH      = "cfg_azim";
+    static constexpr const char* KEY_TILT         = "cfg_tilt";
+    static constexpr const char* KEY_HS_DELTA     = "hs_delta";
 };
 
 } // namespace hal_esp32

@@ -9,6 +9,7 @@ public:
 
     virtual uint32_t getEpochSeconds() const = 0;
     virtual bool isTimeSynchronized() const = 0;
+    virtual uint32_t getUptimeMs() const { return getEpochSeconds() * 1000U; }
 };
 
 #endif // THERMOSCAN_HAL_I_TIME_PROVIDER_H

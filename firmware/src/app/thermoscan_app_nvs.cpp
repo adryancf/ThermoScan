@@ -261,7 +261,13 @@ void ThermoscanApp::handleBootInit() {
                               static_cast<unsigned>(inspection_crash_retries_),
                               inspection_source_event_id_.c_str());
                 if (cloud_ != nullptr) {
-                    cloud_->abortInspection(inspection_source_event_id_, "crash_recovery_exhausted");
+                    if (!cloud_->abortInspection(inspection_source_event_id_, "crash_recovery_exhausted")) {
+                        pending_abort_insp_id_ = inspection_source_event_id_;
+                        pending_abort_reason_ = "crash_recovery_exhausted";
+                        if (storage_ != nullptr) {
+                            storage_->savePendingAbort(pending_abort_insp_id_, pending_abort_reason_);
+                        }
+                    }
                 }
                 backup_storage_->removeScanBackup(inspection_source_event_id_);
             } else {

@@ -121,8 +121,8 @@ class _OrientationCalibrationModalState
       SurfaceOrientationResult(
         azimuthDeg: _lockedAzimuth!,
         tiltDeg: _lockedTilt!,
-        azimuthSource: 'compass',
-        tiltSource: 'accelerometer',
+        azimuthSource: 'sensor',
+        tiltSource: 'sensor',
       ),
     );
   }

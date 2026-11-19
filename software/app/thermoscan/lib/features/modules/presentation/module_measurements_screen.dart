@@ -1654,97 +1654,94 @@ class _ModuleMeasurementsScreenState
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
-                  style: AppTypography.caption.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: isSuperseded
-                        ? AppColors.textSecondary
-                        : AppColors.textPrimary,
-                  ),
-                ),
-                if (m.panelIndex != null) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: AppColors.primarySoft,
-                      borderRadius: BorderRadius.circular(4),
+            Flexible(
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(
+                    'X = ${m.xPositionCm.toStringAsFixed(1)} cm',
+                    style: AppTypography.caption.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: isSuperseded
+                          ? AppColors.textSecondary
+                          : AppColors.textPrimary,
                     ),
-                    child: Text(
-                      'P${m.panelIndex}${m.localXPositionCm != null ? " • Local: ${m.localXPositionCm!.toStringAsFixed(0)} cm" : ""}',
-                      style: const TextStyle(
-                        color: AppColors.primary,
-                        fontSize: 8.5,
-                        fontWeight: FontWeight.w700,
+                  ),
+                  if (m.panelIndex != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: AppColors.primarySoft,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        'P${m.panelIndex}${m.localXPositionCm != null ? " • Local: ${m.localXPositionCm!.toStringAsFixed(0)} cm" : ""}',
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 8.5,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                  ),
+                  if (isSuperseded)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Text(
+                        'SUPERSEDED',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    )
+                  else if (showValidBadge)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 5, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: AppColors.successBackground,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppColors.successBorder),
+                      ),
+                      child: const Text(
+                        'VALID',
+                        style: TextStyle(
+                          color: AppColors.success,
+                          fontSize: 8,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  if (isConfirmed)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorBackground,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppColors.errorBorder),
+                      ),
+                      child: Text(
+                        'HOTSPOT (CONFIRMED)',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.error,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 9,
+                        ),
+                      ),
+                    ),
                 ],
-                if (isSuperseded) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppColors.border),
-                    ),
-                    child: const Text(
-                      'SUPERSEDED',
-                      style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 8,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ] else if (showValidBadge) ...[
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 1.5),
-                    decoration: BoxDecoration(
-                      color: AppColors.successBackground,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppColors.successBorder),
-                    ),
-                    child: const Text(
-                      'VALID',
-                      style: TextStyle(
-                        color: AppColors.success,
-                        fontSize: 8,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ],
-                if (isConfirmed) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.errorBackground,
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppColors.errorBorder),
-                    ),
-                    child: Text(
-                      'HOTSPOT (CONFIRMED)',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.error,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 9,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+              ),
             ),
             const SizedBox(width: 8),
             _buildMetricChip(

@@ -122,7 +122,7 @@ Dio createConfiguredDio({
               final retryOptions = err.requestOptions;
               retryOptions.extra['retried'] = true;
               retryOptions.headers['Authorization'] = 'Bearer $newAccessToken';
-              final response = await dio.fetch<dynamic>(retryOptions);
+              final response = await refreshDio.fetch<dynamic>(retryOptions);
               return handler.resolve(response);
             }
           } catch (_) {

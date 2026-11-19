@@ -408,7 +408,8 @@ class ModuleRepository {
       final response = await dio.get<Map<String, dynamic>>(
         '/modules/$moduleId/state-logs',
       );
-      final rawList = (response.data?['logs'] ??
+      final rawList = (response.data?['items'] ??
+              response.data?['logs'] ??
               response.data?['state_logs'] ??
               const []) as List<dynamic>;
       return rawList

@@ -76,6 +76,55 @@ FirmwareStateDisplayInfo firmwareStateDisplayInfo(
         color: Colors.red.shade700,
         icon: Icons.error_outline,
       );
+    case 'SCAN_ABORTED':
+      final label = switch (normalizedDetail) {
+        'network_disconnected' => 'Scan Aborted (Network Disconnected)',
+        'telemetry_upload_failed' => 'Scan Aborted (Upload Failed)',
+        'panel_result_rejected' => 'Scan Aborted (Panel Rejected)',
+        _ => 'Scan Aborted',
+      };
+      return FirmwareStateDisplayInfo(
+        label: label,
+        color: Colors.deepOrange.shade700,
+        icon: Icons.cancel_outlined,
+      );
+    case 'ABORT_SYNCED':
+      return FirmwareStateDisplayInfo(
+        label: 'Abort Synced',
+        color: Colors.blueGrey.shade700,
+        icon: Icons.cloud_done_outlined,
+      );
+    case 'CAMERA_FAIL':
+      return FirmwareStateDisplayInfo(
+        label: 'Camera Capture Failed',
+        color: Colors.red.shade600,
+        icon: Icons.videocam_off_outlined,
+      );
+    case 'CLEANING_REFUSED':
+      final label = switch (normalizedDetail) {
+        'insufficient_water' => 'Cleaning Refused (Insufficient Water)',
+        'thermal_shock_risk' => 'Cleaning Refused (Thermal Shock Risk)',
+        'target_in_gap' => 'Cleaning Refused (Target in Gap)',
+        'max_attempts_exceeded' => 'Cleaning Refused (Max Attempts)',
+        _ => 'Cleaning Refused',
+      };
+      return FirmwareStateDisplayInfo(
+        label: label,
+        color: Colors.orange.shade800,
+        icon: Icons.block_outlined,
+      );
+    case 'MANUAL_CLEANING':
+      return const FirmwareStateDisplayInfo(
+        label: 'Manual Cleaning',
+        color: Colors.cyan,
+        icon: Icons.cleaning_services_outlined,
+      );
+    case 'INIT_WARNING':
+      return FirmwareStateDisplayInfo(
+        label: 'Init Warning',
+        color: Colors.amber.shade900,
+        icon: Icons.warning_amber_rounded,
+      );
     default:
       final fallback = normalizedState.isEmpty ? 'Unknown State' : normalizedState;
       return FirmwareStateDisplayInfo(

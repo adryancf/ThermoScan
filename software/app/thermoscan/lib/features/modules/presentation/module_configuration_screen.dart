@@ -117,6 +117,9 @@ class _ModuleConfigurationScreenState
     _intervalCtrl.text = mod.inspectionIntervalDays.toString();
   }
 
+  double? _parseDouble(String raw) =>
+      double.tryParse(raw.trim().replaceAll(',', '.'));
+
   Future<void> _handleSave(PvModule mod) async {
     setState(() => _errorMsg = null);
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -126,16 +129,16 @@ class _ModuleConfigurationScreenState
 
     if (perms.canEditGeometryAndLocation) {
       payload['name'] = _nameCtrl.text.trim();
-      final length = double.tryParse(_lengthCtrl.text.trim());
-      final width = double.tryParse(_widthCtrl.text.trim());
+      final length = _parseDouble(_lengthCtrl.text);
+      final width = _parseDouble(_widthCtrl.text);
       final count = int.tryParse(_countCtrl.text.trim());
-      final spacing = double.tryParse(_spacingCtrl.text.trim());
-      final lat = double.tryParse(_latCtrl.text.trim());
-      final lng = double.tryParse(_lngCtrl.text.trim());
-      final elev = double.tryParse(_elevCtrl.text.trim());
-      final az = double.tryParse(_azimuthCtrl.text.trim());
-      final tilt = double.tryParse(_tiltCtrl.text.trim());
-      final resCap = double.tryParse(_reservoirCtrl.text.trim());
+      final spacing = _parseDouble(_spacingCtrl.text);
+      final lat = _parseDouble(_latCtrl.text);
+      final lng = _parseDouble(_lngCtrl.text);
+      final elev = _parseDouble(_elevCtrl.text);
+      final az = _parseDouble(_azimuthCtrl.text);
+      final tilt = _parseDouble(_tiltCtrl.text);
+      final resCap = _parseDouble(_reservoirCtrl.text);
 
       if (length != null) payload['panel_length_cm'] = length;
       if (width != null) payload['panel_width_cm'] = width;
@@ -158,7 +161,7 @@ class _ModuleConfigurationScreenState
     }
 
     if (perms.canEditSolarAngle) {
-      final solar = double.tryParse(_solarAngleCtrl.text.trim());
+      final solar = _parseDouble(_solarAngleCtrl.text);
       if (solar != null) {
         payload['minimum_solar_angle_deg'] = solar;
       }
@@ -539,7 +542,7 @@ class _ModuleConfigurationScreenState
                         const SizedBox(height: 12),
                         WaterTankCapacitySelectorWidget(
                           selectedCapacityMl:
-                              int.tryParse(_reservoirCtrl.text.trim()) ?? 2000,
+                              _parseDouble(_reservoirCtrl.text)?.round() ?? 2000,
                           readOnly: !perms.canEditGeometryAndLocation,
                           onChanged: (ml) {
                             setState(() => _reservoirCtrl.text = '$ml');

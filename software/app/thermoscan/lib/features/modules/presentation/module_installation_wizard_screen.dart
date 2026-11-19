@@ -389,8 +389,8 @@ class _ModuleInstallationWizardScreenState
   void _nextFromStep2() {
     setState(() => _errorMsg = null);
     if (!(_step2FormKey.currentState?.validate() ?? false)) return;
-    final lat = double.tryParse(_latCtrl.text.trim());
-    if (lat != null) {
+    final lat = double.tryParse(_latCtrl.text.trim().replaceAll(',', '.'));
+    if (lat != null && _solarAngleSource.startsWith('default')) {
       _autoEstimateSolarAngle(lat);
     }
     setState(() => _currentStep = 2);

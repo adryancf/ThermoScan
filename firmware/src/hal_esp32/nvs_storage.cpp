@@ -378,6 +378,37 @@ bool NvsStorage::getHotspotThresholdDeltaC(float& out) {
     return true;
 }
 
+bool NvsStorage::savePendingAbort(const std::string& insp_id, const std::string& reason) {
+    if (!initialized_ && !init()) return false;
+    if (insp_id.empty()) return false;
+    bool ok = (preferences_.putString(KEY_ABT_ID, insp_id.c_str()) > 0);
+    if (!reason.empty()) {
+        ok &= (preferences_.putString(KEY_ABT_RSN, reason.c_str()) > 0);
+    } else {
+        preferences_.remove(KEY_ABT_RSN);
+    }
+    return ok;
+}
+
+bool NvsStorage::getPendingAbort(std::string& insp_id, std::string& reason) {
+    insp_id.clear();
+    reason.clear();
+    if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_ABT_ID)) return false;
+    insp_id = preferences_.getString(KEY_ABT_ID, "").c_str();
+    if (preferences_.isKey(KEY_ABT_RSN)) {
+        reason = preferences_.getString(KEY_ABT_RSN, "").c_str();
+    }
+    return !insp_id.empty();
+}
+
+bool NvsStorage::clearPendingAbort() {
+    if (!initialized_ && !init()) return false;
+    preferences_.remove(KEY_ABT_ID);
+    preferences_.remove(KEY_ABT_RSN);
+    return true;
+}
+
 bool NvsStorage::saveTestKey(const std::string& key, const std::string& val) {
     if (!initialized_ && !init()) return false;
     return preferences_.putString(key.c_str(), val.c_str()) > 0;

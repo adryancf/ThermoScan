@@ -117,6 +117,13 @@ public:
 
     bool saveDeviceToken(const std::string& t) override { device_token_ = t; return true; }
     bool getDeviceToken(std::string& out) override { out = device_token_; return !out.empty(); }
+    bool getGeometry(float& length_cm, float& width_cm, int32_t& count, float& spacing_cm) override {
+        length_cm = 68.0f;
+        width_cm = 50.0f;
+        count = 1;
+        spacing_cm = 0.0f;
+        return true;
+    }
 
     bool saveAll(const StorageState& s) override { state = s; return true; }
     bool loadAll(StorageState& s) override { s = state; return true; }

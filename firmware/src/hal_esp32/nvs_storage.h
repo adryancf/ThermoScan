@@ -83,6 +83,10 @@ public:
     bool saveHotspotThresholdDeltaC(float delta_c) override;
     bool getHotspotThresholdDeltaC(float& out) override;
 
+    bool savePendingAbort(const std::string& insp_id, const std::string& reason) override;
+    bool getPendingAbort(std::string& insp_id, std::string& reason) override;
+    bool clearPendingAbort() override;
+
     bool saveTestKey(const std::string& key, const std::string& val) override;
     bool getTestKey(const std::string& key, std::string& out) override;
     bool removeTestKey(const std::string& key) override;
@@ -119,6 +123,8 @@ private:
     static constexpr const char* KEY_AZIMUTH      = "cfg_azim";
     static constexpr const char* KEY_TILT         = "cfg_tilt";
     static constexpr const char* KEY_HS_DELTA     = "hs_delta";
+    static constexpr const char* KEY_ABT_ID       = "abt_id";
+    static constexpr const char* KEY_ABT_RSN      = "abt_rsn";
 };
 
 } // namespace hal_esp32

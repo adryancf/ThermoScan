@@ -32,6 +32,12 @@ void ThermoscanApp::handleCleaning() {
         if (!pos.within_bounds || pos.in_gap || !water_ok || !temp_ok) {
             Serial.printf("[CLEANING] Manual cleaning REFUSED at X = %.1f cm (bounds=%d, gap=%d, water=%d, base=%.1f C)\n",
                           manual_cleaning_target_x_, pos.within_bounds, pos.in_gap, water_ok, baseline_temp_c_);
+            if (cloud_ != nullptr) {
+                const char* ref_detail = (!pos.within_bounds || pos.in_gap)
+                                             ? "target_in_gap"
+                                             : (!water_ok ? "insufficient_water" : "thermal_shock_risk");
+                cloud_->recordStateTransition("CLEANING_REFUSED", ref_detail, getCurrentTime());
+            }
         } else {
             Serial.printf("[CLEANING] Manual demo wash at X = %.1f cm (nozzle %.1f deg)...\n",
                           manual_cleaning_target_x_, NOZZLE_DEFAULT_ANGLE);
@@ -70,6 +76,9 @@ void ThermoscanApp::handleCleaning() {
 
         cleaning_queue_.clear();
         if (cloud_ != nullptr) {
+            if (pos.within_bounds && !pos.in_gap && water_ok && temp_ok) {
+                cloud_->recordStateTransition("MANUAL_CLEANING", "completed", getCurrentTime());
+            }
             cloud_->setManualCleaningAckPending(true);
             cloud_->sendPing();
         }
@@ -129,6 +138,9 @@ void ThermoscanApp::handleCleaning() {
         if (!cleaning_sm_.evaluateBeforeSpray(qh.baseline_temp_c, water_ok, is_in_gap)) {
             Serial.printf("[CLEANING] Cleaning REFUSED for X = %.1f cm! Reason: %s (in_gap=%d, water_ok=%d)\n",
                           qh.target_x_cm, cleaning_sm_.getReason().c_str(), is_in_gap, water_ok);
+            if (cloud_ != nullptr) {
+                cloud_->recordStateTransition("CLEANING_REFUSED", cleaning_sm_.getReason().c_str(), getCurrentTime());
+            }
 
             CleaningReportInput cr;
             cr.source_event_id = utils::generateUUIDv4();

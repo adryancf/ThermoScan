@@ -171,6 +171,9 @@ void ThermoscanApp::executeFullReset() {
     active_hotspot_ = {};
     scan_truncated_by_memory_ = false;
     all_panels_accepted_ = true;
+    last_abort_reason_.clear();
+    pending_abort_insp_id_.clear();
+    pending_abort_reason_.clear();
     manual_inspection_requested_ = false;
     manual_cleaning_requested_ = false;
     manual_cleaning_active_ = false;
@@ -188,6 +191,7 @@ void ThermoscanApp::executeFullReset() {
         }
         storage_->clearInspectionProgress();
         storage_->clearCleaningQueue();
+        storage_->clearPendingAbort();
     }
 
     // 7. Return carriage to home X=0 if homed

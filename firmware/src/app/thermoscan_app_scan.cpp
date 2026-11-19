@@ -22,6 +22,21 @@ void ThermoscanApp::handleIdle() {
         return;
     }
 
+    // Flush any pending offline scan abort once connectivity is restored
+    if (!pending_abort_insp_id_.empty() && cloud_ != nullptr && cloud_->isConnected()) {
+        const std::string reason = pending_abort_reason_.empty() ? "network_disconnected" : pending_abort_reason_;
+        if (cloud_->abortInspection(pending_abort_insp_id_, reason)) {
+            Serial.printf("[SYNC] Pending abort synced for inspection %s (reason=%s)\n",
+                          pending_abort_insp_id_.c_str(), reason.c_str());
+            cloud_->recordStateTransition("ABORT_SYNCED", reason.c_str(), getCurrentTime());
+            pending_abort_insp_id_.clear();
+            pending_abort_reason_.clear();
+            if (storage_ != nullptr) {
+                storage_->clearPendingAbort();
+            }
+        }
+    }
+
     // Check if cloud client reported pending configuration or manual inspection from startup/claim ping
     if (cloud_ != nullptr && cloud_->isConfigurationPending()) {
         config_update_pending_ = true;
@@ -230,6 +245,7 @@ void ThermoscanApp::handleScanning() {
     current_batch_.clear();
     scan_truncated_by_memory_ = false;
     all_panels_accepted_ = true;
+    last_abort_reason_.clear();
 
     if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
         backup_storage_->beginScanBackup(inspection_source_event_id_);
@@ -274,6 +290,7 @@ void ThermoscanApp::handleScanning() {
         std::vector<std::vector<float>> batch_frames_data;
         std::vector<PowerSnapshot> batch_power_data;
         std::vector<std::string> failed_meas_ids;
+        bool panel_cam_fail_logged = false;
         const size_t BATCH_CHUNK_SIZE = thermoscan_config::TELEMETRY_BATCH_CHUNK_SIZE;
         batch_frames_data.reserve(BATCH_CHUNK_SIZE);
         batch_power_data.reserve(BATCH_CHUNK_SIZE);
@@ -386,6 +403,10 @@ void ThermoscanApp::handleScanning() {
                 }
             } else {
                 Serial.printf("[SCAN] Warning: Failed to capture thermal frame at X = %.1f cm (skipped)\n", current_x);
+                if (!panel_cam_fail_logged && cloud_ != nullptr) {
+                    cloud_->recordStateTransition("CAMERA_FAIL", "frame_capture_failed", getCurrentTime());
+                    panel_cam_fail_logged = true;
+                }
             }
 
             current_x += STEP_SIZE_CM;
@@ -399,8 +420,12 @@ void ThermoscanApp::handleScanning() {
             }
         }
 
-        // Drop any frames that failed cloud ingestion so confirmed hotspots never reference missing IDs
+        // Drop any frames that failed cloud ingestion and mark inspection for abort
         if (!failed_meas_ids.empty()) {
+            all_panels_accepted_ = false;
+            last_abort_reason_ = (cloud_ != nullptr && !cloud_->isConnected())
+                                     ? "network_disconnected"
+                                     : "telemetry_upload_failed";
             quantized_frames_.erase(
                 std::remove_if(quantized_frames_.begin(), quantized_frames_.end(),
                                [&failed_meas_ids](const domain::QuantizedThermalFrame& qf) {
@@ -489,6 +514,11 @@ void ThermoscanApp::handleScanning() {
             saveCurrentStateToNvs();
         } else {
             all_panels_accepted_ = false;
+            if (last_abort_reason_.empty()) {
+                last_abort_reason_ = (cloud_ != nullptr && !cloud_->isConnected())
+                                         ? "network_disconnected"
+                                         : "panel_result_rejected";
+            }
 #if defined(ARDUINO) || defined(ESP32)
             Serial.printf("[ERR] Panel %u thermal result not accepted by backend after retries!\n", p);
 #endif
@@ -536,19 +566,45 @@ void ThermoscanApp::handleAnalyzing() {
         return;
     }
 
-    // Safeguard 2: Never finalize inspection as complete if any panel result was rejected
+    // Flush any pending offline scan abort once connectivity is restored
+    if (!pending_abort_insp_id_.empty() && cloud_ != nullptr && cloud_->isConnected()) {
+        const std::string reason = pending_abort_reason_.empty() ? "network_disconnected" : pending_abort_reason_;
+        if (cloud_->abortInspection(pending_abort_insp_id_, reason)) {
+            Serial.printf("[SYNC] Pending abort synced for inspection %s (reason=%s)\n",
+                          pending_abort_insp_id_.c_str(), reason.c_str());
+            cloud_->recordStateTransition("ABORT_SYNCED", reason.c_str(), getCurrentTime());
+            pending_abort_insp_id_.clear();
+            pending_abort_reason_.clear();
+            if (storage_ != nullptr) {
+                storage_->clearPendingAbort();
+            }
+        }
+    }
+
+    // Safeguard 2: Never finalize inspection as complete if any panel or telemetry batch failed
     if (!all_panels_accepted_) {
+        const std::string abort_reason = last_abort_reason_.empty()
+                                             ? "panel_result_rejected"
+                                             : last_abort_reason_;
 #if defined(ARDUINO) || defined(ESP32)
-        Serial.println(F("[ERR] Aborting inspection because one or more panel thermal results were not accepted."));
+        Serial.printf("[ERR] Aborting inspection (%s) due to upload/network failure.\n", abort_reason.c_str());
 #endif
         if (cloud_ != nullptr) {
-            cloud_->abortInspection(inspection_source_event_id_, "panel_result_rejected");
+            cloud_->recordStateTransition("SCAN_ABORTED", abort_reason.c_str(), getCurrentTime());
+            if (!cloud_->abortInspection(inspection_source_event_id_, abort_reason)) {
+                pending_abort_insp_id_ = inspection_source_event_id_;
+                pending_abort_reason_ = abort_reason;
+                if (storage_ != nullptr) {
+                    storage_->savePendingAbort(pending_abort_insp_id_, pending_abort_reason_);
+                }
+            }
         }
         if (backup_storage_ != nullptr && backup_storage_->isAvailable() && !inspection_source_event_id_.empty()) {
             backup_storage_->removeScanBackup(inspection_source_event_id_);
         }
         inspection_source_event_id_.clear();
         pending_sync_backup_id_.clear();
+        last_abort_reason_.clear();
         last_completed_panel_ = 0;
         inspection_crash_retries_ = 0;
         if (storage_ != nullptr) {

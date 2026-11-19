@@ -138,6 +138,9 @@ private:
     std::string current_cleaning_op_id_{};
     bool scan_truncated_by_memory_{false};
     bool all_panels_accepted_{true};
+    std::string last_abort_reason_{};
+    std::string pending_abort_insp_id_{};
+    std::string pending_abort_reason_{};
 
     domain::HotspotEvent active_hotspot_{};
     std::string active_anomaly_id_{};

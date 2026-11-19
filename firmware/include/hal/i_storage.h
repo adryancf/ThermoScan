@@ -97,6 +97,9 @@ public:
     virtual bool getLocationAndOrientation(float& /*latitude*/, float& /*longitude*/, float& /*azimuth*/, float& /*tilt*/) { return false; }
     virtual bool saveHotspotThresholdDeltaC(float /*delta_c*/) { return true; }
     virtual bool getHotspotThresholdDeltaC(float& /*out*/) { return false; }
+    virtual bool savePendingAbort(const std::string& /*insp_id*/, const std::string& /*reason*/) { return true; }
+    virtual bool getPendingAbort(std::string& /*insp_id*/, std::string& /*reason*/) { return false; }
+    virtual bool clearPendingAbort() { return true; }
 
     // Bench diagnostics helper
     virtual bool saveTestKey(const std::string& /*key*/, const std::string& /*val*/) { return true; }

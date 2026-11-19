@@ -216,11 +216,35 @@ public:
         state.inspection_crash_retries = 0;
         return true;
     }
+    bool savePendingAbort(const std::string& insp_id, const std::string& reason) override {
+        pending_abort_id = insp_id;
+        pending_abort_reason = reason;
+        return true;
+    }
+    bool getPendingAbort(std::string& insp_id, std::string& reason) override {
+        if (pending_abort_id.empty()) return false;
+        insp_id = pending_abort_id;
+        reason = pending_abort_reason;
+        return true;
+    }
+    bool clearPendingAbort() override {
+        pending_abort_id.clear();
+        pending_abort_reason.clear();
+        return true;
+    }
     bool saveAll(const StorageState& s) override { state = s; return true; }
     bool loadAll(StorageState& s) override { s = state; return true; }
-    bool clear() override { state = StorageState{}; saved_queue.clear(); return true; }
+    bool clear() override {
+        state = StorageState{};
+        saved_queue.clear();
+        pending_abort_id.clear();
+        pending_abort_reason.clear();
+        return true;
+    }
 
     std::vector<QueuedHotspot> saved_queue;
+    std::string pending_abort_id;
+    std::string pending_abort_reason;
 };
 
 class MockCloudClient : public ICloudClient {
@@ -240,6 +264,8 @@ public:
     std::vector<CleaningReportInput> all_cleaning_reports;
     std::vector<PanelThermalResultInput> submitted_panel_results;
     bool submit_panel_result_success{true};
+    bool ingest_batch_success{true};
+    bool abort_inspection_success{true};
 
     bool config_pending{false};
     bool manual_cleaning_pending{false};
@@ -287,7 +313,10 @@ public:
         return true;
     }
     bool ackConfiguration(uint32_t v) override { last_acked_config_version = v; return true; }
-    bool ingestTelemetryBatch(const IngestTelemetryBatchInput&) override { batches_ingested++; return true; }
+    bool ingestTelemetryBatch(const IngestTelemetryBatchInput&) override {
+        batches_ingested++;
+        return ingest_batch_success;
+    }
     bool submitPanelThermalResult(const std::string&, const PanelThermalResultInput& input) override {
         panel_results_submitted++;
         if (!submit_panel_result_success) return false;
@@ -296,6 +325,7 @@ public:
     }
     bool finalizeInspection(const std::string&, const FinalizeInspectionInput&) override { inspections_finalized++; return true; }
     bool abortInspection(const std::string& inspection_source_event_id, const std::string& failure_reason) override {
+        if (!abort_inspection_success) return false;
         inspections_aborted++;
         last_abort_inspection_id = inspection_source_event_id;
         last_abort_reason = failure_reason;
@@ -1768,6 +1798,78 @@ void test_scan_flushes_residual_batch_when_last_frame_fails(void) {
     TEST_ASSERT_EQUAL(2, cloud.batches_ingested);
 }
 
+void test_telemetry_failure_aborts_and_persists_pending_abort_until_reconnect() {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    motion.camera = &cam;
+    storage.panel_cnt = 1;
+    storage.panel_len = 8.0f;
+
+    // Telemetry upload fails and abort call also fails initially (simulating offline drop mid-scan)
+    cloud.ingest_batch_success = false;
+    cloud.abort_inspection_success = false;
+    cloud.connected = true;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    app.tick(); // SCANNING -> ANALYZING (all_panels_accepted_ = false)
+    TEST_ASSERT_EQUAL(AppState::ANALYZING, app.getState());
+
+    cloud.state_transitions.clear();
+    app.tick(); // ANALYZING sees all_panels_accepted_ == false, tries abortInspection -> fails -> persists to NVS -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    app.tick(); // SYNCING -> IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL(0, cloud.inspections_aborted);
+    TEST_ASSERT_EQUAL(0, cloud.inspections_finalized);
+    TEST_ASSERT_FALSE(storage.pending_abort_id.empty());
+    TEST_ASSERT_EQUAL_STRING("telemetry_upload_failed", storage.pending_abort_reason.c_str());
+
+    bool found_scan_aborted = false;
+    for (const auto& t : cloud.state_transitions) {
+        if (t.state == "SCAN_ABORTED") {
+            found_scan_aborted = true;
+            TEST_ASSERT_EQUAL_STRING("telemetry_upload_failed", t.detail.c_str());
+        }
+    }
+    TEST_ASSERT_TRUE(found_scan_aborted);
+
+    // Simulate reboot restoring pending abort from NVS while still offline
+    cloud.connected = false;
+    ThermoscanApp rebooted_app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(rebooted_app.init());
+    rebooted_app.tick(); // IDLE while offline: pending abort stays in NVS
+    TEST_ASSERT_EQUAL(0, cloud.inspections_aborted);
+    TEST_ASSERT_FALSE(storage.pending_abort_id.empty());
+
+    // Network reconnects and abort succeeds
+    cloud.connected = true;
+    cloud.abort_inspection_success = true;
+    cloud.state_transitions.clear();
+    rebooted_app.tick(); // IDLE flushes pending abort
+    TEST_ASSERT_EQUAL(1, cloud.inspections_aborted);
+    TEST_ASSERT_EQUAL_STRING("telemetry_upload_failed", cloud.last_abort_reason.c_str());
+    TEST_ASSERT_TRUE(storage.pending_abort_id.empty());
+
+    bool found_abort_synced = false;
+    for (const auto& t : cloud.state_transitions) {
+        if (t.state == "ABORT_SYNCED") {
+            found_abort_synced = true;
+        }
+    }
+    TEST_ASSERT_TRUE(found_abort_synced);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1808,5 +1910,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_uptime_ping_works_without_ntp_sync);
     RUN_TEST(test_nvs_restores_full_config_including_solar_interval_location_and_threshold);
     RUN_TEST(test_scan_flushes_residual_batch_when_last_frame_fails);
+    RUN_TEST(test_telemetry_failure_aborts_and_persists_pending_abort_until_reconnect);
     return UNITY_END();
 }

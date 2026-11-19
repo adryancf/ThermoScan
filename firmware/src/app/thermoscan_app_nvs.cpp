@@ -94,6 +94,8 @@ void ThermoscanApp::restoreStateFromNvs() {
         thermal_analyzer_.setHotspotThresholdDeltaC(saved_hs_delta);
     }
 
+    storage_->getPendingAbort(pending_abort_insp_id_, pending_abort_reason_);
+
     StorageState s;
     if (storage_->loadAll(s)) {
         if (s.config_version > 0) {
@@ -215,6 +217,9 @@ void ThermoscanApp::handleBootInit() {
 
     if (!essential_init_ok) {
         Serial.println(F("[ERR] One or more essential hardware subsystems reported initialization issues."));
+        if (cloud_ != nullptr) {
+            cloud_->recordStateTransition("INIT_WARNING", "hardware_init_failed", getCurrentTime());
+        }
     }
 
     // Hardware self-diagnosis

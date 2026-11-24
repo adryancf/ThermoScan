@@ -167,10 +167,11 @@ void main() {
       expect(find.text('Warnings'), findsWidgets);
       expect(find.text('Low Water'), findsWidgets);
 
-      // Category filter chips
-      expect(find.text('All Alerts (2)'), findsOneWidget);
-      expect(find.text('🔥 Hotspots (1)'), findsOneWidget);
-      expect(find.text('💧 Low Water (1)'), findsOneWidget);
+      // Unified filter chips
+      expect(find.text('All (2)'), findsOneWidget);
+      expect(find.text('Critical (1)'), findsOneWidget);
+      expect(find.text('Hotspots (1)'), findsOneWidget);
+      expect(find.text('Low Water (1)'), findsOneWidget);
 
       // Hotspot Card Scannable Elements
       expect(find.text('CRITICAL'), findsOneWidget);
@@ -190,7 +191,7 @@ void main() {
       expect(find.text('Check Robot Status ➔'), findsOneWidget);
     });
 
-    testWidgets('Tapping KPI Critical filters to only critical hotspot',
+    testWidgets('Tapping Critical chip filters to only critical hotspot',
         (WidgetTester tester) async {
       final summary = AlertsSummary(
         total: 2,
@@ -202,8 +203,8 @@ void main() {
       await tester.pumpWidget(createSubject(summary: summary));
       await tester.pumpAndSettle();
 
-      // Tap Critical KPI card
-      await tester.tap(find.text('Critical'));
+      // Tap Critical filter chip
+      await tester.tap(find.text('Critical (1)'));
       await tester.pumpAndSettle();
 
       // Only hotspot remains visible
@@ -213,7 +214,7 @@ void main() {
       expect(find.text('Check Robot Status ➔'), findsNothing);
     });
 
-    testWidgets('Tapping 🔥 Hotspots chip filters out water alerts',
+    testWidgets('Tapping Hotspots chip filters out water alerts',
         (WidgetTester tester) async {
       final summary = AlertsSummary(
         total: 2,
@@ -226,14 +227,14 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap Hotspots filter chip
-      await tester.tap(find.text('🔥 Hotspots (1)'));
+      await tester.tap(find.text('Hotspots (1)'));
       await tester.pumpAndSettle();
 
       expect(find.text('View in Thermal Studio ➔'), findsOneWidget);
       expect(find.text('Check Robot Status ➔'), findsNothing);
     });
 
-    testWidgets('Tapping 💧 Low Water chip filters out hotspot alerts',
+    testWidgets('Tapping Low Water chip filters out hotspot alerts',
         (WidgetTester tester) async {
       final summary = AlertsSummary(
         total: 2,
@@ -246,7 +247,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Tap Low Water filter chip
-      await tester.tap(find.text('💧 Low Water (1)'));
+      await tester.tap(find.text('Low Water (1)'));
       await tester.pumpAndSettle();
 
       expect(find.text('View in Thermal Studio ➔'), findsNothing);
@@ -272,7 +273,7 @@ void main() {
             'All solar arrays and cleaning robots are operating normally without anomalies.'),
         findsOneWidget,
       );
-      expect(find.text('Automatic Alert Updates'), findsOneWidget);
+      expect(find.text('Automatic Alert Updates'), findsNothing);
     });
   });
 }

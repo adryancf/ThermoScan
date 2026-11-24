@@ -6,6 +6,7 @@ import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/app_text_field.dart';
+import 'package:thermoscan/core/widgets/skeleton_loader.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
@@ -155,10 +156,10 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
                 ),
               ),
               modulesAsync.when(
-                loading: () => const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(
-                    child: CircularProgressIndicator(color: AppColors.primary),
+                loading: () => const SliverPadding(
+                  padding: EdgeInsets.fromLTRB(24, 0, 24, 40),
+                  sliver: SliverToBoxAdapter(
+                    child: ModuleCardSkeletonList(),
                   ),
                 ),
                 error: (err, _) => SliverFillRemaining(

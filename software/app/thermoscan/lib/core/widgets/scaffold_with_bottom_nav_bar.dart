@@ -45,13 +45,7 @@ class ScaffoldWithBottomNavBar extends ConsumerWidget {
         break;
       case 2:
         if (user?.isManager ?? false) {
-          // If manager is currently on profile, tapping settings toggles to admin,
-          // otherwise opens manager administration home
-          if (currentLocation == '/manager') {
-            context.go('/profile');
-          } else {
-            context.go('/manager');
-          }
+          context.go('/manager');
         } else {
           context.go('/profile');
         }

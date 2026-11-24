@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/core/widgets/skeleton_loader.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/alerts/domain/alert_models.dart';
 import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
@@ -55,115 +56,49 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
     return '$month ${local.day}, $hour:$min';
   }
 
-  void _toggleFilter(String target) {
-    setState(() {
-      if (_filter == target) {
-        _filter = 'all';
-      } else {
-        _filter = target;
-      }
-    });
-  }
-
-  Widget _buildAdvisoryBanner() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.primary,
-            size: 18,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Automatic Alert Updates',
-                  style: AppTypography.caption.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Thermal anomalies and robot water levels are automatically monitored and refreshed continuously.',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildKpiCard({
     required String label,
     required int count,
     required IconData icon,
     required Color color,
-    required Color activeBgColor,
-    required bool isSelected,
-    required VoidCallback onTap,
   }) {
     return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? activeBgColor : AppColors.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? color : AppColors.border,
-              width: isSelected ? 2 : 1,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Icon(icon, color: color, size: 18),
-                  Text(
-                    '$count',
-                    style: AppTypography.h3.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: color,
-                      fontSize: 20,
-                    ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 10),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Icon(icon, color: color, size: 18),
+                Text(
+                  '$count',
+                  style: AppTypography.h3.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                    fontSize: 20,
                   ),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                label,
-                style: AppTypography.caption.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: isSelected ? color : AppColors.textSecondary,
-                  fontSize: 11,
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: AppTypography.caption.copyWith(
+                fontWeight: FontWeight.w600,
+                color: AppColors.textSecondary,
+                fontSize: 11,
               ),
-            ],
-          ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
       ),
     );
@@ -241,8 +176,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        _buildAdvisoryBanner(),
       ],
     );
   }
@@ -730,7 +663,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // Interactive KPI Summary Bar
+                // KPI Summary Bar (visual overview; filtering is handled by chips below)
                 alertsAsync.when(
                   loading: () => Row(
                     children: [
@@ -739,10 +672,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                         count: 0,
                         icon: Icons.error_outline_rounded,
                         color: AppColors.error,
-                        activeBgColor: AppColors.errorBackground
-                            .withValues(alpha: 0.3),
-                        isSelected: _filter == 'critical',
-                        onTap: () {},
                       ),
                       const SizedBox(width: 8),
                       _buildKpiCard(
@@ -750,10 +679,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                         count: 0,
                         icon: Icons.warning_amber_rounded,
                         color: AppColors.warning,
-                        activeBgColor: AppColors.warningBackground
-                            .withValues(alpha: 0.3),
-                        isSelected: _filter == 'warning',
-                        onTap: () {},
                       ),
                       const SizedBox(width: 8),
                       _buildKpiCard(
@@ -761,10 +686,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                         count: 0,
                         icon: Icons.water_drop_outlined,
                         color: AppColors.accent,
-                        activeBgColor:
-                            AppColors.primarySoft.withValues(alpha: 0.3),
-                        isSelected: _filter == 'water',
-                        onTap: () {},
                       ),
                     ],
                   ),
@@ -775,10 +696,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                         count: 0,
                         icon: Icons.error_outline_rounded,
                         color: AppColors.error,
-                        activeBgColor: AppColors.errorBackground
-                            .withValues(alpha: 0.3),
-                        isSelected: _filter == 'critical',
-                        onTap: () {},
                       ),
                       const SizedBox(width: 8),
                       _buildKpiCard(
@@ -786,10 +703,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                         count: 0,
                         icon: Icons.warning_amber_rounded,
                         color: AppColors.warning,
-                        activeBgColor: AppColors.warningBackground
-                            .withValues(alpha: 0.3),
-                        isSelected: _filter == 'warning',
-                        onTap: () {},
                       ),
                       const SizedBox(width: 8),
                       _buildKpiCard(
@@ -797,10 +710,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                         count: 0,
                         icon: Icons.water_drop_outlined,
                         color: AppColors.accent,
-                        activeBgColor:
-                            AppColors.primarySoft.withValues(alpha: 0.3),
-                        isSelected: _filter == 'water',
-                        onTap: () {},
                       ),
                     ],
                   ),
@@ -821,10 +730,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                           count: criticalCount,
                           icon: Icons.error_outline_rounded,
                           color: AppColors.error,
-                          activeBgColor: AppColors.errorBackground
-                              .withValues(alpha: 0.3),
-                          isSelected: _filter == 'critical',
-                          onTap: () => _toggleFilter('critical'),
                         ),
                         const SizedBox(width: 8),
                         _buildKpiCard(
@@ -832,10 +737,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                           count: warningCount,
                           icon: Icons.warning_amber_rounded,
                           color: AppColors.warning,
-                          activeBgColor: AppColors.warningBackground
-                              .withValues(alpha: 0.3),
-                          isSelected: _filter == 'warning',
-                          onTap: () => _toggleFilter('warning'),
                         ),
                         const SizedBox(width: 8),
                         _buildKpiCard(
@@ -843,10 +744,6 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                           count: waterCount,
                           icon: Icons.water_drop_outlined,
                           color: AppColors.accent,
-                          activeBgColor:
-                              AppColors.primarySoft.withValues(alpha: 0.3),
-                          isSelected: _filter == 'water',
-                          onTap: () => _toggleFilter('water'),
                         ),
                       ],
                     );
@@ -854,17 +751,19 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Category Filter Chips
+                // Unified Filter Chips
                 alertsAsync.when(
                   loading: () => SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _buildFilterChip('all', 'All Alerts'),
+                        _buildFilterChip('all', 'All'),
                         const SizedBox(width: 8),
-                        _buildFilterChip('hotspot', '🔥 Hotspots'),
+                        _buildFilterChip('critical', 'Critical'),
                         const SizedBox(width: 8),
-                        _buildFilterChip('water', '💧 Low Water'),
+                        _buildFilterChip('hotspot', 'Hotspots'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('water', 'Low Water'),
                       ],
                     ),
                   ),
@@ -872,15 +771,20 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                     scrollDirection: Axis.horizontal,
                     child: Row(
                       children: [
-                        _buildFilterChip('all', 'All Alerts'),
+                        _buildFilterChip('all', 'All'),
                         const SizedBox(width: 8),
-                        _buildFilterChip('hotspot', '🔥 Hotspots'),
+                        _buildFilterChip('critical', 'Critical'),
                         const SizedBox(width: 8),
-                        _buildFilterChip('water', '💧 Low Water'),
+                        _buildFilterChip('hotspot', 'Hotspots'),
+                        const SizedBox(width: 8),
+                        _buildFilterChip('water', 'Low Water'),
                       ],
                     ),
                   ),
                   data: (summary) {
+                    final criticalCount = summary.critical > 0
+                        ? summary.critical
+                        : summary.alerts.where((a) => a.isCritical).length;
                     final hotspotCount =
                         summary.alerts.where((a) => a.isHotspot).length;
                     final waterCount =
@@ -890,14 +794,16 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [
-                          _buildFilterChip(
-                              'all', 'All Alerts (${summary.total})'),
+                          _buildFilterChip('all', 'All (${summary.total})'),
                           const SizedBox(width: 8),
                           _buildFilterChip(
-                              'hotspot', '🔥 Hotspots ($hotspotCount)'),
+                              'critical', 'Critical ($criticalCount)'),
                           const SizedBox(width: 8),
                           _buildFilterChip(
-                              'water', '💧 Low Water ($waterCount)'),
+                              'hotspot', 'Hotspots ($hotspotCount)'),
+                          const SizedBox(width: 8),
+                          _buildFilterChip(
+                              'water', 'Low Water ($waterCount)'),
                         ],
                       ),
                     );
@@ -907,12 +813,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
 
                 // Alerts List
                 alertsAsync.when(
-                  loading: () => const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 40),
-                      child: CircularProgressIndicator(),
-                    ),
-                  ),
+                  loading: () => const AlertCardSkeletonList(),
                   error: (error, _) => Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(16),
@@ -943,19 +844,15 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                     }
 
                     return Column(
-                      children: [
-                        ...filteredAlerts.map((alert) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 14),
-                            child: _buildAlertCard(
-                              context: context,
-                              alert: alert,
-                            ),
-                          );
-                        }),
-                        const SizedBox(height: 6),
-                        _buildAdvisoryBanner(),
-                      ],
+                      children: filteredAlerts.map((alert) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: _buildAlertCard(
+                            context: context,
+                            alert: alert,
+                          ),
+                        );
+                      }).toList(),
                     );
                   },
                 ),

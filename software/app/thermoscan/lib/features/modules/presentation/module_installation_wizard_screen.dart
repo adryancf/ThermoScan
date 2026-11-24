@@ -91,6 +91,7 @@ class _ModuleInstallationWizardScreenState
   final _scrollCtrl = ScrollController();
 
   bool _saving = false;
+  bool _showAdvancedStep4Settings = false;
   String? _errorMsg;
 
   static final _macRegex = RegExp(
@@ -1790,63 +1791,94 @@ class _ModuleInstallationWizardScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    const Icon(
-                      Icons.settings_suggest_rounded,
-                      size: 18,
-                      color: AppColors.primary,
+                InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => setState(
+                    () => _showAdvancedStep4Settings =
+                        !_showAdvancedStep4Settings,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.tune_rounded,
+                                    size: 18,
+                                    color: AppColors.primary,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Advanced Settings',
+                                    style: AppTypography.h3.copyWith(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${(_parseDouble(_solarAngleCtrl.text) ?? 15.0).toStringAsFixed(0)}° solar angle · Every ${int.tryParse(_intervalCtrl.text.trim()) ?? 7}d · ${int.tryParse(_reservoirCtrl.text.trim()) ?? 2000} mL tank',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontSize: 11.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Icon(
+                          _showAdvancedStep4Settings
+                              ? Icons.keyboard_arrow_up_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          color: AppColors.textSecondary,
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Inspection & Robot Settings',
-                      style: AppTypography.h3.copyWith(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Autonomous scheduling rules, daylight thresholds, and cleaning tank size',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 11,
                   ),
                 ),
-                const SizedBox(height: 14),
+                if (_showAdvancedStep4Settings) ...[
+                  const SizedBox(height: 14),
+                  const Divider(height: 1),
+                  const SizedBox(height: 14),
+                  SolarAngleSelectorWidget(
+                    selectedAngle:
+                        _parseDouble(_solarAngleCtrl.text) ?? 15.0,
+                    recommendedAngle: _recommendedSolarAngle,
+                    sourceDescription: _solarAngleSource,
+                    onChanged: (angle) {
+                      setState(() {
+                        _solarAngleCtrl.text = angle.toStringAsFixed(1);
+                        _solarAngleSource = 'manual';
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 16),
 
-                SolarAngleSelectorWidget(
-                  selectedAngle:
-                      _parseDouble(_solarAngleCtrl.text) ?? 15.0,
-                  recommendedAngle: _recommendedSolarAngle,
-                  sourceDescription: _solarAngleSource,
-                  onChanged: (angle) {
-                    setState(() {
-                      _solarAngleCtrl.text = angle.toStringAsFixed(1);
-                      _solarAngleSource = 'manual';
-                    });
-                  },
-                ),
-                const SizedBox(height: 16),
+                  ScanFrequencySelectorWidget(
+                    selectedDays: int.tryParse(_intervalCtrl.text.trim()) ?? 7,
+                    onChanged: (days) {
+                      setState(() => _intervalCtrl.text = '$days');
+                    },
+                  ),
+                  const SizedBox(height: 16),
 
-                ScanFrequencySelectorWidget(
-                  selectedDays: int.tryParse(_intervalCtrl.text.trim()) ?? 7,
-                  onChanged: (days) {
-                    setState(() => _intervalCtrl.text = '$days');
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                WaterTankCapacitySelectorWidget(
-                  selectedCapacityMl:
-                      int.tryParse(_reservoirCtrl.text.trim()) ?? 2000,
-                  onChanged: (ml) {
-                    setState(() => _reservoirCtrl.text = '$ml');
-                  },
-                ),
+                  WaterTankCapacitySelectorWidget(
+                    selectedCapacityMl:
+                        int.tryParse(_reservoirCtrl.text.trim()) ?? 2000,
+                    onChanged: (ml) {
+                      setState(() => _reservoirCtrl.text = '$ml');
+                    },
+                  ),
+                ],
               ],
             ),
           ),

@@ -52,6 +52,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   String? _previousLocalizedReadingAt;
   double? _pendingLocalizedTargetXCm;
   Timer? _localizedReadingTimeoutTimer;
+  bool _awaitingManualCleaning = false;
+  bool _manualCleaningSawActive = false;
+  double? _pendingManualCleaningTargetXCm;
+  Timer? _manualCleaningTimeoutTimer;
   Timer? _statusRefreshTimer;
   String? _lastObservedFirmwareState;
 
@@ -84,22 +88,54 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   void dispose() {
     _statusRefreshTimer?.cancel();
     _localizedReadingTimeoutTimer?.cancel();
+    _manualCleaningTimeoutTimer?.cancel();
     super.dispose();
   }
 
   void _handleDeviceStatusUpdate(DeviceStatus newStatus) {
-    if (!_awaitingLocalizedReading) return;
-    final newAt = newStatus.localizedReadingAt;
-    if (newAt != null &&
-        newAt.isNotEmpty &&
-        newAt != _previousLocalizedReadingAt) {
-      _localizedReadingTimeoutTimer?.cancel();
-      _localizedReadingTimeoutTimer = null;
-      setState(() {
-        _awaitingLocalizedReading = false;
-        _pendingLocalizedTargetXCm = null;
-      });
-      unawaited(_openStoredLocalizedReading(widget.moduleId));
+    if (_awaitingLocalizedReading) {
+      final newAt = newStatus.localizedReadingAt;
+      if (newAt != null &&
+          newAt.isNotEmpty &&
+          newAt != _previousLocalizedReadingAt) {
+        _localizedReadingTimeoutTimer?.cancel();
+        _localizedReadingTimeoutTimer = null;
+        setState(() {
+          _awaitingLocalizedReading = false;
+          _pendingLocalizedTargetXCm = null;
+        });
+        unawaited(_openStoredLocalizedReading(widget.moduleId));
+      }
+    }
+
+    if (_awaitingManualCleaning) {
+      final normState = (newStatus.firmwareState ?? '').trim().toUpperCase();
+      final normDetail =
+          (newStatus.firmwareStateDetail ?? '').trim().toLowerCase();
+      final isActive = newStatus.manualCleaningPending ||
+          (normState == 'CLEANING' && normDetail == 'manual_cleaning') ||
+          normState == 'CLEANING';
+      if (isActive) {
+        _manualCleaningSawActive = true;
+      } else if (_manualCleaningSawActive && normState == 'IDLE') {
+        _manualCleaningTimeoutTimer?.cancel();
+        _manualCleaningTimeoutTimer = null;
+        setState(() {
+          _awaitingManualCleaning = false;
+          _manualCleaningSawActive = false;
+          _pendingManualCleaningTargetXCm = null;
+        });
+        ref.invalidate(moduleCleaningsProvider(widget.moduleId));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Manual cleaning completed.'),
+              backgroundColor: AppColors.success,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -257,17 +293,22 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             moduleId: mod.id,
             targetXPositionCm: targetX,
           );
-      ref.invalidate(moduleDeviceStatusProvider(mod.id));
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Manual cleaning requested at ${targetX.toStringAsFixed(1)} cm.',
-          ),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      _manualCleaningTimeoutTimer?.cancel();
+      _manualCleaningTimeoutTimer = Timer(const Duration(seconds: 60), () {
+        if (!mounted || !_awaitingManualCleaning) return;
+        setState(() {
+          _awaitingManualCleaning = false;
+          _manualCleaningSawActive = false;
+          _pendingManualCleaningTargetXCm = null;
+        });
+      });
+      setState(() {
+        _awaitingManualCleaning = true;
+        _manualCleaningSawActive = false;
+        _pendingManualCleaningTargetXCm = targetX;
+      });
+      ref.invalidate(moduleDeviceStatusProvider(mod.id));
     } catch (err) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -691,6 +732,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   children: [
                     if (_awaitingLocalizedReading)
                       _buildLocalizedReadingPendingBanner(),
+                    if (_isManualCleaningActive(deviceStatus, mod))
+                      _buildManualCleaningPendingBanner(deviceStatus),
                     Container(
                       width: double.infinity,
                       decoration: const BoxDecoration(
@@ -806,6 +849,83 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  bool _isManualCleaningActive(DeviceStatus? deviceStatus, PvModule mod) {
+    final normState =
+        (deviceStatus?.firmwareState ?? mod.firmwareState ?? '')
+            .trim()
+            .toUpperCase();
+    final normDetail =
+        (deviceStatus?.firmwareStateDetail ?? mod.firmwareStateDetail ?? '')
+            .trim()
+            .toLowerCase();
+    return _awaitingManualCleaning ||
+        deviceStatus?.manualCleaningPending == true ||
+        (normState == 'CLEANING' && normDetail == 'manual_cleaning');
+  }
+
+  Widget _buildManualCleaningPendingBanner(DeviceStatus? deviceStatus) {
+    final targetX =
+        _pendingManualCleaningTargetXCm ?? deviceStatus?.manualCleaningTargetXCm;
+    final message = targetX != null
+        ? 'Running manual cleaning at ${targetX.toStringAsFixed(1)} cm...'
+        : 'Running manual cleaning...';
+    return Container(
+      key: const Key('manual_cleaning_active_banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft.withValues(alpha: 0.75),
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.25),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.cleaning_services_outlined,
+            size: 16,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          if (_awaitingManualCleaning)
+            InkWell(
+              key: const Key('dismiss_manual_cleaning_banner'),
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                _manualCleaningTimeoutTimer?.cancel();
+                _manualCleaningTimeoutTimer = null;
+                setState(() {
+                  _awaitingManualCleaning = false;
+                  _manualCleaningSawActive = false;
+                  _pendingManualCleaningTargetXCm = null;
+                });
+              },
+              child: const Padding(
+                padding: EdgeInsets.all(2),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: AppColors.primary,
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1371,11 +1491,18 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             _buildModuleInfoCard(mod, details, deviceStatus),
             const SizedBox(height: 16),
 
-            // 2b. Live 4-step routine tracker (only shown while active/halted/resetting)
+            // 2b. Live 4-step routine tracker (only shown while active/halted/resetting, hidden during manual cleaning)
             if (RoutineProgressStepper.isVisibleForState(
-              deviceStatus?.firmwareState ?? mod.firmwareState,
-              resetPending: deviceStatus?.resetPending == true,
-            )) ...[
+                  deviceStatus?.firmwareState ?? mod.firmwareState,
+                  firmwareStateDetail: deviceStatus?.firmwareStateDetail ??
+                      mod.firmwareStateDetail,
+                  resetPending: deviceStatus?.resetPending == true,
+                ) &&
+                !(_isManualCleaningActive(deviceStatus, mod) &&
+                    (deviceStatus?.firmwareState ?? mod.firmwareState ?? '')
+                            .trim()
+                            .toUpperCase() ==
+                        'CLEANING')) ...[
               RoutineProgressStepper(
                 firmwareState: deviceStatus?.firmwareState ?? mod.firmwareState,
                 firmwareStateDetail:

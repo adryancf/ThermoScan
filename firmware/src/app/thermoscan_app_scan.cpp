@@ -138,7 +138,7 @@ void ThermoscanApp::handleIdle() {
         manual_cleaning_requested_ = false;
         manual_cleaning_active_ = true;
         cleaning_queue_.clear();
-        transitionTo(AppState::CLEANING);
+        transitionTo(AppState::CLEANING, "manual_cleaning");
         return;
     }
 

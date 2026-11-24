@@ -1195,6 +1195,8 @@ class DeviceStatus {
     this.nextInspectionAt,
     this.configurationSync,
     this.manualInspectionPending = false,
+    this.manualCleaningPending = false,
+    this.manualCleaningTargetXCm,
     this.resetPending = false,
     this.pingIntervalSeconds,
     this.onlineWindowSeconds,
@@ -1224,6 +1226,8 @@ class DeviceStatus {
   final String? nextInspectionAt;
   final ConfigurationSyncInfo? configurationSync;
   final bool manualInspectionPending;
+  final bool manualCleaningPending;
+  final double? manualCleaningTargetXCm;
   final bool resetPending;
   final int? pingIntervalSeconds;
   final int? onlineWindowSeconds;
@@ -1301,6 +1305,12 @@ class DeviceStatus {
       manualInspectionPending: (json['manual_inspection_pending'] ??
               json['manualInspectionPending']) as bool? ??
           false,
+      manualCleaningPending: (json['manual_cleaning_pending'] ??
+              json['manualCleaningPending']) as bool? ??
+          false,
+      manualCleaningTargetXCm: _parseDouble(
+        json['manual_cleaning_target_x_cm'] ?? json['manualCleaningTargetXCm'],
+      ),
       resetPending: (json['reset_pending'] ??
               json['resetPending']) as bool? ??
           false,

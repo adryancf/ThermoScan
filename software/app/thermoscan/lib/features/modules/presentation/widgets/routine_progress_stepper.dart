@@ -21,9 +21,17 @@ class RoutineProgressStepper extends StatefulWidget {
   final String? verificationReadyAt;
   final bool resetPending;
 
-  static bool isVisibleForState(String? state, {bool resetPending = false}) {
+  static bool isVisibleForState(
+    String? state, {
+    String? firmwareStateDetail,
+    bool resetPending = false,
+  }) {
     if (resetPending) return true;
     final norm = (state ?? '').trim().toUpperCase();
+    final normDetail = (firmwareStateDetail ?? '').trim().toLowerCase();
+    if (norm == 'CLEANING' && normDetail == 'manual_cleaning') {
+      return false;
+    }
     return switch (norm) {
       'SCANNING' ||
       'ANALYZING' ||
@@ -129,6 +137,7 @@ class _RoutineProgressStepperState extends State<RoutineProgressStepper> {
   Widget build(BuildContext context) {
     if (!RoutineProgressStepper.isVisibleForState(
       widget.firmwareState,
+      firmwareStateDetail: widget.firmwareStateDetail,
       resetPending: widget.resetPending,
     )) {
       return const SizedBox.shrink();

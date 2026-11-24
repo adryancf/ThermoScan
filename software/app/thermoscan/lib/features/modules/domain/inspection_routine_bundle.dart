@@ -513,6 +513,28 @@ class InspectionRoutineBundle {
     final bundles = <InspectionRoutineBundle>[];
     final matchedVerifIds = <String>{};
 
+    // Pre-pass: resolve exact ownership (verification -> routine) by
+    // cleaningOperationId across ALL routines before any chronological
+    // fallback, so a newer routine can never steal a verification that
+    // belongs to an older routine scanned only minutes earlier.
+    final cleaningIdToRoutineId = <String, String>{};
+    for (final routine in scheduledRoutines) {
+      for (final a in routine.confirmedAnomalies) {
+        final list = cleaningsByAnomaly[a.id];
+        if (list == null) continue;
+        for (final cln in list) {
+          cleaningIdToRoutineId.putIfAbsent(cln.id, () => routine.id);
+        }
+      }
+    }
+    final exactOwnerByVerifId = <String, String>{};
+    for (final v in verifications) {
+      final cid = v.cleaningOperationId;
+      if (cid == null) continue;
+      final owner = cleaningIdToRoutineId[cid];
+      if (owner != null) exactOwnerByVerifId[v.id] = owner;
+    }
+
     for (var i = 0; i < scheduledRoutines.length; i++) {
       final routine = scheduledRoutines[i];
       final routineMeas = List<ModuleMeasurement>.from(
@@ -534,20 +556,15 @@ class InspectionRoutineBundle {
           }
         }
       }
-      final matchingCleanIds = matchingCleanings.map((c) => c.id).toSet();
 
-      // 1. Match verification inspections by cleaningOperationId
+      // 1. Exact match: verifications whose owner routine is this routine
       final matchedVerifications = verifications.where((v) {
         if (matchedVerifIds.contains(v.id)) return false;
-        if (v.cleaningOperationId != null &&
-            matchingCleanIds.contains(v.cleaningOperationId)) {
-          return true;
-        }
-        return false;
+        return exactOwnerByVerifId[v.id] == routine.id;
       }).toList();
 
-      // 2. Chronological window match:
-      // Verification occurred during or after this routine, before the next routine (if any)
+      // 2. Chronological fallback ONLY for verifications with no exact owner
+      // (verification occurred during or after this routine, before the next routine).
       final routineDt = _inspectionTimestamp(routine);
       final nextRoutineDt = (i > 0)
           ? (DateTime.tryParse(scheduledRoutines[i - 1].startedAt ?? '') ??
@@ -556,7 +573,9 @@ class InspectionRoutineBundle {
           : null;
 
       for (final v in verifications) {
-        if (matchedVerifIds.contains(v.id) || matchedVerifications.contains(v)) {
+        if (matchedVerifIds.contains(v.id) ||
+            matchedVerifications.contains(v) ||
+            exactOwnerByVerifId.containsKey(v.id)) {
           continue;
         }
         final vDt = _inspectionTimestamp(v);

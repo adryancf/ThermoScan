@@ -3,6 +3,121 @@ import 'package:flutter/material.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 
+class ElectricalSummary {
+  const ElectricalSummary({
+    this.voltageV,
+    this.currentA,
+    this.powerW,
+    this.panelCount = 0,
+  });
+
+  final double? voltageV;
+  final double? currentA;
+  final double? powerW;
+  final int panelCount;
+
+  bool get isMultiPanelAverage => panelCount > 1;
+}
+
+/// Computes electrical summary:
+/// - Single panel (or `focusedPanelIndex != null`): peak power reading of that panel.
+/// - All panels (`focusedPanelIndex == null`): arithmetic mean of each panel's peak reading.
+ElectricalSummary computeElectricalSummary({
+  required List<ModuleMeasurement> measurements,
+  PvModule? module,
+  int? focusedPanelIndex,
+  ModuleMeasurement? fallbackMeasurement,
+}) {
+  ModuleMeasurement? pickPeak(Iterable<ModuleMeasurement> items) {
+    ModuleMeasurement? best;
+    for (final dm in items) {
+      if (dm.voltageV == null && dm.currentA == null && dm.powerW == null) {
+        continue;
+      }
+      if (best == null) {
+        best = dm;
+        continue;
+      }
+      final currP = dm.powerW ??
+          ((dm.voltageV != null && dm.currentA != null)
+              ? dm.voltageV! * dm.currentA!
+              : 0.0);
+      final bestP = best.powerW ??
+          ((best.voltageV != null && best.currentA != null)
+              ? best.voltageV! * best.currentA!
+              : 0.0);
+      if (currP > bestP ||
+          (currP == bestP && (dm.voltageV ?? 0.0) > (best.voltageV ?? 0.0))) {
+        best = dm;
+      }
+    }
+    return best;
+  }
+
+  if (focusedPanelIndex != null) {
+    final peak = pickPeak(measurements) ?? fallbackMeasurement;
+    if (peak == null) return const ElectricalSummary();
+    final v = peak.voltageV;
+    final i = peak.currentA;
+    final p = peak.powerW ?? (v != null && i != null ? v * i : null);
+    return ElectricalSummary(voltageV: v, currentA: i, powerW: p, panelCount: 1);
+  }
+
+  final Map<int, List<ModuleMeasurement>> byPanel = {};
+  for (final dm in measurements) {
+    if (dm.voltageV == null && dm.currentA == null && dm.powerW == null) {
+      continue;
+    }
+    int pIdx = (dm.panelIndex != null && dm.panelIndex! > 0)
+        ? dm.panelIndex!
+        : (module != null ? module.resolvePanelPosition(dm.xPositionCm).panelIndex : 1);
+    if (pIdx <= 0) pIdx = 1;
+    byPanel.putIfAbsent(pIdx, () => []).add(dm);
+  }
+
+  final peaks = <ModuleMeasurement>[];
+  for (final list in byPanel.values) {
+    final peak = pickPeak(list);
+    if (peak != null) peaks.add(peak);
+  }
+
+  if (peaks.isEmpty) {
+    if (fallbackMeasurement == null) return const ElectricalSummary();
+    final v = fallbackMeasurement.voltageV;
+    final i = fallbackMeasurement.currentA;
+    final p = fallbackMeasurement.powerW ?? (v != null && i != null ? v * i : null);
+    return ElectricalSummary(voltageV: v, currentA: i, powerW: p, panelCount: 1);
+  }
+
+  double sumV = 0, sumI = 0, sumP = 0;
+  int cntV = 0, cntI = 0, cntP = 0;
+  for (final pk in peaks) {
+    if (pk.voltageV != null) {
+      sumV += pk.voltageV!;
+      cntV++;
+    }
+    if (pk.currentA != null) {
+      sumI += pk.currentA!;
+      cntI++;
+    }
+    final pkPower = pk.powerW ??
+        ((pk.voltageV != null && pk.currentA != null)
+            ? pk.voltageV! * pk.currentA!
+            : null);
+    if (pkPower != null) {
+      sumP += pkPower;
+      cntP++;
+    }
+  }
+
+  return ElectricalSummary(
+    voltageV: cntV > 0 ? sumV / cntV : null,
+    currentA: cntI > 0 ? sumI / cntI : null,
+    powerW: cntP > 0 ? sumP / cntP : null,
+    panelCount: peaks.length,
+  );
+}
+
 /// Sorts measurements spatially by [ModuleMeasurement.xPositionCm] ascending.
 /// Tie-breaker 1: [ModuleMeasurement.measuredAt] ascending (parsed as DateTime, fallback to String).
 /// Tie-breaker 2: [ModuleMeasurement.id] ascending.

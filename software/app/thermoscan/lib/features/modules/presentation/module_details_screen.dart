@@ -2208,27 +2208,14 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       fallbackMeasurement: latestMeasurement,
     );
 
-    ModuleMeasurement? elecMeas = latestMeasurement;
-    if (elecMeas == null ||
-        (elecMeas.voltageV == null &&
-            elecMeas.currentA == null &&
-            elecMeas.powerW == null)) {
-      for (final dm in measurements) {
-        if (dm.voltageV != null || dm.currentA != null || dm.powerW != null) {
-          if (elecMeas == null ||
-              (dm.powerW ?? 0.0) > (elecMeas.powerW ?? 0.0) ||
-              ((dm.powerW ?? 0.0) == (elecMeas.powerW ?? 0.0) &&
-                  (dm.voltageV ?? 0.0) > (elecMeas.voltageV ?? 0.0))) {
-            elecMeas = dm;
-          }
-        }
-      }
-    }
-
-    final voltage = elecMeas?.voltageV;
-    final current = elecMeas?.currentA;
-    final power = elecMeas?.powerW ??
-        (voltage != null && current != null ? voltage * current : null);
+    final elecSummary = computeElectricalSummary(
+      measurements: measurements,
+      module: mod,
+      fallbackMeasurement: latestMeasurement,
+    );
+    final voltage = elecSummary.voltageV;
+    final current = elecSummary.currentA;
+    final power = elecSummary.powerW;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2278,7 +2265,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 value: (voltage == null && current == null)
                     ? 'N/A'
                     : '${voltage != null ? "${voltage.toStringAsFixed(3)} V" : "N/A"} · ${current != null ? "${(current * 1000).toStringAsFixed(1)} mA" : "N/A"}',
-                subtext: 'Array electrical output',
+                subtext: elecSummary.isMultiPanelAverage
+                    ? 'Avg of ${elecSummary.panelCount} panel peaks'
+                    : 'Array electrical output',
                 isWarning: false,
               ),
             ),
@@ -2287,9 +2276,11 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               child: _buildTelemetryMetricTile(
                 label: 'Active Power',
                 value: power != null ? '${power.toStringAsFixed(3)} W' : 'N/A',
-                subtext: (voltage != null && current != null)
-                    ? 'Calculated (V × I)'
-                    : 'Yield output',
+                subtext: elecSummary.isMultiPanelAverage
+                    ? 'Avg of panel peaks (V × I)'
+                    : ((voltage != null && current != null)
+                        ? 'Calculated (V × I)'
+                        : 'Yield output'),
                 isWarning: false,
                 valueColor: AppColors.primary,
               ),

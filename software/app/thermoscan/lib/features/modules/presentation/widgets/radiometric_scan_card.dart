@@ -378,27 +378,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         ? displayedMeasurements[_selectedFrameIndex!]
         : null;
 
-    // Determine the best stable electrical reading across displayed panel frames
-    ModuleMeasurement? bestElecMeas;
-    for (final dm in displayedMeasurements) {
-      if (dm.voltageV != null || dm.currentA != null || dm.powerW != null) {
-        if (bestElecMeas == null) {
-          bestElecMeas = dm;
-        } else {
-          final currP = dm.powerW ?? 0.0;
-          final bestP = bestElecMeas.powerW ?? 0.0;
-          if (currP > bestP ||
-              (currP == bestP && (dm.voltageV ?? 0.0) > (bestElecMeas.voltageV ?? 0.0))) {
-            bestElecMeas = dm;
-          }
-        }
-      }
-    }
-
-    final double? voltage = bestElecMeas?.voltageV ?? m?.voltageV;
-    final double? current = bestElecMeas?.currentA ?? m?.currentA;
-    final double? power = bestElecMeas?.powerW ??
-        (voltage != null && current != null ? voltage * current : m?.powerW);
+    final elecSummary = computeElectricalSummary(
+      measurements: displayedMeasurements,
+      module: widget.module,
+      focusedPanelIndex: _focusedPanelIndex,
+      fallbackMeasurement: m,
+    );
+    final double? voltage = elecSummary.voltageV;
+    final double? current = elecSummary.currentA;
+    final double? power = elecSummary.powerW;
     final double xPos = selectedMeas?.xPositionCm ??
         (displayedMeasurements.isNotEmpty
             ? displayedMeasurements.first.xPositionCm
@@ -1601,8 +1589,10 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       ? 'N/A'
                       : '${voltage != null ? "${voltage.toStringAsFixed(2)} V" : "N/A"} · ${current != null ? "${(current * 1000).toStringAsFixed(1)} mA" : "N/A"}',
                   subtext: _focusedPanelIndex != null
-                      ? 'Panel $_focusedPanelIndex output'
-                      : 'Panel electrical output',
+                      ? 'Panel $_focusedPanelIndex peak output'
+                      : (elecSummary.isMultiPanelAverage
+                          ? 'Avg of ${elecSummary.panelCount} panel peaks'
+                          : 'Array electrical output'),
                   isWarning: false,
                 ),
               ),
@@ -1615,9 +1605,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   value: power != null ? '${power.toStringAsFixed(2)} W' : 'N/A',
                   subtext: _focusedPanelIndex != null
                       ? 'Panel $_focusedPanelIndex peak yield'
-                      : ((voltage != null && current != null)
-                          ? 'Operational yield (V × I)'
-                          : 'Operational yield'),
+                      : (elecSummary.isMultiPanelAverage
+                          ? 'Avg of panel peaks (V × I)'
+                          : ((voltage != null && current != null)
+                              ? 'Operational yield (V × I)'
+                              : 'Operational yield')),
                   isWarning: false,
                   valueColor: AppColors.primary,
                 ),

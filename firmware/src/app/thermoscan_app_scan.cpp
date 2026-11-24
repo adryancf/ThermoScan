@@ -154,7 +154,28 @@ void ThermoscanApp::handleIdle() {
         return;
     }
 
-    // 3. Scheduled inspection evaluation
+    // 3. Resume pending cleaning queue items (e.g., retry after water depletion once refilled)
+    if (!cleaning_queue_.empty()) {
+        const bool water_ok = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
+        if (water_ok && checkSolarWindow()) {
+            bool can_resume = false;
+            for (const auto& qh : cleaning_queue_) {
+                if (qh.verification_status == "pending" &&
+                    qh.attempts < MAX_CLEANING_ATTEMPTS &&
+                    qh.baseline_temp_c <= MAX_BASE_TEMP_C) {
+                    can_resume = true;
+                    break;
+                }
+            }
+            if (can_resume) {
+                Serial.println(F("[APP] State transition: IDLE -> CLEANING (Resuming pending cleaning queue)"));
+                transitionTo(AppState::CLEANING);
+                return;
+            }
+        }
+    }
+
+    // 4. Scheduled inspection evaluation
     if (now > 0 && next_inspection_time_ > 0 && now >= next_inspection_time_) {
         if (checkSolarWindow()) {
             Serial.println(F("[APP] State transition: IDLE -> SCANNING (Starting scheduled inspection)"));

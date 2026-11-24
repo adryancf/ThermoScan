@@ -807,17 +807,17 @@ void test_return_to_idle_after_verification_triggers_pending_sync(void) {
     storage.state.baseline_temp_c = 25.0f;
 
     ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
-    time.epoch = spray_end + 50;
+    time.epoch = spray_end + 10;
     app.init();
 
-    // Trigger pending config during cooldown (at +350s)
-    time.epoch = spray_end + 350;
+    // Trigger pending config during cooldown (at +30s, before 60s POST_CLEANING_WAIT_SECONDS)
+    time.epoch = spray_end + 30;
     cloud.config_pending = true;
     app.tick();
     TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
     TEST_ASSERT_TRUE(app.isConfigUpdatePending());
 
-    // Advance past 1800s cooldown into valid solar window (~15:00 UTC in SP):
+    // Advance past cooldown into valid solar window (~15:00 UTC in SP):
     time.epoch = spray_end + 1850; // 1710946850
     app.tick(); // WAITING_VERIFICATION -> VERIFYING
     TEST_ASSERT_EQUAL(AppState::VERIFYING, app.getState());
@@ -1367,9 +1367,10 @@ void test_sd_backup_boot_recovery_analyzing_and_syncing(void) {
     MockTimeProvider time;
     MockBackupStorage backup;
 
-    // Case 1: Pending ANALYZING with .bin present and retries=0 -> resumes SCANNING to rebuild hotspots
+    // Case 1: Pending ANALYZING with .bin present, last_completed_panel=1 (realistic after scan completion) and retries=0 -> resets last_completed_panel to 0 and resumes SCANNING to rebuild hotspots
     storage.state.operation_status = "ANALYZING";
     storage.state.inspection_source_event_id = "insp-recover-analyzing";
+    storage.state.last_completed_panel = 1;
     storage.state.inspection_crash_retries = 0;
     backup.committed_bins["insp-recover-analyzing"] = 4;
 
@@ -1377,12 +1378,15 @@ void test_sd_backup_boot_recovery_analyzing_and_syncing(void) {
     TEST_ASSERT_TRUE(app1.init());
     TEST_ASSERT_EQUAL(1, backup.purge_calls);
     TEST_ASSERT_EQUAL(AppState::SCANNING, app1.getState());
+    TEST_ASSERT_EQUAL_UINT8(0, app1.getLastCompletedPanel());
     TEST_ASSERT_EQUAL_UINT8(1, app1.getInspectionCrashRetries());
 
-    app1.tick(); // SCANNING -> ANALYZING
+    app1.tick(); // SCANNING -> ANALYZING (actually re-scans panel 1)
     TEST_ASSERT_EQUAL(AppState::ANALYZING, app1.getState());
+    TEST_ASSERT_EQUAL(1, cloud.panel_results_submitted);
     app1.tick(); // ANALYZING -> SYNCING
     TEST_ASSERT_EQUAL(AppState::SYNCING, app1.getState());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_finalized);
     app1.tick(); // SYNCING -> IDLE (cleans up .bin)
     TEST_ASSERT_EQUAL(AppState::IDLE, app1.getState());
     TEST_ASSERT_FALSE(backup.hasScanBackup("insp-recover-analyzing"));
@@ -1872,6 +1876,82 @@ void test_telemetry_failure_aborts_and_persists_pending_abort_until_reconnect() 
     TEST_ASSERT_TRUE(found_abort_synced);
 }
 
+void test_idle_resumes_pending_cleaning_queue_when_water_refilled(void) {
+    class DepletingWaterSensor : public MockWaterSensor {
+    public:
+        int checks_before_depletion{0};
+        bool isWaterAvailable() override {
+            if (checks_before_depletion > 0) {
+                checks_before_depletion--;
+                if (checks_before_depletion == 0) {
+                    available = false;
+                }
+            }
+            return available;
+        }
+    };
+
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    DepletingWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    motion.camera = &cam;
+    storage.panel_cnt = 1;
+    storage.panel_len = 20.0f;
+    storage.min_solar = 0.0f; // Ensure solar window is always open
+    time.epoch = 1710945000;  // SP daytime (~14:30 UTC) so solar elevation > 0 even after +1805s cooldown
+    cam.hotspots.push_back({10.5f, 12});
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    TEST_ASSERT_TRUE(app.init());
+
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    app.tick(); // SCANNING -> ANALYZING
+    app.tick(); // ANALYZING -> CLEANING
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+    TEST_ASSERT_EQUAL(1, static_cast<int>(app.getCleaningQueue().size()));
+    const float detected_target_x = app.getCleaningQueue()[0].target_x_cm;
+    cam.hotspots[0].first = detected_target_x + 0.5f; // ensure verification at x1=detected_target_x sees the hotspot within [x1, x1+5.0)
+
+    // Allow pre-spray checks to pass, then deplete mid-spray
+    water.available = true;
+    water.checks_before_depletion = 3;
+    app.tick(); // CLEANING (interrupted mid-spray) -> WAITING_VERIFICATION
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    TEST_ASSERT_FALSE(water.available);
+    TEST_ASSERT_EQUAL_STRING("failed", cloud.last_cleaning_report.status.c_str());
+
+    // Advance past cooldown; hotspot still present
+    time.epoch += POST_CLEANING_WAIT_SECONDS + 5;
+    app.tick(); // WAITING_VERIFICATION -> VERIFYING
+    TEST_ASSERT_EQUAL(AppState::VERIFYING, app.getState());
+
+    app.tick(); // VERIFYING -> IDLE (retains pending item in cleaning_queue_ for retry)
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL(1, static_cast<int>(app.getCleaningQueue().size()));
+    TEST_ASSERT_EQUAL_STRING("pending", app.getCleaningQueue()[0].verification_status.c_str());
+
+    // While water is still depleted, ticking in IDLE must remain in IDLE
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    // Refill water -> next tick in IDLE must resume CLEANING automatically
+    water.available = true;
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+
+    // Execute retry spray to completion
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    TEST_ASSERT_EQUAL_STRING("completed", cloud.last_cleaning_report.status.c_str());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1913,5 +1993,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_nvs_restores_full_config_including_solar_interval_location_and_threshold);
     RUN_TEST(test_scan_flushes_residual_batch_when_last_frame_fails);
     RUN_TEST(test_telemetry_failure_aborts_and_persists_pending_abort_until_reconnect);
+    RUN_TEST(test_idle_resumes_pending_cleaning_queue_when_water_refilled);
     return UNITY_END();
 }

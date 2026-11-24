@@ -247,11 +247,17 @@ void ThermoscanApp::handleBootInit() {
         if (has_backup && inspection_crash_retries_ < 2) {
             inspection_crash_retries_++;
             pending_sync_backup_id_ = inspection_source_event_id_;
-            // ANALYZING requires in-RAM all_confirmed_hotspots_, so re-scan from SCANNING;
-            // SYNCING only needs pending_sync_backup_id_ cleanup.
-            transitionTo((restored_operation_status_ == "ANALYZING")
-                             ? AppState::SCANNING
-                             : AppState::SYNCING);
+            // ANALYZING requires in-RAM all_confirmed_hotspots_, so reset last_completed_panel_ to 0
+            // and re-scan from SCANNING; SYNCING only needs pending_sync_backup_id_ cleanup.
+            if (restored_operation_status_ == "ANALYZING") {
+                last_completed_panel_ = 0;
+                if (storage_ != nullptr) {
+                    storage_->saveInspectionProgress(inspection_source_event_id_, 0, inspection_crash_retries_);
+                }
+                transitionTo(AppState::SCANNING);
+            } else {
+                transitionTo(AppState::SYNCING);
+            }
             saveCurrentStateToNvs();
             Serial.printf("[APP] Recovering pending %s for inspection ID %s from SD backup (crash retry %u)\n",
                           restored_operation_status_.c_str(),

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"backend/internal/auth"
-	"backend/internal/db"
 )
 
 func (s *Service) ListActiveAlerts(ctx context.Context, principal auth.Principal) (*AlertsSummaryDTO, error) {
@@ -32,15 +31,8 @@ func (s *Service) ListActiveAlerts(ctx context.Context, principal auth.Principal
 	warningCount := 0
 
 	for _, a := range anoms {
-		if principal.Role == auth.RoleTechnician && a.InstallerTechnicianID.Bytes != principal.ID.Bytes {
-			acc, err := s.queries.GetModuleTechnicianAccess(ctx, db.GetModuleTechnicianAccessParams{
-				CompanyID:    principal.CompanyID,
-				ModuleID:     a.ModuleID,
-				TechnicianID: principal.ID,
-			})
-			if err != nil || !acc.CanView {
-				continue
-			}
+		if _, _, err := s.resolveUserModuleRelationship(ctx, s.queries, principal, a.ModuleID, a.InstallerTechnicianID); err != nil {
+			continue
 		}
 
 		maxT, _ := strconv.ParseFloat(a.MaxTemperatureC, 64)
@@ -123,15 +115,8 @@ func (s *Service) ListActiveAlerts(ctx context.Context, principal auth.Principal
 	}
 
 	for _, w := range waterWarnings {
-		if principal.Role == auth.RoleTechnician && w.InstallerTechnicianID.Bytes != principal.ID.Bytes {
-			acc, err := s.queries.GetModuleTechnicianAccess(ctx, db.GetModuleTechnicianAccessParams{
-				CompanyID:    principal.CompanyID,
-				ModuleID:     w.ModuleID,
-				TechnicianID: principal.ID,
-			})
-			if err != nil || !acc.CanView {
-				continue
-			}
+		if _, _, err := s.resolveUserModuleRelationship(ctx, s.queries, principal, w.ModuleID, w.InstallerTechnicianID); err != nil {
+			continue
 		}
 
 		warningCount++

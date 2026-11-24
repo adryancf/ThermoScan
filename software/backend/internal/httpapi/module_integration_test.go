@@ -1207,6 +1207,65 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 	if alertsResp.Total == 0 {
 		t.Fatalf("expected active alerts from open anomaly, got 0")
 	}
+
+	// Verify assigned Client 1 CAN see modCreated's alerts
+	rec = doJSON(http.MethodGet, "/api/v1/alerts", client1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing alerts for assigned client, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var clientAssignedAlerts struct {
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &clientAssignedAlerts); err != nil {
+		t.Fatalf("failed to decode assigned client alerts: %v", err)
+	}
+	if clientAssignedAlerts.Total == 0 {
+		t.Fatalf("expected active alerts for assigned client, got 0")
+	}
+
+	// Unassign Client 1 from modCreated and verify Client 1 no longer sees modCreated's alerts
+	rec = doJSON(http.MethodPut, "/api/v1/modules/"+modCreated.Module.ID+"/clients", mgrAAuth.AccessToken, map[string]any{
+		"client_ids": []string{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 unassigning Client 1, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodGet, "/api/v1/alerts", client1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing alerts for unassigned client, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var clientUnassignedAlerts struct {
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &clientUnassignedAlerts); err != nil {
+		t.Fatalf("failed to decode unassigned client alerts: %v", err)
+	}
+	if clientUnassignedAlerts.Total != 0 {
+		t.Fatalf("expected 0 active alerts for unassigned client, got %d", clientUnassignedAlerts.Total)
+	}
+
+	// Verify that when Manager revokes installer Tech 1's access (can_view=false), Tech 1 no longer sees modCreated's alerts
+	rec = doJSON(http.MethodPut, "/api/v1/modules/"+modCreated.Module.ID+"/technicians/"+tech1Res.User.ID, mgrAAuth.AccessToken, map[string]any{
+		"can_view": false,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 revoking installer tech1 view access, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodGet, "/api/v1/alerts", tech1Auth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing alerts for revoked installer tech1, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var revokedTechAlerts struct {
+		Total int `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &revokedTechAlerts); err != nil {
+		t.Fatalf("failed to decode revoked tech1 alerts: %v", err)
+	}
+	if revokedTechAlerts.Total != 0 {
+		t.Fatalf("expected 0 active alerts for revoked installer tech1, got %d", revokedTechAlerts.Total)
+	}
 }
 
 func TestModuleDefinitiveDeletionRedesign(t *testing.T) {

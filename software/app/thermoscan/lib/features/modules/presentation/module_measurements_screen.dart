@@ -941,6 +941,21 @@ class _ModuleMeasurementsScreenState
     final isDeltaElevated =
         deltaT != null && deltaT >= (mod?.hotspotThresholdDeltaC ?? 8.0);
 
+    final panelElectricalRows =
+        <({int panelIndex, ElectricalSummary summary})>[];
+    for (final p in sortedPanels) {
+      final pSummary = computeElectricalSummary(
+        measurements: byPanel[p]!,
+        module: mod,
+        focusedPanelIndex: p,
+      );
+      if (pSummary.voltageV != null ||
+          pSummary.currentA != null ||
+          pSummary.powerW != null) {
+        panelElectricalRows.add((panelIndex: p, summary: pSummary));
+      }
+    }
+
     final showNestedPostCleaning = bundle != null &&
         (bundle.hasPostCleaning ||
             bundle.hotspotSummaries
@@ -1074,39 +1089,108 @@ class _ModuleMeasurementsScreenState
                 color: AppColors.border.withValues(alpha: 0.65),
               ),
             ),
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: _buildCompactMetricCell(
-                    label: 'Peak',
-                    value: peakValueStr,
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildCompactMetricCell(
+                        label: 'Peak',
+                        value: peakValueStr,
+                      ),
+                    ),
+                    Container(
+                      width: 1,
+                      height: 24,
+                      color: AppColors.border,
+                    ),
+                    Expanded(
+                      child: _buildCompactMetricCell(
+                        label: 'Max Δ',
+                        value: deltaValueStr,
+                        valueColor: isDeltaElevated
+                            ? AppColors.error
+                            : AppColors.textPrimary,
+                      ),
+                    ),
+                    Container(
+                      width: 1,
+                      height: 24,
+                      color: AppColors.border,
+                    ),
+                    Expanded(
+                      child: _buildCompactMetricCell(
+                        label: 'Baseline',
+                        value: baselineValueStr,
+                      ),
+                    ),
+                  ],
+                ),
+                if (panelElectricalRows.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 7),
+                    child: Divider(
+                      height: 1,
+                      color: AppColors.border.withValues(alpha: 0.7),
+                    ),
                   ),
-                ),
-                Container(
-                  width: 1,
-                  height: 24,
-                  color: AppColors.border,
-                ),
-                Expanded(
-                  child: _buildCompactMetricCell(
-                    label: 'Max Δ',
-                    value: deltaValueStr,
-                    valueColor: isDeltaElevated
-                        ? AppColors.error
-                        : AppColors.textPrimary,
-                  ),
-                ),
-                Container(
-                  width: 1,
-                  height: 24,
-                  color: AppColors.border,
-                ),
-                Expanded(
-                  child: _buildCompactMetricCell(
-                    label: 'Baseline',
-                    value: baselineValueStr,
-                  ),
-                ),
+                  ...panelElectricalRows.map((entry) {
+                    final s = entry.summary;
+                    final vStr = s.voltageV != null
+                        ? '${s.voltageV!.toStringAsFixed(2)} V'
+                        : 'N/A';
+                    final iStr = s.currentA != null
+                        ? '${(s.currentA! * 1000).toStringAsFixed(0)} mA'
+                        : 'N/A';
+                    final pStr = s.powerW != null
+                        ? '${s.powerW!.toStringAsFixed(2)} W'
+                        : 'N/A';
+                    final showPanelTag =
+                        panelElectricalRows.length > 1 || count > 1;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 1.5),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.bolt_rounded,
+                            size: 13,
+                            color: AppColors.primary.withValues(alpha: 0.85),
+                          ),
+                          const SizedBox(width: 4),
+                          if (showPanelTag) ...[
+                            Text(
+                              'P${entry.panelIndex}',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: Text(
+                              '$vStr · $iStr',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 11,
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            pStr,
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 11.5,
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
               ],
             ),
           ),
@@ -1277,88 +1361,157 @@ class _ModuleMeasurementsScreenState
       outcomeBorder = AppColors.warningBorder;
     }
 
+    List<Widget> buildSummaryRows() => summaries.map((s) {
+          final pIdx =
+              (s.anomaly.panelIndex != null && s.anomaly.panelIndex! > 0)
+                  ? s.anomaly.panelIndex!
+                  : 1;
+          final tempStr = s.afterTempC != null
+              ? '${s.beforeTempC.toStringAsFixed(1)} °C → ${s.afterTempC!.toStringAsFixed(1)} °C'
+              : '${s.beforeTempC.toStringAsFixed(1)} °C';
+          final itemStatus = s.isResolved
+              ? 'Resolved'
+              : (s.isResolvedLater
+                  ? 'Cleared in Later Scan'
+                  : (s.isUnresolved ? 'Unresolved' : 'Pending'));
+          return Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              'P$pIdx · X = ${s.anomaly.xPositionCm.toStringAsFixed(1)} cm: $tempStr · $itemStatus',
+              style: AppTypography.caption.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 10.5,
+              ),
+            ),
+          );
+        }).toList();
+
+    final bool collapseSummaries = summaries.length > 2;
+
     return Container(
       key: Key('nested_post_cleaning_${bundle.routineInspection.id}'),
       margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(10),
+      padding: EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: collapseSummaries ? 4 : 10,
+      ),
       decoration: BoxDecoration(
         color: AppColors.background,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: outcomeBorder.withValues(alpha: 0.6)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                onlyClearedLater
-                    ? Icons.verified_outlined
-                    : (allCleared
-                        ? Icons.auto_fix_high_rounded
-                        : Icons.warning_amber_rounded),
-                size: 15,
-                color: outcomeColor,
+      child: collapseSummaries
+          ? Theme(
+              data: Theme.of(context).copyWith(
+                dividerColor: Colors.transparent,
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Post-Cleaning Verification',
-                  style: AppTypography.caption.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                    fontSize: 11.5,
+              child: Material(
+                type: MaterialType.transparency,
+                child: ExpansionTile(
+                  key: Key(
+                    'nested_post_cleaning_tile_${bundle.routineInspection.id}',
                   ),
-                ),
-              ),
-              Text(
-                outcomeLabel,
-                style: AppTypography.caption.copyWith(
-                  color: outcomeColor,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 10.5,
-                ),
-              ),
-            ],
-          ),
-          if (summaries.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            ...summaries.map((s) {
-              final pIdx = (s.anomaly.panelIndex != null &&
-                      s.anomaly.panelIndex! > 0)
-                  ? s.anomaly.panelIndex!
-                  : 1;
-              final tempStr = s.afterTempC != null
-                  ? '${s.beforeTempC.toStringAsFixed(1)} °C → ${s.afterTempC!.toStringAsFixed(1)} °C'
-                  : '${s.beforeTempC.toStringAsFixed(1)} °C';
-              final itemStatus = s.isResolved
-                  ? 'Resolved'
-                  : (s.isResolvedLater
-                      ? 'Cleared in Later Scan'
-                      : (s.isUnresolved ? 'Unresolved' : 'Pending'));
-              return Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text(
-                  'P$pIdx · X = ${s.anomaly.xPositionCm.toStringAsFixed(1)} cm: $tempStr · $itemStatus',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 10,
+                  initiallyExpanded: false,
+                  dense: true,
+                  visualDensity: const VisualDensity(vertical: -4),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(top: 4, bottom: 6),
+                  title: Row(
+                    children: [
+                      Icon(
+                        onlyClearedLater
+                            ? Icons.verified_outlined
+                            : (allCleared
+                                ? Icons.auto_fix_high_rounded
+                                : Icons.warning_amber_rounded),
+                        size: 15,
+                        color: outcomeColor,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Post-Cleaning · ${summaries.length} hotspots',
+                          style: AppTypography.caption.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                            fontSize: 11.5,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        outcomeLabel,
+                        style: AppTypography.caption.copyWith(
+                          color: outcomeColor,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 10.5,
+                        ),
+                      ),
+                    ],
                   ),
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: buildSummaryRows(),
+                      ),
+                    ),
+                  ],
                 ),
-              );
-            }),
-          ] else if (firstVerif != null || verifMeas.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              '${verifMeas.length} verification frame(s) recorded',
-              style: AppTypography.caption.copyWith(
-                color: AppColors.textSecondary,
-                fontSize: 10,
               ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      onlyClearedLater
+                          ? Icons.verified_outlined
+                          : (allCleared
+                              ? Icons.auto_fix_high_rounded
+                              : Icons.warning_amber_rounded),
+                      size: 15,
+                      color: outcomeColor,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Post-Cleaning Verification',
+                        style: AppTypography.caption.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                          fontSize: 11.5,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      outcomeLabel,
+                      style: AppTypography.caption.copyWith(
+                        color: outcomeColor,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10.5,
+                      ),
+                    ),
+                  ],
+                ),
+                if (summaries.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  ...buildSummaryRows(),
+                ] else if (firstVerif != null || verifMeas.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '${verifMeas.length} verification frame(s) recorded',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 10,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-        ],
-      ),
     );
   }
 

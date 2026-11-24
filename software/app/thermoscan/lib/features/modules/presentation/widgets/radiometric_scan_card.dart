@@ -53,6 +53,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
   late bool _isAdvancedExpanded;
   bool _isProfileCurveExpanded = false;
   bool _isHotspotSummaryExpanded = false;
+  bool _isVerdictListExpanded = false;
   int _timelineFrameIndex = 0;
   bool _timelineInitialized = false;
   int? _lastFramesCount;
@@ -2183,6 +2184,50 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       icon = Icons.hourglass_top_rounded;
     }
 
+    final bool isCollapsible = total > 2;
+    final bool showRows = !isCollapsible || _isVerdictListExpanded;
+
+    final headerRow = Row(
+      children: [
+        Icon(icon, size: 16, color: accent),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            title,
+            style: AppTypography.caption.copyWith(
+              color: accent,
+              fontWeight: FontWeight.w800,
+              fontSize: 11.5,
+            ),
+          ),
+        ),
+        if (isCollapsible) ...[
+          const SizedBox(width: 6),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _isVerdictListExpanded ? 'Hide' : 'Show $total',
+                style: AppTypography.caption.copyWith(
+                  color: accent,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 10.5,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(
+                _isVerdictListExpanded
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                size: 16,
+                color: accent,
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+
     return Container(
       key: const Key('post_cleaning_verdict_banner'),
       width: double.infinity,
@@ -2195,24 +2240,25 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(icon, size: 16, color: accent),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTypography.caption.copyWith(
-                    color: accent,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 11.5,
-                  ),
-                ),
+          if (isCollapsible)
+            InkWell(
+              key: const Key('toggle_verdict_hotspot_list'),
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                setState(() {
+                  _isVerdictListExpanded = !_isVerdictListExpanded;
+                });
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: headerRow,
               ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ...summaries.asMap().entries.map((entry) {
+            )
+          else
+            headerRow,
+          if (showRows) ...[
+            const SizedBox(height: 6),
+            ...summaries.asMap().entries.map((entry) {
             final idx = entry.key;
             final s = entry.value;
             final pIdx = (s.anomaly.panelIndex != null &&
@@ -2342,7 +2388,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                 ),
               ),
             );
-          }),
+            }),
+          ],
         ],
       ),
     );

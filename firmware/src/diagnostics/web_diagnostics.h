@@ -166,6 +166,10 @@ public:
         preloaded_input_ = input;
     }
 
+    void setBufferingEnabled(bool enabled) override {
+        buffering_enabled_ = enabled;
+    }
+
     const std::string& getOutput() const {
         return buffer_;
     }
@@ -235,7 +239,7 @@ public:
 
 private:
     void appendBuffer(const char* s) {
-        if (!s) return;
+        if (!s || !buffering_enabled_) return;
         if (buffer_.length() < 32768) {
             buffer_.append(s);
         }
@@ -244,6 +248,7 @@ private:
     Stream& stream_;
     std::string buffer_;
     std::string preloaded_input_;
+    bool buffering_enabled_{true};
 };
 
 // ============================================================================

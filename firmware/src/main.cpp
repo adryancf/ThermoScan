@@ -19,15 +19,15 @@
 
 // WiFi Configuration (overridable via compiler build flags)
 #ifndef WIFI_SSID
-#define WIFI_SSID "GalaxyS"
+#define WIFI_SSID "REDE_THERMOSCAN"
 #endif
 
 #ifndef WIFI_PASSWORD
-#define WIFI_PASSWORD "acf12345"
+#define WIFI_PASSWORD "thermoscan"
 #endif
 
 #ifndef BACKEND_URL
-#define BACKEND_URL "https://api-thermoscan.realan.space"
+#define BACKEND_URL "http://192.168.0.100:8080"
 #endif
 
 // loop() runs scans, MLX90640 capture (I2C) and HTTPS on this task. The default 8 KB stack
@@ -77,6 +77,31 @@ static diagnostics::WebDiagnosticsServer g_web_server(&g_diagnostics, &g_console
 // Track whether Wi-Fi-dependent services (SNTP + WebServer) have been initialized
 static bool g_wifi_services_started = false;
 static unsigned long g_last_wifi_check_ms = 0;
+
+/**
+ * @brief Non-blocking status LED pattern driver:
+ *  - BOOT_INIT (setup): solid ON
+ *  - ERROR_HALT:        5 Hz fast blink (100 ms ON / 100 ms OFF)
+ *  - Wi-Fi offline:     double pulse every 2 s (100 ms ON, 150 ms OFF, 100 ms ON)
+ *  - Active cycle:      1 Hz blink (500 ms ON / 500 ms OFF)
+ *  - Healthy IDLE:      heartbeat (100 ms ON every 3 s)
+ */
+static void updateStatusLed(unsigned long now_ms) {
+    bool led_on = false;
+
+    if (g_app.getState() == app::AppState::ERROR_HALT) {
+        led_on = ((now_ms % 200UL) < 100UL);
+    } else if (WiFi.status() != WL_CONNECTED) {
+        const unsigned long phase = now_ms % 2000UL;
+        led_on = (phase < 100UL) || (phase >= 250UL && phase < 350UL);
+    } else if (g_app.getState() != app::AppState::IDLE) {
+        led_on = ((now_ms % 1000UL) < 500UL);
+    } else {
+        led_on = ((now_ms % 3000UL) < 100UL);
+    }
+
+    digitalWrite(STATUS_LED_PIN, led_on ? HIGH : LOW);
+}
 
 void setup() {
     g_dual_serial.begin(115200);
@@ -209,6 +234,7 @@ void loop() {
     }
 
     g_app.tick();
+    updateStatusLed(millis());
     delay(20); // FreeRTOS yield
 }
 

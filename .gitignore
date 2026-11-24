@@ -5,4 +5,5 @@ dist/
 *.apk
 software/backend/bin/
 bin/
+docker-compose.local.yml
 

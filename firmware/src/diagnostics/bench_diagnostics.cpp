@@ -394,6 +394,9 @@ TestResult BenchDiagnostics::testMlx(bool watch, bool stream) {
     if (stream) {
         static ThermalFrame frame;
         char num_buf[16];
+        if (console_) {
+            console_->setBufferingEnabled(false);
+        }
         while (console_ && !console_->available()) {
             if (camera_->captureFrame(frame) && frame.valid) {
                 console_->print("FRAME");
@@ -406,6 +409,7 @@ TestResult BenchDiagnostics::testMlx(bool watch, bool stream) {
             delayMs(20);
         }
         if (console_) {
+            console_->setBufferingEnabled(true);
             while (console_->available()) console_->read(); // consume key
         }
         r.status = TestStatus::PASS;

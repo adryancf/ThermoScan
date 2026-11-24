@@ -105,11 +105,11 @@ static inline uint8_t getInaAddressForPanel(uint8_t panel_index) {
 // Physical logic: 0 (LOW) when pressed, 1 (HIGH) at rest
 // ----------------------------------------------------------------------------
 #ifndef PIN_STEPPER_LIMIT_MIN
-#define PIN_STEPPER_LIMIT_MIN 35  // Start limit switch (Start X = 0 cm)
+#define PIN_STEPPER_LIMIT_MIN 34  // Start limit switch (Start X = 0 cm)
 #endif
 
 #ifndef PIN_STEPPER_LIMIT_MAX
-#define PIN_STEPPER_LIMIT_MAX 34  // End limit switch (End X = X_max)
+#define PIN_STEPPER_LIMIT_MAX 35  // End limit switch (End X = X_max)
 #endif
 
 // Backward compatibility alias
@@ -161,19 +161,19 @@ constexpr uint8_t STATUS_LED_PIN          = PIN_STATUS_LED;
 // SPI SD Card Module Pins (ESP32 VSPI defaults)
 // ----------------------------------------------------------------------------
 #ifndef PIN_SD_CS
-#define PIN_SD_CS 5     // Chip Select (CS / SS)
+#define PIN_SD_CS 14     // Chip Select (CS / SS)
 #endif
 
 #ifndef PIN_SD_MOSI
-#define PIN_SD_MOSI 23  // Master Out Slave In (MOSI)
+#define PIN_SD_MOSI 27  // Master Out Slave In (MOSI)
 #endif
 
 #ifndef PIN_SD_MISO
-#define PIN_SD_MISO 19  // Master In Slave Out (MISO)
+#define PIN_SD_MISO 25  // Master In Slave Out (MISO)
 #endif
 
 #ifndef PIN_SD_SCK
-#define PIN_SD_SCK 18   // Serial Clock (SCK)
+#define PIN_SD_SCK 26   // Serial Clock (SCK)
 #endif
 
 constexpr uint8_t SD_CS_PIN   = PIN_SD_CS;

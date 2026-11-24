@@ -35,7 +35,7 @@ constexpr float CRITICAL_HOTSPOT_MAX_TEMP_C   = 65.0f;    // Critical hotspot ab
 constexpr uint32_t MAX_CLEANING_ATTEMPTS      = 3;        // Maximum consecutive spray cleaning attempts per anomaly
 
 #ifndef POST_CLEANING_WAIT_SECONDS
-#define POST_CLEANING_WAIT_SECONDS 1800
+#define POST_CLEANING_WAIT_SECONDS 60
 #endif
 
 #ifndef DEMO_BYPASS_SOLAR_WINDOW

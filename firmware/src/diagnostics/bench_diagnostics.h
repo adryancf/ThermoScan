@@ -58,6 +58,7 @@ public:
     virtual bool available() = 0;
     virtual int read() = 0;
     virtual std::string readLine(uint32_t timeout_ms = 10000) = 0;
+    virtual void setBufferingEnabled(bool /*enabled*/) {}
 };
 
 #if defined(ARDUINO) || defined(ESP32)

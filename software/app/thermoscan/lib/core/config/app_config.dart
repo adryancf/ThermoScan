@@ -17,9 +17,9 @@ class AppConfig {
       return _envBaseUrl.trim();
     }
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-      return 'https://api-thermoscan.realan.space/api/v1';
+      return 'http://192.168.0.100:8080/api/v1';
     }
-    return 'https://api-thermoscan.realan.space/api/v1';
+    return 'http://192.168.0.100:8080/api/v1';
   }
 
   static String get apiBaseUrl =>

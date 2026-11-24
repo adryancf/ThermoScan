@@ -17,11 +17,13 @@ ifneq (,$(wildcard $(ENV_FILE)))
 endif
 
 # Fallbacks if not set in .env
-DATABASE_URL ?= postgres://thermoscan:thermoscan@localhost:5432/thermoscan?sslmode=disable
+POSTGRES_USER ?= thermoscan
+POSTGRES_DB ?= thermoscan
+DATABASE_URL ?= postgres://$(POSTGRES_USER):thermoscan@localhost:5432/$(POSTGRES_DB)?sslmode=disable
 API_PORT ?= 8080
 JWT_SECRET ?= dev-thermoscan-jwt-secret-9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c
 
-.PHONY: help build run dev test clean docker-up docker-down docker-logs db-up reset-admin
+.PHONY: help build run dev test clean docker-up docker-down docker-logs local-up local-down local-logs db-up db-clean db-seed db-reset reset-admin
 
 help: ## Exibe a lista de comandos disponíveis
 	@echo "=================================================="
@@ -60,6 +62,20 @@ db-clean: ## Limpa todos os dados operacionais e empresas do banco, preservando 
 	fi
 	@echo "==> Banco limpo com sucesso! Apenas a conta de System Admin foi mantida."
 
+db-seed: ## Popula o banco com empresa e usuários de teste (manager/tech/client@test.local, senha teste123)
+	@echo "==> Populando banco com usuários de teste..."
+	@if docker ps --format '{{.Names}}' | grep -q '^thermoscan-db$$'; then \
+		docker exec -i thermoscan-db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) < ./db/seed_local.sql; \
+	elif command -v psql >/dev/null 2>&1; then \
+		psql "$(DATABASE_URL)" < ./db/seed_local.sql; \
+	else \
+		echo "Erro: Contêiner thermoscan-db não está rodando e psql local não foi encontrado."; \
+		exit 1; \
+	fi
+	@echo "==> Usuários de teste criados: manager@test.local, tech@test.local, client@test.local (senha: teste123)"
+
+db-reset: db-clean db-seed ## Limpa o banco (mantendo System Admin) e recria os usuários de teste
+
 docker-up: ## Sobe toda a stack (PostgreSQL + API Go) via Docker Compose
 	@echo "==> Subindo stack backend via Docker Compose..."
 	@docker compose -f ../compose.yaml up -d --build
@@ -70,6 +86,17 @@ docker-down: ## Para todos os contêineres Docker do backend
 
 docker-logs: ## Acompanha os logs dos contêineres Docker
 	@docker compose -f ../compose.yaml logs -f
+
+local-up: ## Sobe banco + API expostos na rede local (porta 8080) via docker-compose.local.yml
+	@echo "==> Subindo stack local (PostgreSQL + API Go na porta 8080)..."
+	@docker compose -f ../../docker-compose.yml -f ../../docker-compose.local.yml up -d --build --remove-orphans
+
+local-down: ## Para os contêineres da stack local
+	@echo "==> Parando stack local..."
+	@docker compose -f ../../docker-compose.yml -f ../../docker-compose.local.yml down
+
+local-logs: ## Acompanha os logs da stack local
+	@docker compose -f ../../docker-compose.yml -f ../../docker-compose.local.yml logs -f
 
 test: ## Executa todos os testes do backend Go
 	@echo "==> Executando testes..."

@@ -396,8 +396,46 @@ TestResult BenchDiagnostics::testMlx(bool watch, bool stream) {
         char num_buf[16];
         if (console_) {
             console_->setBufferingEnabled(false);
+            snprintf(num_buf, sizeof(num_buf), "TILT,%.1f", camera_->getTiltAngle());
+            console_->println(num_buf);
         }
-        while (console_ && !console_->available()) {
+        std::string cmd_buf;
+        bool running = true;
+        while (console_ && running) {
+            while (console_->available()) {
+                int ch = console_->read();
+                if (ch < 0) break;
+                char c = static_cast<char>(ch);
+                if (c == '\r') continue;
+                if (c == '\n') {
+                    if (cmd_buf == "q" || cmd_buf == "Q" || cmd_buf == "quit" || cmd_buf == "exit") {
+                        running = false;
+                        break;
+                    }
+                    if (!cmd_buf.empty() && (cmd_buf[0] == 'T' || cmd_buf[0] == 't')) {
+                        char* endptr = nullptr;
+                        float angle = strtof(cmd_buf.c_str() + 1, &endptr);
+                        if (endptr != cmd_buf.c_str() + 1) {
+                            if (angle < 0.0f) angle = 0.0f;
+                            if (angle > 180.0f) angle = 180.0f;
+                            camera_->setTiltAngle(angle);
+                            snprintf(num_buf, sizeof(num_buf), "TILT,%.1f", angle);
+                            console_->println(num_buf);
+                        }
+                    }
+                    cmd_buf.clear();
+                } else {
+                    if (cmd_buf.empty() && (c == 'q' || c == 'Q')) {
+                        running = false;
+                        break;
+                    }
+                    if (cmd_buf.size() < 32) {
+                        cmd_buf.push_back(c);
+                    }
+                }
+            }
+            if (!running) break;
+
             if (camera_->captureFrame(frame) && frame.valid) {
                 console_->print("FRAME");
                 for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
@@ -410,7 +448,7 @@ TestResult BenchDiagnostics::testMlx(bool watch, bool stream) {
         }
         if (console_) {
             console_->setBufferingEnabled(true);
-            while (console_->available()) console_->read(); // consume key
+            while (console_->available()) console_->read(); // consume remaining bytes
         }
         r.status = TestStatus::PASS;
         r.details = "Modo interativo stream executado.";

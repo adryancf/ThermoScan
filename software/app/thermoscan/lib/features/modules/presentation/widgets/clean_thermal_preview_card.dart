@@ -87,10 +87,10 @@ class CleanThermalPreviewCard extends StatelessWidget {
     final bool isHotspotResolved = postCleaningResult == 'resolved';
 
     final effectiveMeasurements = hasPostCleaning
-        ? deduplicateMeasurementsSpatially([
-            ...rawMeasurements,
-            ...verifMeas,
-          ])
+        ? fuseRoutineWithVerificationMeasurements(
+            routineMeasurements: rawMeasurements,
+            verificationMeasurements: verifMeas,
+          )
         : rawMeasurements;
 
     final isInspScheduled = insp?.inspection.status == 'scheduled';
@@ -99,7 +99,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
         : (fallbackConfirmedAnomalies ?? insp?.confirmedAnomalies ?? const []);
     final confirmedAnomalies = (hasPostCleaning && isHotspotResolved)
         ? const <ConfirmedAnomaly>[]
-        : rawAnomalies;
+        : rawAnomalies.where((a) => !a.isCleared).toList();
     final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
 
     final double? baselineTemp = (!isInspScheduled && insp != null && insp.inspection.baselineTemperatureC != null)

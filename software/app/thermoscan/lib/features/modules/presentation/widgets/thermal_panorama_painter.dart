@@ -84,6 +84,48 @@ List<ModuleMeasurement> deduplicateMeasurementsSpatially(
   return deduplicated;
 }
 
+/// Fuses pre-cleaning [routineMeasurements] with post-cleaning
+/// [verificationMeasurements] using the sensor's optical half-FOV window
+/// ([replacementWindowCm], default `2.5` cm).
+///
+/// Any routine frame on the same panel whose [ModuleMeasurement.xPositionCm]
+/// falls within `±replacementWindowCm` of any verification frame is replaced
+/// by the verification frames, and the combined list is sorted spatially.
+List<ModuleMeasurement> fuseRoutineWithVerificationMeasurements({
+  required List<ModuleMeasurement> routineMeasurements,
+  required List<ModuleMeasurement> verificationMeasurements,
+  double replacementWindowCm = 2.5,
+}) {
+  if (verificationMeasurements.isEmpty) {
+    return sortMeasurementsSpatially(routineMeasurements);
+  }
+  final dedupedVerifs = deduplicateMeasurementsSpatially(
+    verificationMeasurements,
+  );
+  if (routineMeasurements.isEmpty) {
+    return dedupedVerifs;
+  }
+
+  final filteredRoutine = routineMeasurements.where((routineFrame) {
+    final isReplaced = dedupedVerifs.any((verifFrame) {
+      final samePanel = routineFrame.panelIndex == null ||
+          routineFrame.panelIndex! <= 0 ||
+          verifFrame.panelIndex == null ||
+          verifFrame.panelIndex! <= 0 ||
+          routineFrame.panelIndex == verifFrame.panelIndex;
+      if (!samePanel) return false;
+      return (routineFrame.xPositionCm - verifFrame.xPositionCm).abs() <=
+          replacementWindowCm;
+    });
+    return !isReplaced;
+  });
+
+  return sortMeasurementsSpatially([
+    ...filteredRoutine,
+    ...dedupedVerifs,
+  ]);
+}
+
 /// Filters [measurements] to strictly contain only the frames belonging to the
 /// current/latest inspection.
 ///

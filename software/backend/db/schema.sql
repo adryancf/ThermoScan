@@ -241,7 +241,7 @@ CREATE TABLE anomaly_events (
     panel_index integer NOT NULL DEFAULT 1 CHECK (panel_index >= 1),
     x_position_cm numeric(12,3) NOT NULL CHECK (x_position_cm >= 0),
     detected_at timestamptz NOT NULL,
-    status text NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'unresolved')),
+    status text NOT NULL DEFAULT 'open' CONSTRAINT anomaly_events_status_check CHECK (status IN ('open', 'resolved', 'resolved_later', 'unresolved')),
     actuated_attempts_count integer NOT NULL DEFAULT 0 CHECK (actuated_attempts_count BETWEEN 0 AND 3),
     retry_pending boolean NOT NULL DEFAULT false,
     retry_reason text CHECK (retry_reason IS NULL OR btrim(retry_reason) <> ''),
@@ -251,8 +251,8 @@ CREATE TABLE anomaly_events (
     UNIQUE (module_id, id),
     UNIQUE (module_id, source_event_id),
     FOREIGN KEY (module_id, origin_measurement_id) REFERENCES measurements(module_id, id) ON DELETE RESTRICT,
-    CHECK ((status = 'open' AND closed_at IS NULL)
-        OR (status IN ('resolved', 'unresolved') AND closed_at IS NOT NULL)),
+    CONSTRAINT anomaly_events_closed_at_check CHECK ((status = 'open' AND closed_at IS NULL)
+        OR (status IN ('resolved', 'resolved_later', 'unresolved') AND closed_at IS NOT NULL)),
     CHECK (closed_at IS NULL OR closed_at >= detected_at),
     CHECK (NOT retry_pending OR (status = 'open' AND actuated_attempts_count < 3)),
     CHECK (retry_pending OR retry_reason IS NULL)

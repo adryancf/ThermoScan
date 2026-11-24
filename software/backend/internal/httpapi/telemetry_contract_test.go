@@ -1565,3 +1565,408 @@ func TestCleanScanResolvesPriorOpenAnomalies(t *testing.T) {
 		t.Fatalf("expected prior open anomaly to be 'resolved' after clean scan, got status=%s closed_at=%v", anomRow.Status, anomRow.ClosedAt)
 	}
 }
+
+func TestMultiHotspotResolvedLaterAndListInspectionsPanelResults(t *testing.T) {
+	ctx, conn, tx, q, router, techAuth, _ := setupTelemetryTestEnv(t)
+	defer conn.Close(ctx)
+	defer tx.Rollback(ctx)
+
+	doJSON := func(method, path, bearer string, body any) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		if body != nil {
+			_ = json.NewEncoder(&buf).Encode(body)
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		req.Header.Set("Content-Type", "application/json")
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Create a 2-panel module: Panel 1 is [0, 30] cm, Panel 2 is [30, 60] cm.
+	mac := fmt.Sprintf("02:aa:%02x:%02x:%02x:%02x",
+		time.Now().UnixNano()&0xff,
+		(time.Now().UnixNano()>>8)&0xff,
+		(time.Now().UnixNano()>>16)&0xff,
+		(time.Now().UnixNano()>>24)&0xff,
+	)
+	rec := doJSON(http.MethodPost, "/api/v1/modules", techAuth.AccessToken, map[string]any{
+		"name":                     "Multi-Panel PV String",
+		"mac_address":              mac,
+		"panel_length_cm":          30.0,
+		"panel_width_cm":           50.0,
+		"panel_count":              2,
+		"panel_spacing_cm":         0.0,
+		"latitude":                 -23.55,
+		"longitude":                -46.63,
+		"elevation_m":              760.0,
+		"azimuth_deg":              180.0,
+		"tilt_deg":                 20.0,
+		"azimuth_source":           "manual",
+		"tilt_source":              "manual",
+		"minimum_solar_angle_deg":  15.0,
+		"inspection_interval_days": 1,
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create 2-panel module failed: %d: %s", rec.Code, rec.Body.String())
+	}
+	var modCreated struct {
+		Module struct {
+			ID string `json:"id"`
+		} `json:"module"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &modCreated)
+	modID := modCreated.Module.ID
+	modUUID, _ := auth.ParseUUID(modID)
+
+	// 1. Inspection 1 detects 2 hotspots: P1 @ 10 cm and P2 @ 40 cm.
+	insp1 := "99000000-0000-0000-0000-000000000001"
+	m1P1 := "99000000-0000-0000-0000-000000000011"
+	m1P2 := "99000000-0000-0000-0000-000000000012"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": insp1,
+		"inspection_type":            "scheduled",
+		"batch": []map[string]any{
+			{"source_event_id": m1P1, "panel_index": 1, "x_position_cm": 10.0, "max_temperature_c": 55.0, "thermal_frame": makeTestFrame768(34.0, nil, false)},
+			{"source_event_id": m1P2, "panel_index": 2, "x_position_cm": 40.0, "max_temperature_c": 58.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("insp1 telemetry: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp1+"/panels/1/result", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 34.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":             "99000000-0000-0000-0000-000000000101",
+				"panel_index":                 1,
+				"global_x_position_cm":        10.0,
+				"max_temperature_c":           55.0,
+				"origin_measurement_event_id": m1P1,
+				"confirming_event_ids":        []string{m1P1},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("insp1 panel 1 result: %d: %s", rec.Code, rec.Body.String())
+	}
+	var p1Res struct {
+		ConfirmedAnomalies []struct {
+			ID string `json:"id"`
+		} `json:"confirmed_anomalies"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &p1Res)
+	if len(p1Res.ConfirmedAnomalies) != 1 {
+		t.Fatalf("expected 1 anomaly on P1, got %d", len(p1Res.ConfirmedAnomalies))
+	}
+	anomP1ID := p1Res.ConfirmedAnomalies[0].ID
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp1+"/panels/2/result", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":             "99000000-0000-0000-0000-000000000102",
+				"panel_index":                 2,
+				"global_x_position_cm":        40.0,
+				"max_temperature_c":           58.0,
+				"origin_measurement_event_id": m1P2,
+				"confirming_event_ids":        []string{m1P2},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("insp1 panel 2 result: %d: %s", rec.Code, rec.Body.String())
+	}
+	var p2Res struct {
+		ConfirmedAnomalies []struct {
+			ID string `json:"id"`
+		} `json:"confirmed_anomalies"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &p2Res)
+	if len(p2Res.ConfirmedAnomalies) != 1 {
+		t.Fatalf("expected 1 anomaly on P2, got %d", len(p2Res.ConfirmedAnomalies))
+	}
+	anomP2ID := p2Res.ConfirmedAnomalies[0].ID
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp1+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 34.5,
+		"confirmed_hotspots":     []map[string]any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("insp1 finalize: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 2. Wash both hotspots; verification resolves P1 @ 10 cm while P2 @ 40 cm persists (unresolved).
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, map[string]any{
+		"source_event_id":           "99000000-0000-0000-0000-000000000201",
+		"anomaly_event_id":          anomP1ID,
+		"panel_index":               1,
+		"target_x_position_cm":      10.0,
+		"pump_actuated":             true,
+		"attempt_number":            1,
+		"duration_seconds":          6.0,
+		"estimated_water_volume_ml": 50.0,
+		"status":                    "completed",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("cleaning P1: %d: %s", rec.Code, rec.Body.String())
+	}
+	var cleanP1Resp struct {
+		Cleaning struct {
+			ID string `json:"id"`
+		} `json:"cleaning"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &cleanP1Resp)
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/cleanings", techAuth.AccessToken, map[string]any{
+		"source_event_id":           "99000000-0000-0000-0000-000000000202",
+		"anomaly_event_id":          anomP2ID,
+		"panel_index":               2,
+		"target_x_position_cm":      40.0,
+		"pump_actuated":             true,
+		"attempt_number":            1,
+		"duration_seconds":          6.0,
+		"estimated_water_volume_ml": 50.0,
+		"status":                    "completed",
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("cleaning P2: %d: %s", rec.Code, rec.Body.String())
+	}
+	var cleanP2Resp struct {
+		Cleaning struct {
+			ID string `json:"id"`
+		} `json:"cleaning"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &cleanP2Resp)
+
+	// Verification for P1 -> resolved (0 hotspots)
+	verifP1 := "99000000-0000-0000-0000-000000000301"
+	vmP1 := "99000000-0000-0000-0000-000000000311"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": verifP1,
+		"inspection_type":            "verification",
+		"cleaning_operation_id":      cleanP1Resp.Cleaning.ID,
+		"batch": []map[string]any{
+			{"source_event_id": vmP1, "panel_index": 1, "x_position_cm": 10.0, "max_temperature_c": 34.5, "thermal_frame": makeTestFrame768(34.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("verif P1 telemetry: %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+verifP1+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 34.0,
+		"confirmed_hotspots":     []map[string]any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("verif P1 finalize: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verification for P2 -> unresolved (hotspot persists at 40.0 cm)
+	verifP2 := "99000000-0000-0000-0000-000000000302"
+	vmP2 := "99000000-0000-0000-0000-000000000312"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": verifP2,
+		"inspection_type":            "verification",
+		"cleaning_operation_id":      cleanP2Resp.Cleaning.ID,
+		"batch": []map[string]any{
+			{"source_event_id": vmP2, "panel_index": 2, "x_position_cm": 40.0, "max_temperature_c": 56.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("verif P2 telemetry: %d: %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+verifP2+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":             "99000000-0000-0000-0000-000000000102",
+				"panel_index":                 2,
+				"global_x_position_cm":        40.0,
+				"max_temperature_c":           56.0,
+				"origin_measurement_event_id": vmP2,
+				"confirming_event_ids":        []string{vmP2},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("verif P2 finalize: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify states right after verifications: P1='resolved', P2='unresolved', P2 in active alerts.
+	anomP1UUID, _ := auth.ParseUUID(anomP1ID)
+	anomP2UUID, _ := auth.ParseUUID(anomP2ID)
+	rowP1, err := q.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{ID: anomP1UUID, ModuleID: modUUID})
+	if err != nil || rowP1.Status != "resolved" {
+		t.Fatalf("expected P1 anomaly resolved, got status=%s err=%v", rowP1.Status, err)
+	}
+	rowP2, err := q.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{ID: anomP2UUID, ModuleID: modUUID})
+	if err != nil || rowP2.Status != "unresolved" {
+		t.Fatalf("expected P2 anomaly unresolved, got status=%s err=%v", rowP2.Status, err)
+	}
+
+	rec = doJSON(http.MethodGet, "/api/v1/alerts", techAuth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get alerts before insp2: %d: %s", rec.Code, rec.Body.String())
+	}
+	var alertsBefore struct {
+		Alerts []struct {
+			ID string `json:"id"`
+		} `json:"alerts"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &alertsBefore)
+	foundP2Alert := false
+	for _, a := range alertsBefore.Alerts {
+		if a.ID == anomP2ID {
+			foundP2Alert = true
+		}
+		if a.ID == anomP1ID {
+			t.Fatalf("resolved P1 anomaly should not appear in active alerts")
+		}
+	}
+	if !foundP2Alert {
+		t.Fatalf("expected unresolved P2 anomaly %s in active alerts", anomP2ID)
+	}
+
+	// 3. Inspection 2 runs with P1 @ 10 cm clean, P2 @ 40 cm clean, and a distant new hotspot at P2 @ 52 cm (>5 cm away).
+	insp2 := "99000000-0000-0000-0000-000000000002"
+	m2P1 := "99000000-0000-0000-0000-000000000021"
+	m2P2Clean := "99000000-0000-0000-0000-000000000022"
+	m2P2NewHot := "99000000-0000-0000-0000-000000000023"
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/telemetry", techAuth.AccessToken, map[string]any{
+		"inspection_source_event_id": insp2,
+		"inspection_type":            "scheduled",
+		"batch": []map[string]any{
+			{"source_event_id": m2P1, "panel_index": 1, "x_position_cm": 10.0, "max_temperature_c": 34.0, "thermal_frame": makeTestFrame768(34.0, nil, false)},
+			{"source_event_id": m2P2Clean, "panel_index": 2, "x_position_cm": 40.0, "max_temperature_c": 35.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+			{"source_event_id": m2P2NewHot, "panel_index": 2, "x_position_cm": 52.0, "max_temperature_c": 56.0, "thermal_frame": makeTestFrame768(35.0, nil, false)},
+		},
+	})
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("insp2 telemetry: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp2+"/panels/1/result", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 34.0,
+		"confirmed_hotspots":     []map[string]any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("insp2 panel 1 result: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp2+"/panels/2/result", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 35.0,
+		"confirmed_hotspots": []map[string]any{
+			{
+				"source_event_id":             "99000000-0000-0000-0000-000000000103",
+				"panel_index":                 2,
+				"global_x_position_cm":        52.0,
+				"max_temperature_c":           56.0,
+				"origin_measurement_event_id": m2P2NewHot,
+				"confirming_event_ids":        []string{m2P2NewHot},
+			},
+		},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("insp2 panel 2 result: %d: %s", rec.Code, rec.Body.String())
+	}
+	var p2NewRes struct {
+		ConfirmedAnomalies []struct {
+			ID string `json:"id"`
+		} `json:"confirmed_anomalies"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &p2NewRes)
+	anomP2NewID := p2NewRes.ConfirmedAnomalies[0].ID
+
+	rec = doJSON(http.MethodPost, "/api/v1/modules/"+modID+"/inspections/"+insp2+"/finalize", techAuth.AccessToken, map[string]any{
+		"baseline_temperature_c": 34.5,
+		"confirmed_hotspots":     []map[string]any{},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("insp2 finalize: %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// 4. Verify P2 @ 40 cm transitioned from 'unresolved' to 'resolved_later',
+	//    while cleaning_operations.post_cleaning_result remains 'unresolved'.
+	rowP2After, err := q.GetAnomalyEventByID(ctx, db.GetAnomalyEventByIDParams{ID: anomP2UUID, ModuleID: modUUID})
+	if err != nil {
+		t.Fatalf("get P2 anomaly after insp2: %v", err)
+	}
+	if rowP2After.Status != "resolved_later" || rowP2After.ClosedAt == nil {
+		t.Fatalf("expected P2 @ 40cm to transition to 'resolved_later' with closed_at set, got status=%s closed_at=%v", rowP2After.Status, rowP2After.ClosedAt)
+	}
+
+	cleanP2UUID, _ := auth.ParseUUID(cleanP2Resp.Cleaning.ID)
+	cleanP2Row, err := q.GetCleaningOperationByID(ctx, db.GetCleaningOperationByIDParams{ID: cleanP2UUID, ModuleID: modUUID})
+	if err != nil {
+		t.Fatalf("get cleaning P2: %v", err)
+	}
+	if cleanP2Row.PostCleaningResult != "unresolved" {
+		t.Fatalf("expected cleaning_operations.post_cleaning_result to remain 'unresolved', got %s", cleanP2Row.PostCleaningResult)
+	}
+
+	// Active company alerts must no longer include P2 @ 40 cm, but must include the new P2 @ 52 cm anomaly.
+	rec = doJSON(http.MethodGet, "/api/v1/alerts", techAuth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get alerts after insp2: %d: %s", rec.Code, rec.Body.String())
+	}
+	var alertsAfter struct {
+		Alerts []struct {
+			ID string `json:"id"`
+		} `json:"alerts"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &alertsAfter)
+	foundNewAlert := false
+	for _, a := range alertsAfter.Alerts {
+		if a.ID == anomP2ID {
+			t.Fatalf("resolved_later P2 @ 40cm anomaly should no longer appear in active alerts")
+		}
+		if a.ID == anomP2NewID {
+			foundNewAlert = true
+		}
+	}
+	if !foundNewAlert {
+		t.Fatalf("expected new P2 @ 52cm anomaly %s in active alerts", anomP2NewID)
+	}
+
+	// 5. GET /modules/{id}/inspections returns panel_results on routine inspections (and not on verification inspections).
+	rec = doJSON(http.MethodGet, "/api/v1/modules/"+modID+"/inspections", techAuth.AccessToken, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list inspections: %d: %s", rec.Code, rec.Body.String())
+	}
+	var listResp struct {
+		Inspections []struct {
+			SourceEventID string `json:"source_event_id"`
+			Type          string `json:"type"`
+			PanelResults  []struct {
+				PanelIndex           int32   `json:"panel_index"`
+				BaselineTemperatureC float64 `json:"baseline_temperature_c"`
+			} `json:"panel_results"`
+		} `json:"inspections"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("decode list inspections: %v", err)
+	}
+	routineWithPanels := 0
+	for _, insp := range listResp.Inspections {
+		if insp.Type == "scheduled" && (insp.SourceEventID == insp1 || insp.SourceEventID == insp2) {
+			if len(insp.PanelResults) != 2 {
+				t.Fatalf("expected 2 panel_results on routine inspection %s, got %d", insp.SourceEventID, len(insp.PanelResults))
+			}
+			if insp.PanelResults[0].PanelIndex != 1 || insp.PanelResults[0].BaselineTemperatureC != 34.0 ||
+				insp.PanelResults[1].PanelIndex != 2 || insp.PanelResults[1].BaselineTemperatureC != 35.0 {
+				t.Fatalf("unexpected panel_results for %s: %+v", insp.SourceEventID, insp.PanelResults)
+			}
+			routineWithPanels++
+		}
+		if insp.Type == "verification" && len(insp.PanelResults) != 0 {
+			t.Fatalf("expected no panel_results on verification inspection %s, got %d", insp.SourceEventID, len(insp.PanelResults))
+		}
+	}
+	if routineWithPanels != 2 {
+		t.Fatalf("expected 2 routine inspections with panel_results, got %d", routineWithPanels)
+	}
+}

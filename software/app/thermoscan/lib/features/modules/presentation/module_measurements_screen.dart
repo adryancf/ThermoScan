@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
@@ -49,6 +50,8 @@ class _ModuleMeasurementsScreenState
   int _currentPage = 1;
   int? _selectedPanelFilter;
   bool _showOnlyValid = true;
+  bool _onlyWithHotspots = false;
+  int _visibleBundlesCount = 8;
 
   @override
   Widget build(BuildContext context) {
@@ -144,9 +147,12 @@ class _ModuleMeasurementsScreenState
               data: (latestInspection) {
                 final allMeasurements =
                     allMeasurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
+                final hasNonScheduledInspections =
+                    inspectionsList.any((i) => i.status != 'scheduled');
                 if ((latestInspection == null ||
                         latestInspection.inspection.id.isEmpty) &&
-                    allMeasurements.isEmpty) {
+                    allMeasurements.isEmpty &&
+                    !hasNonScheduledInspections) {
                   return _buildEmptyState();
                 }
 
@@ -212,21 +218,35 @@ class _ModuleMeasurementsScreenState
     }
 
     // 2. Ensure latestInspection is represented in grouped map
-    final latestId = (latestInspection != null &&
+    final rawLatestId = (latestInspection != null &&
             latestInspection.inspection.id.isNotEmpty)
         ? latestInspection.inspection.id
         : null;
-    if (latestId != null) {
-      grouped.putIfAbsent(latestId, () => []);
+    if (rawLatestId != null) {
+      grouped.putIfAbsent(rawLatestId, () => []);
     }
 
     // 3. Build routine bundles for hierarchical post-cleaning nesting
-    final bundles = InspectionRoutineBundle.buildBundles(
+    final rawBundles = InspectionRoutineBundle.buildBundles(
       allInspections: inspectionsMap.values.toList(),
       allCleanings: cleanings,
       allMeasurements: allMeasurements,
       latestInspection: latestInspection,
     );
+
+    final bundles = rawBundles.where((b) {
+      if (b.routineInspection.status == 'scheduled' &&
+          b.routineMeasurements.isEmpty &&
+          b.verificationMeasurements.isEmpty) {
+        return false;
+      }
+      return true;
+    }).toList();
+
+    final latestActiveBundle =
+        InspectionRoutineBundle.getLatestActiveBundle(bundles);
+    final latestId =
+        latestActiveBundle?.routineInspection.id ?? rawLatestId;
 
     final sortedBundles = List<InspectionRoutineBundle>.from(bundles)
       ..sort((a, b) {
@@ -251,12 +271,19 @@ class _ModuleMeasurementsScreenState
         return b.routineInspection.id.compareTo(a.routineInspection.id);
       });
 
-    // 4. Sort entries: latest inspection first, then descending by most recent measurement timestamp
+    final filteredBundles = _onlyWithHotspots
+        ? sortedBundles.where(_bundleHasHotspots).toList()
+        : sortedBundles;
+    final visibleBundles =
+        filteredBundles.take(_visibleBundlesCount).toList();
+    final hasMoreBundles = filteredBundles.length > visibleBundles.length;
+
+    // 4. Fallback unbundled entries when no bundles exist
     final entries = grouped.entries.toList()
       ..sort((a, b) {
-        if (latestId != null) {
-          if (a.key == latestId) return -1;
-          if (b.key == latestId) return 1;
+        if (rawLatestId != null) {
+          if (a.key == rawLatestId) return -1;
+          if (b.key == rawLatestId) return 1;
         }
         final maxA = _maxMeasuredAt(a.value);
         final maxB = _maxMeasuredAt(b.value);
@@ -323,7 +350,7 @@ class _ModuleMeasurementsScreenState
         ],
 
         // Section Title: Inspection History (Grouped by Inspection)
-        if (allMeasurements.isNotEmpty) ...[
+        if (allMeasurements.isNotEmpty || sortedBundles.isNotEmpty) ...[
           Row(
             children: [
               const Icon(
@@ -342,31 +369,143 @@ class _ModuleMeasurementsScreenState
           ),
           const SizedBox(height: 4),
           Text(
-            'All recorded scans and temperature readings grouped by scan session',
+            'Consolidated routine scans with nested cleaning verification outcomes',
             style: AppTypography.caption.copyWith(
               color: AppColors.textSecondary,
             ),
           ),
+          const SizedBox(height: 10),
+        ],
+
+        // Filter Chips: All Scans | With Hotspots
+        if (sortedBundles.isNotEmpty) ...[
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ChoiceChip(
+                key: const Key('filter_all_scans'),
+                label: const Text('All Scans'),
+                selected: !_onlyWithHotspots,
+                selectedColor: AppColors.primarySoft,
+                backgroundColor: AppColors.surface,
+                labelStyle: AppTypography.caption.copyWith(
+                  color: !_onlyWithHotspots
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+                side: BorderSide(
+                  color: !_onlyWithHotspots
+                      ? AppColors.primary
+                      : AppColors.border,
+                ),
+                onSelected: (_) {
+                  setState(() {
+                    _onlyWithHotspots = false;
+                    _visibleBundlesCount = 8;
+                  });
+                },
+              ),
+              ChoiceChip(
+                key: const Key('filter_hotspot_scans'),
+                label: const Text('With Hotspots'),
+                selected: _onlyWithHotspots,
+                selectedColor: AppColors.primarySoft,
+                backgroundColor: AppColors.surface,
+                labelStyle: AppTypography.caption.copyWith(
+                  color: _onlyWithHotspots
+                      ? AppColors.primary
+                      : AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+                side: BorderSide(
+                  color: _onlyWithHotspots
+                      ? AppColors.primary
+                      : AppColors.border,
+                ),
+                onSelected: (_) {
+                  setState(() {
+                    _onlyWithHotspots = true;
+                    _visibleBundlesCount = 8;
+                  });
+                },
+              ),
+            ],
+          ),
           const SizedBox(height: 12),
         ],
 
-        // Timeline of Inspection Cards
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount:
-              sortedBundles.isNotEmpty ? sortedBundles.length : entries.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 14),
-          itemBuilder: (context, index) {
-            if (sortedBundles.isNotEmpty) {
-              final bundle = sortedBundles[index];
-              final inspectionId = bundle.routineInspection.id;
-              final isLatest = latestId != null && inspectionId == latestId;
-              final groupMeasurements = bundle.routineMeasurements.isNotEmpty
-                  ? bundle.routineMeasurements
-                  : (bundle.restoredMeasurements.isNotEmpty
-                      ? bundle.restoredMeasurements
-                      : (grouped[inspectionId] ?? const <ModuleMeasurement>[]));
+        if (sortedBundles.isNotEmpty && visibleBundles.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              children: [
+                Text(
+                  'No scans with hotspots recorded.',
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _onlyWithHotspots = false;
+                      _visibleBundlesCount = 8;
+                    });
+                  },
+                  child: const Text('Show All Scans'),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          // Timeline of Inspection Cards
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: sortedBundles.isNotEmpty
+                ? visibleBundles.length
+                : entries.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              if (sortedBundles.isNotEmpty) {
+                final bundle = visibleBundles[index];
+                final inspectionId = bundle.routineInspection.id;
+                final isLatest =
+                    latestId != null && inspectionId == latestId;
+                final groupMeasurements = bundle.routineMeasurements.isNotEmpty
+                    ? bundle.routineMeasurements
+                    : (bundle.restoredMeasurements.isNotEmpty
+                        ? bundle.restoredMeasurements
+                        : (grouped[inspectionId] ??
+                            const <ModuleMeasurement>[]));
+
+                return _buildInspectionHistoryGroupCard(
+                  inspectionId: inspectionId,
+                  measurements: groupMeasurements,
+                  isLatest: isLatest,
+                  latestInspection: isLatest ? latestInspection : null,
+                  mod: mod,
+                  inspectionsMap: inspectionsMap,
+                  bundle: bundle,
+                );
+              }
+
+              final entry = entries[index];
+              final inspectionId = entry.key;
+              final isLatest =
+                  rawLatestId != null && inspectionId == rawLatestId;
+              final groupMeasurements =
+                  List<ModuleMeasurement>.from(entry.value)
+                    ..sort((a, b) => a.xPositionCm.compareTo(b.xPositionCm));
 
               return _buildInspectionHistoryGroupCard(
                 inspectionId: inspectionId,
@@ -375,28 +514,40 @@ class _ModuleMeasurementsScreenState
                 latestInspection: isLatest ? latestInspection : null,
                 mod: mod,
                 inspectionsMap: inspectionsMap,
-                bundle: bundle,
               );
-            }
-
-            final entry = entries[index];
-            final inspectionId = entry.key;
-            final isLatest = latestId != null && inspectionId == latestId;
-            final groupMeasurements = List<ModuleMeasurement>.from(entry.value)
-              ..sort((a, b) => a.xPositionCm.compareTo(b.xPositionCm));
-
-            return _buildInspectionHistoryGroupCard(
-              inspectionId: inspectionId,
-              measurements: groupMeasurements,
-              isLatest: isLatest,
-              latestInspection: isLatest ? latestInspection : null,
-              mod: mod,
-              inspectionsMap: inspectionsMap,
-            );
-          },
-        ),
+            },
+          ),
+          if (sortedBundles.isNotEmpty && hasMoreBundles) ...[
+            const SizedBox(height: 14),
+            Center(
+              child: OutlinedButton.icon(
+                key: const Key('load_older_scans_button'),
+                onPressed: () {
+                  setState(() {
+                    _visibleBundlesCount += 8;
+                  });
+                },
+                icon: const Icon(Icons.expand_more_rounded, size: 18),
+                label: const Text('Load older scans'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.primary,
+                  side: const BorderSide(color: AppColors.border),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ],
     );
+  }
+
+  bool _bundleHasHotspots(InspectionRoutineBundle b) {
+    return b.confirmedAnomalies.isNotEmpty ||
+        b.hotspotSummaries.isNotEmpty ||
+        b.hasPostCleaning;
   }
 
   DateTime? _maxMeasuredAt(List<ModuleMeasurement> items) {
@@ -431,6 +582,119 @@ class _ModuleMeasurementsScreenState
     return '$monthName $day, $year · $h12:$min $ampm';
   }
 
+  ({
+    String label,
+    Color bg,
+    Color border,
+    Color fg,
+    IconData icon,
+  }) _resolveHistoryOutcomeBadge({
+    required InspectionRoutineBundle? bundle,
+    required int totalHotspots,
+  }) {
+    final summaries = bundle?.hotspotSummaries ?? const [];
+    if (summaries.isNotEmpty) {
+      final total = summaries.length;
+      final resolved = bundle!.resolvedCount;
+      final resolvedLater = bundle.resolvedLaterCount;
+      final unresolved = bundle.unresolvedCount;
+      final pending = bundle.pendingCount;
+      final cleared = resolved + resolvedLater;
+
+      if (resolvedLater > 0 &&
+          unresolved == 0 &&
+          resolved == 0 &&
+          pending == 0) {
+        return (
+          label: 'Cleared in Later Scan',
+          bg: AppColors.primarySoft,
+          border: AppColors.primary.withValues(alpha: 0.3),
+          fg: AppColors.primary,
+          icon: Icons.verified_outlined,
+        );
+      }
+      if (cleared == total && total > 0) {
+        return (
+          label: total == 1 ? '1 Hotspot · Resolved' : '$total/$total Resolved',
+          bg: AppColors.successBackground,
+          border: AppColors.successBorder,
+          fg: AppColors.success,
+          icon: Icons.check_circle_outline_rounded,
+        );
+      }
+      if (cleared > 0 && (unresolved > 0 || pending > 0)) {
+        return (
+          label: '$cleared/$total Resolved',
+          bg: AppColors.warningBackground,
+          border: AppColors.warningBorder,
+          fg: AppColors.warning,
+          icon: Icons.rule_rounded,
+        );
+      }
+      if (unresolved > 0) {
+        return (
+          label: unresolved == 1
+              ? '1 Hotspot · Unresolved'
+              : '$unresolved Hotspots · Unresolved',
+          bg: AppColors.errorBackground,
+          border: AppColors.errorBorder,
+          fg: AppColors.error,
+          icon: Icons.warning_amber_rounded,
+        );
+      }
+      if (pending > 0) {
+        return (
+          label: total == 1 ? '1 Hotspot · Pending' : '$total Hotspots · Pending',
+          bg: AppColors.warningBackground,
+          border: AppColors.warningBorder,
+          fg: AppColors.warning,
+          icon: Icons.hourglass_top_rounded,
+        );
+      }
+      return (
+        label: total == 1 ? '1 Hotspot' : '$total Hotspots',
+        bg: AppColors.errorBackground,
+        border: AppColors.errorBorder,
+        fg: AppColors.error,
+        icon: Icons.warning_amber_rounded,
+      );
+    }
+
+    if (bundle != null && bundle.hasPostCleaning) {
+      final isResolved = bundle.isHotspotResolved;
+      return (
+        label: isResolved ? '1 Hotspot · Resolved' : '1 Hotspot · Unresolved',
+        bg: isResolved
+            ? AppColors.successBackground
+            : AppColors.warningBackground,
+        border:
+            isResolved ? AppColors.successBorder : AppColors.warningBorder,
+        fg: isResolved ? AppColors.success : AppColors.warning,
+        icon: isResolved
+            ? Icons.check_circle_outline_rounded
+            : Icons.warning_amber_rounded,
+      );
+    }
+
+    if (totalHotspots > 0) {
+      return (
+        label: '$totalHotspots Hotspot${totalHotspots > 1 ? "s" : ""}',
+        bg: AppColors.errorBackground,
+        border: AppColors.errorBorder,
+        fg: AppColors.error,
+        icon: Icons.warning_amber_rounded,
+      );
+    }
+
+    return (
+      label: 'Healthy',
+      bg: AppColors.successBackground,
+      border: AppColors.successBorder,
+      fg: AppColors.success,
+      icon: Icons.check_circle_outline_rounded,
+    );
+  }
+
   Widget _buildInspectionHistoryGroupCard({
     required String inspectionId,
     required List<ModuleMeasurement> measurements,
@@ -440,24 +704,24 @@ class _ModuleMeasurementsScreenState
     required Map<String, ModuleInspection> inspectionsMap,
     InspectionRoutineBundle? bundle,
   }) {
-    final inspModel = inspectionsMap[inspectionId];
-    final inspAnomalies = isLatest
-        ? (latestInspection?.confirmedAnomalies ?? const [])
-        : (inspModel?.confirmedAnomalies ?? const []);
-    final baselineTemp = isLatest
-        ? latestInspection?.inspection.baselineTemperatureC
-        : inspModel?.baselineTemperatureC;
+    final inspModel = bundle?.routineInspection ?? inspectionsMap[inspectionId];
+    final inspAnomalies = (inspModel != null && inspModel.confirmedAnomalies.isNotEmpty)
+        ? inspModel.confirmedAnomalies
+        : (isLatest
+            ? (latestInspection?.confirmedAnomalies ?? const <ConfirmedAnomaly>[])
+            : const <ConfirmedAnomaly>[]);
+    final baselineTemp = inspModel?.baselineTemperatureC ??
+        (isLatest ? latestInspection?.inspection.baselineTemperatureC : null);
+    final panelResults = inspModel?.panelResults ??
+        (isLatest ? latestInspection?.panelResults : null);
     final totalHotspots = inspAnomalies.length;
 
-    final shortId = inspectionId.length > 8
-        ? '${inspectionId.substring(0, 8)}...'
-        : inspectionId;
-
-    final latestDt = (isLatest && latestInspection != null)
-        ? (DateTime.tryParse(latestInspection.inspection.createdAt) ??
+    final latestDt = (inspModel != null && inspModel.createdAt.isNotEmpty)
+        ? (DateTime.tryParse(inspModel.finishedAt ?? '') ??
+            DateTime.tryParse(inspModel.createdAt) ??
             _maxMeasuredAt(measurements))
-        : (inspModel != null && inspModel.createdAt.isNotEmpty
-            ? (DateTime.tryParse(inspModel.createdAt) ??
+        : (isLatest && latestInspection != null
+            ? (DateTime.tryParse(latestInspection.inspection.createdAt) ??
                 _maxMeasuredAt(measurements))
             : _maxMeasuredAt(measurements));
 
@@ -467,9 +731,10 @@ class _ModuleMeasurementsScreenState
             ? _formatReadableTimestamp(measurements.first.measuredAt)
             : 'N/A');
 
-    final statusStr = (isLatest && latestInspection != null
-            ? latestInspection.inspection.status
-            : (inspModel?.status ?? 'completed'))
+    final statusStr = (inspModel?.status ??
+            (isLatest && latestInspection != null
+                ? latestInspection.inspection.status
+                : 'completed'))
         .toUpperCase();
 
     final int effectivePanelCount =
@@ -496,43 +761,33 @@ class _ModuleMeasurementsScreenState
         totalStepsRecorded < expectedSteps;
     final bool isPartial = isInterruptedOrFailed || isCoverageIncomplete;
 
-    final String statusBadgeLabel;
+    final String? statusPillLabel;
     final Color statusBadgeBg;
     final Color statusBadgeText;
 
-    if (statusStr == 'COMPLETED' && !isCoverageIncomplete) {
-      statusBadgeLabel = expectedSteps != null
-          ? 'COMPLETED ($totalStepsRecorded/$expectedSteps STEPS)'
-          : 'COMPLETED';
-      statusBadgeBg = AppColors.successBackground;
-      statusBadgeText = AppColors.success;
-    } else if (statusStr == 'IN_PROGRESS') {
-      statusBadgeLabel = expectedSteps != null
+    if (statusStr == 'IN_PROGRESS') {
+      statusPillLabel = expectedSteps != null
           ? 'IN PROGRESS ($totalStepsRecorded/$expectedSteps STEPS)'
           : 'IN PROGRESS';
       statusBadgeBg = AppColors.primarySoft;
       statusBadgeText = AppColors.primary;
     } else if (statusStr == 'FAILED') {
-      statusBadgeLabel = expectedSteps != null
+      statusPillLabel = expectedSteps != null
           ? 'FAILED ($totalStepsRecorded/$expectedSteps STEPS)'
           : 'FAILED';
       statusBadgeBg = AppColors.errorBackground;
       statusBadgeText = AppColors.error;
-    } else {
-      statusBadgeLabel = expectedSteps != null
+    } else if (isPartial) {
+      statusPillLabel = expectedSteps != null
           ? 'PARTIAL ($totalStepsRecorded/$expectedSteps STEPS)'
           : 'PARTIAL';
       statusBadgeBg = AppColors.warningBackground;
       statusBadgeText = AppColors.warning;
+    } else {
+      statusPillLabel = null;
+      statusBadgeBg = AppColors.successBackground;
+      statusBadgeText = AppColors.success;
     }
-
-    final scanType = (isLatest &&
-            latestInspection != null &&
-            latestInspection.inspection.type.isNotEmpty)
-        ? '${latestInspection.inspection.type[0].toUpperCase()}${latestInspection.inspection.type.substring(1)} Scan'
-        : (inspModel != null && inspModel.type.isNotEmpty
-            ? '${inspModel.type[0].toUpperCase()}${inspModel.type.substring(1)} Scan'
-            : 'Robotic Scan');
 
     final count = (mod?.panelCount != null && mod!.panelCount! > 0)
         ? mod.panelCount!
@@ -580,9 +835,7 @@ class _ModuleMeasurementsScreenState
     final peakTemp = measurements.isNotEmpty
         ? measurements.map((m) => m.maxTemperatureC).reduce(math.max)
         : null;
-    final panelBaselines = isLatest
-        ? buildPanelBaselineMap(latestInspection?.panelResults)
-        : const <int, double>{};
+    final panelBaselines = buildPanelBaselineMap(panelResults);
     final deltaT = computeMaxPerPanelDelta(
           measurements: measurements,
           panelBaselines: panelBaselines,
@@ -593,105 +846,33 @@ class _ModuleMeasurementsScreenState
             ? (peakTemp - baselineTemp)
             : null);
 
-    final validPowers =
-        measurements.map((m) => m.powerW).whereType<double>().toList();
-    final validVolts =
-        measurements.map((m) => m.voltageV).whereType<double>().toList();
-    final validAmps =
-        measurements.map((m) => m.currentA).whereType<double>().toList();
-    final avgPower = validPowers.isNotEmpty
-        ? validPowers.reduce((a, b) => a + b) / validPowers.length
-        : null;
-    final avgVolt = validVolts.isNotEmpty
-        ? validVolts.reduce((a, b) => a + b) / validVolts.length
-        : null;
-    final avgAmp = validAmps.isNotEmpty
-        ? validAmps.reduce((a, b) => a + b) / validAmps.length
-        : null;
-
-    // Stable operational electrical reading per panel (avoids transient 0V drops)
-    final Map<int, ModuleMeasurement> bestElecByPanel = {};
-    for (final entry in byPanel.entries) {
-      ModuleMeasurement? best;
-      for (final m in entry.value) {
-        if (m.voltageV != null || m.currentA != null || m.powerW != null) {
-          if (best == null) {
-            best = m;
-          } else {
-            final currP = m.powerW ?? 0.0;
-            final bestP = best.powerW ?? 0.0;
-            if (currP > bestP ||
-                (currP == bestP && (m.voltageV ?? 0.0) > (best.voltageV ?? 0.0))) {
-              best = m;
-            }
-          }
-        }
-      }
-      if (best != null) {
-        bestElecByPanel[entry.key] = best;
-      }
-    }
-
-    final double? displayPower;
-    final double? displayVolt;
-    final double? displayAmp;
-    final String powerLabel;
-    final String? powerSublabel;
-
-    if (isLatest &&
-        _selectedPanelFilter != null &&
-        bestElecByPanel.containsKey(_selectedPanelFilter)) {
-      final best = bestElecByPanel[_selectedPanelFilter]!;
-      displayPower = best.powerW;
-      displayVolt = best.voltageV;
-      displayAmp = best.currentA;
-      powerLabel = 'P$_selectedPanelFilter Power';
-      powerSublabel = (displayVolt != null && displayAmp != null)
-          ? '${displayVolt.toStringAsFixed(2)}V · ${(displayAmp * 1000).toStringAsFixed(1)}mA'
-          : null;
-    } else if (bestElecByPanel.length == 1) {
-      final singleP = bestElecByPanel.keys.first;
-      final best = bestElecByPanel[singleP]!;
-      displayPower = best.powerW;
-      displayVolt = best.voltageV;
-      displayAmp = best.currentA;
-      powerLabel = 'P$singleP Power';
-      powerSublabel = (displayVolt != null && displayAmp != null)
-          ? '${displayVolt.toStringAsFixed(2)}V · ${(displayAmp * 1000).toStringAsFixed(1)}mA'
-          : null;
-    } else if (bestElecByPanel.length > 1) {
-      displayPower = bestElecByPanel.values
-          .map((m) => m.powerW ?? 0.0)
-          .reduce((a, b) => a + b);
-      final validVs = bestElecByPanel.values
-          .map((m) => m.voltageV)
-          .whereType<double>()
-          .toList();
-      final validIs = bestElecByPanel.values
-          .map((m) => m.currentA)
-          .whereType<double>()
-          .toList();
-      displayVolt = validVs.isNotEmpty
-          ? validVs.reduce((a, b) => a + b) / validVs.length
-          : null;
-      displayAmp = validIs.isNotEmpty
-          ? validIs.reduce((a, b) => a + b) / validIs.length
-          : null;
-      powerLabel = 'Total Power';
-      powerSublabel = '${bestElecByPanel.length} panels combined';
-    } else {
-      displayPower = avgPower;
-      displayVolt = avgVolt;
-      displayAmp = avgAmp;
-      powerLabel = 'Power';
-      powerSublabel = null;
-    }
-
     final totalFramesCount = measurements.isNotEmpty
         ? measurements.length
         : (isLatest && latestInspection != null
             ? latestInspection.totalMeasurements
             : 0);
+
+    final outcomeBadge = _resolveHistoryOutcomeBadge(
+      bundle: bundle,
+      totalHotspots: totalHotspots,
+    );
+
+    final peakStr = peakTemp != null
+        ? 'Peak ${peakTemp.toStringAsFixed(1)} °C'
+        : 'Peak N/A';
+    final deltaStr = deltaT != null
+        ? 'Max Δ ${deltaT >= 0 ? '+' : ''}${deltaT.toStringAsFixed(1)} °C'
+        : (baselineTemp != null
+            ? 'Baseline ${baselineTemp.toStringAsFixed(1)} °C'
+            : 'Normal');
+    final framesStr =
+        '$totalFramesCount ${totalFramesCount == 1 ? "frame" : "frames"}';
+    final summaryLine = '$peakStr · $deltaStr · $framesStr';
+
+    final showNestedPostCleaning = bundle != null &&
+        (bundle.hasPostCleaning ||
+            bundle.hotspotSummaries
+                .any((s) => s.isResolvedLater || s.cleaning != null));
 
     return Container(
       key: Key('history_group_$inspectionId'),
@@ -707,133 +888,73 @@ class _ModuleMeasurementsScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row
+          // Clean Compact Header: Timestamp + Single Clear Outcome Badge
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: isLatest
-                            ? AppColors.primarySoft
-                            : AppColors.background,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        isLatest
-                            ? Icons.layers_outlined
-                            : Icons.calendar_today_rounded,
-                        color: isLatest
-                            ? AppColors.primary
-                            : AppColors.textSecondary,
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  isLatest
-                                      ? 'Active Inspection'
-                                      : 'Inspection $shortId',
-                                  style: AppTypography.caption.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (isLatest) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primarySoft,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'LATEST',
-                                    style: AppTypography.caption.copyWith(
-                                      color: AppColors.primary,
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 9,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              if (bundle != null && bundle.hasPostCleaning) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: bundle.isHotspotResolved
-                                        ? AppColors.successBackground
-                                        : AppColors.warningBackground,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(
-                                      color: bundle.isHotspotResolved
-                                          ? AppColors.successBorder
-                                          : AppColors.warningBorder,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        bundle.isHotspotResolved
-                                            ? Icons.check_circle_outline_rounded
-                                            : Icons.warning_amber_rounded,
-                                        size: 10,
-                                        color: bundle.isHotspotResolved
-                                            ? AppColors.success
-                                            : AppColors.warning,
-                                      ),
-                                      const SizedBox(width: 3),
-                                      Text(
-                                        bundle.isHotspotResolved
-                                            ? 'VERIFIED RESOLVED'
-                                            : 'VERIFIED UNRESOLVED',
-                                        style: AppTypography.caption.copyWith(
-                                          color: bundle.isHotspotResolved
-                                              ? AppColors.success
-                                              : AppColors.warning,
-                                          fontWeight: FontWeight.w800,
-                                          fontSize: 9,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ],
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          dateLabel,
+                          style: AppTypography.bodySmall.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            isLatest && measurements.isEmpty
-                                ? 'Baseline: ${baselineTemp != null ? "${baselineTemp.toStringAsFixed(1)}°C" : "N/A"}'
-                                : '$dateLabel • $scanType${baselineTemp != null ? " • Baseline: ${baselineTemp.toStringAsFixed(1)}°C" : ""}',
-                            style: AppTypography.caption.copyWith(
-                              color: AppColors.textSecondary,
-                              fontSize: 11,
+                        ),
+                        if (isLatest)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.primarySoft,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              'LATEST',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 9,
+                              ),
                             ),
                           ),
-                        ],
+                        if (statusPillLabel != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusBadgeBg,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              statusPillLabel,
+                              style: AppTypography.caption.copyWith(
+                                color: statusBadgeText,
+                                fontWeight: FontWeight.w800,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      summaryLine,
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textSecondary,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
@@ -841,19 +962,33 @@ class _ModuleMeasurementsScreenState
               ),
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: statusBadgeBg,
-                  borderRadius: BorderRadius.circular(6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 4,
                 ),
-                child: Text(
-                  statusBadgeLabel,
-                  style: AppTypography.caption.copyWith(
-                    color: statusBadgeText,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 10,
-                  ),
+                decoration: BoxDecoration(
+                  color: outcomeBadge.bg,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: outcomeBadge.border),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      outcomeBadge.icon,
+                      size: 12,
+                      color: outcomeBadge.fg,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      outcomeBadge.label,
+                      style: AppTypography.caption.copyWith(
+                        color: outcomeBadge.fg,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -892,42 +1027,104 @@ class _ModuleMeasurementsScreenState
             ),
           ],
 
-          // Executive Metrics Strip (when telemetry is recorded)
-          if (measurements.isNotEmpty || (displayPower != null || peakTemp != null)) ...[
-            const SizedBox(height: 12),
-            _buildExecutiveMetricsStrip(
-              avgPower: displayPower,
-              avgVolt: displayVolt,
-              avgAmp: displayAmp,
-              peakTemp: peakTemp,
-              deltaT: deltaT,
-              totalFrames: totalFramesCount,
-              hotspotCount: totalHotspots,
-              powerLabel: powerLabel,
-              powerSublabel: powerSublabel,
-            ),
-          ],
-
-          // Level 2: Panel Accordions
-          if (sortedPanels.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            ...sortedPanels.map((p) => _buildPanelAccordion(
-                  inspectionId: inspectionId,
-                  panelIndex: p,
-                  panelMeasurements: byPanel[p]!,
-                  mod: mod,
-                  latestInspection: isLatest ? latestInspection : null,
-                  inspAnomalies: inspAnomalies,
-                  baselineTemp: baselineTemp,
-                )),
-          ],
-
           // Level 2.5: Nested Post-Cleaning Verification (Traceability)
-          if (bundle != null && bundle.hasPostCleaning) ...[
+          if (showNestedPostCleaning) ...[
             _buildNestedPostCleaningSection(bundle),
           ],
 
-          // Level 3: Paginated frames (when byPanel is empty, e.g. test 630)
+          // Direct Action Row + Collapsed Raw Frames Accordion
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              OutlinedButton.icon(
+                key: Key('view_thermal_map_$inspectionId'),
+                onPressed: () {
+                  context.push(
+                    '/modules/${widget.moduleId}/thermal-inspection?inspectionId=$inspectionId',
+                  );
+                },
+                icon: const Icon(
+                  Icons.map_outlined,
+                  size: 15,
+                  color: AppColors.primary,
+                ),
+                label: Text(
+                  'View Thermal Map',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  side: BorderSide(
+                    color: AppColors.primary.withValues(alpha: 0.4),
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+              if (baselineTemp != null && baselineTemp > 0) ...[
+                const SizedBox(width: 10),
+                Text(
+                  'Baseline: ${baselineTemp.toStringAsFixed(1)}°C',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 10.5,
+                  ),
+                ),
+              ],
+            ],
+          ),
+
+          // Level 2: Collapsed-by-default Raw Frames Expansion Tile
+          if (sortedPanels.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Theme(
+              data: Theme.of(context).copyWith(
+                dividerColor: Colors.transparent,
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: ExpansionTile(
+                  key: Key('show_frames_tile_$inspectionId'),
+                  initiallyExpanded: false,
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.only(top: 6),
+                  title: Text(
+                    'Show $totalFramesCount ${totalFramesCount == 1 ? "frame" : "frames"}',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11.5,
+                    ),
+                  ),
+                  children: sortedPanels
+                      .map(
+                        (p) => _buildPanelAccordion(
+                          inspectionId: inspectionId,
+                          panelIndex: p,
+                          panelMeasurements: byPanel[p]!,
+                          mod: mod,
+                          latestInspection: isLatest ? latestInspection : null,
+                          panelResultsOverride: panelResults,
+                          inspAnomalies: inspAnomalies,
+                          baselineTemp: baselineTemp,
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ),
+          ],
+
+          // Level 3: Paginated frames (when byPanel is empty)
           if (isLatest && latestInspection != null && byPanel.isEmpty) ...[
             const SizedBox(height: 8),
             _buildPaginatedInspectionBody(latestInspection, mod),
@@ -938,24 +1135,44 @@ class _ModuleMeasurementsScreenState
   }
 
   Widget _buildNestedPostCleaningSection(InspectionRoutineBundle bundle) {
-    final isResolved = bundle.isHotspotResolved;
+    final summaries = bundle.hotspotSummaries;
     final verifs = bundle.verificationInspections;
     final verifMeas = bundle.verificationMeasurements;
     final firstVerif = verifs.isNotEmpty ? verifs.first : null;
-    final outcomeLabel = isResolved ? 'Resolved' : 'Unresolved';
-    final outcomeColor = isResolved ? AppColors.success : AppColors.warning;
-    final outcomeBg =
-        isResolved ? AppColors.successBackground : AppColors.warningBackground;
-    final outcomeBorder =
-        isResolved ? AppColors.successBorder : AppColors.warningBorder;
+
+    final bool allCleared = summaries.isNotEmpty
+        ? (bundle.unresolvedCount == 0 && bundle.pendingCount == 0)
+        : bundle.isHotspotResolved;
+    final bool onlyClearedLater = summaries.isNotEmpty &&
+        bundle.resolvedLaterCount > 0 &&
+        bundle.resolvedCount == 0 &&
+        bundle.unresolvedCount == 0;
+
+    final Color outcomeColor;
+    final Color outcomeBorder;
+    final String outcomeLabel;
+
+    if (onlyClearedLater) {
+      outcomeLabel = 'Cleared in Later Scan';
+      outcomeColor = AppColors.primary;
+      outcomeBorder = AppColors.primary.withValues(alpha: 0.3);
+    } else if (allCleared) {
+      outcomeLabel = 'Resolved';
+      outcomeColor = AppColors.success;
+      outcomeBorder = AppColors.successBorder;
+    } else {
+      outcomeLabel = 'Unresolved';
+      outcomeColor = AppColors.warning;
+      outcomeBorder = AppColors.warningBorder;
+    }
 
     return Container(
       key: Key('nested_post_cleaning_${bundle.routineInspection.id}'),
       margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: AppColors.background,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: outcomeBorder.withValues(alpha: 0.6)),
       ),
       child: Column(
@@ -963,66 +1180,66 @@ class _ModuleMeasurementsScreenState
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: outcomeBg,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  isResolved
-                      ? Icons.auto_fix_high_rounded
-                      : Icons.warning_amber_rounded,
-                  size: 16,
-                  color: outcomeColor,
-                ),
+              Icon(
+                onlyClearedLater
+                    ? Icons.verified_outlined
+                    : (allCleared
+                        ? Icons.auto_fix_high_rounded
+                        : Icons.warning_amber_rounded),
+                size: 15,
+                color: outcomeColor,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Post-Cleaning Verification',
-                      style: AppTypography.caption.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      '${verifMeas.length} verification frame(s) recorded · Settling window satisfied',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.textSecondary,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
+                child: Text(
+                  'Post-Cleaning Verification',
+                  style: AppTypography.caption.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                    fontSize: 11.5,
+                  ),
                 ),
               ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: outcomeBg,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: outcomeBorder),
-                ),
-                child: Text(
-                  outcomeLabel.toUpperCase(),
-                  style: AppTypography.caption.copyWith(
-                    color: outcomeColor,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 10,
-                  ),
+              Text(
+                outcomeLabel,
+                style: AppTypography.caption.copyWith(
+                  color: outcomeColor,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 10.5,
                 ),
               ),
             ],
           ),
-          if (firstVerif != null) ...[
-            const SizedBox(height: 8),
+          if (summaries.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            ...summaries.map((s) {
+              final pIdx = (s.anomaly.panelIndex != null &&
+                      s.anomaly.panelIndex! > 0)
+                  ? s.anomaly.panelIndex!
+                  : 1;
+              final tempStr = s.afterTempC != null
+                  ? '${s.beforeTempC.toStringAsFixed(1)} °C → ${s.afterTempC!.toStringAsFixed(1)} °C'
+                  : '${s.beforeTempC.toStringAsFixed(1)} °C';
+              final itemStatus = s.isResolved
+                  ? 'Resolved'
+                  : (s.isResolvedLater
+                      ? 'Cleared in Later Scan'
+                      : (s.isUnresolved ? 'Unresolved' : 'Pending'));
+              return Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  'P$pIdx · X = ${s.anomaly.xPositionCm.toStringAsFixed(1)} cm: $tempStr · $itemStatus',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 10,
+                  ),
+                ),
+              );
+            }),
+          ] else if (firstVerif != null || verifMeas.isNotEmpty) ...[
+            const SizedBox(height: 4),
             Text(
-              'Verification ID: ${firstVerif.id.length > 8 ? "${firstVerif.id.substring(0, 8)}..." : firstVerif.id} · Scheduled: ${_formatReadableTimestamp(firstVerif.scheduledFor)}',
+              '${verifMeas.length} verification frame(s) recorded',
               style: AppTypography.caption.copyWith(
                 color: AppColors.textSecondary,
                 fontSize: 10,
@@ -1034,157 +1251,13 @@ class _ModuleMeasurementsScreenState
     );
   }
 
-  Widget _buildExecutiveMetricsStrip({
-    required double? avgPower,
-    required double? avgVolt,
-    required double? avgAmp,
-    required double? peakTemp,
-    required double? deltaT,
-    required int totalFrames,
-    required int hotspotCount,
-    String powerLabel = 'Power',
-    String? powerSublabel,
-  }) {
-    final hasElec = avgPower != null || avgVolt != null || avgAmp != null;
-    final powerText =
-        avgPower != null ? '${avgPower.toStringAsFixed(2)} W' : 'N/A';
-    final voltAmpText = powerSublabel ??
-        ((avgVolt != null && avgAmp != null)
-            ? '${avgVolt.toStringAsFixed(2)}V · ${(avgAmp * 1000).toStringAsFixed(1)}mA'
-            : (hasElec ? 'Partial' : 'No Elec'));
-
-    final tempText =
-        peakTemp != null ? '${peakTemp.toStringAsFixed(1)}°C' : 'N/A';
-    final deltaText = deltaT != null
-        ? (deltaT > 0
-            ? '+${deltaT.toStringAsFixed(1)}°C above normal'
-            : '${deltaT.toStringAsFixed(1)}°C above normal')
-        : 'Normal';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        children: [
-          // Yield / Power
-          Expanded(
-            child: _buildMetricStripItem(
-              icon: Icons.bolt_rounded,
-              iconColor: AppColors.primary,
-              label: powerLabel,
-              value: powerText,
-              sublabel: voltAmpText,
-            ),
-          ),
-          Container(width: 1, height: 28, color: AppColors.border),
-          // Peak Temp
-          Expanded(
-            child: _buildMetricStripItem(
-              icon: Icons.thermostat_rounded,
-              iconColor: hotspotCount > 0
-                  ? AppColors.error
-                  : AppColors.secondary,
-              label: 'Peak Temp',
-              value: tempText,
-              sublabel: deltaText,
-            ),
-          ),
-          Container(width: 1, height: 28, color: AppColors.border),
-          // Frames
-          Expanded(
-            child: _buildMetricStripItem(
-              icon: Icons.photo_camera_back_outlined,
-              iconColor: AppColors.textSecondary,
-              label: 'Readings',
-              value: '$totalFrames',
-              sublabel: 'Readings recorded',
-            ),
-          ),
-          Container(width: 1, height: 28, color: AppColors.border),
-          // Health / Anomalies
-          Expanded(
-            child: _buildMetricStripItem(
-              icon: hotspotCount > 0
-                  ? Icons.warning_amber_rounded
-                  : Icons.check_circle_outline_rounded,
-              iconColor:
-                  hotspotCount > 0 ? AppColors.error : AppColors.success,
-              label: 'Health',
-              value: hotspotCount > 0
-                  ? '$hotspotCount Hotspot${hotspotCount > 1 ? "s" : ""}'
-                  : 'Normal',
-              sublabel: hotspotCount > 0 ? 'Action req.' : '0 Anomalies',
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMetricStripItem({
-    required IconData icon,
-    required Color iconColor,
-    required String label,
-    required String value,
-    required String sublabel,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 12, color: iconColor),
-              const SizedBox(width: 3),
-              Flexible(
-                child: Text(
-                  label,
-                  style: AppTypography.caption.copyWith(
-                    fontSize: 9.5,
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: AppTypography.caption.copyWith(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            sublabel,
-            style: AppTypography.caption.copyWith(
-              fontSize: 8.5,
-              color: AppColors.textSecondary,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPanelAccordion({
     required String inspectionId,
     required int panelIndex,
     required List<ModuleMeasurement> panelMeasurements,
     required PvModule? mod,
     required LatestInspection? latestInspection,
+    List<InspectionPanelResult>? panelResultsOverride,
     List<ConfirmedAnomaly> inspAnomalies = const [],
     double? baselineTemp,
   }) {
@@ -1201,7 +1274,7 @@ class _ModuleMeasurementsScreenState
         : (startCm: pMinX, endCm: pMaxX);
 
     InspectionPanelResult? pRes;
-    final pResults = latestInspection?.panelResults;
+    final pResults = panelResultsOverride ?? latestInspection?.panelResults;
     if (pResults != null) {
       for (final r in pResults) {
         if (r.panelIndex == p) {

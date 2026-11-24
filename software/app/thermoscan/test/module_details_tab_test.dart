@@ -730,7 +730,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // Verify page 1 rendered items strictly ordered by xPositionCm ASC
-      expect(find.text('Active Inspection'), findsOneWidget);
+      expect(find.byKey(const Key('history_group_insp-paginated-1')), findsOneWidget);
+      expect(find.text('LATEST'), findsOneWidget);
       expect(find.text('X = 10.0 cm'), findsOneWidget);
       expect(find.text('X = 12.0 cm'), findsOneWidget);
       expect(find.text('Page 1 of 2 (20 items)'), findsOneWidget);
@@ -743,6 +744,7 @@ void main() {
       expect(find.text('CANDIDATE'), findsNothing);
 
       // Tap Next button to paginate
+      await tester.ensureVisible(find.byKey(const Key('btn_next_page')));
       await tester.tap(find.byKey(const Key('btn_next_page')));
       await tester.pumpAndSettle();
 
@@ -1794,6 +1796,13 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('LATEST'), findsOneWidget);
+        await tester.ensureVisible(
+          find.byKey(const Key('show_frames_tile_insp-11111111-aaaa')),
+        );
+        await tester.tap(
+          find.byKey(const Key('show_frames_tile_insp-11111111-aaaa')),
+        );
+        await tester.pumpAndSettle();
         expect(find.text('X = 8.0 cm'), findsOneWidget);
       },
     );

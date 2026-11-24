@@ -794,6 +794,7 @@ class ModuleInspection {
     required this.createdAt,
     required this.updatedAt,
     this.confirmedAnomalies = const [],
+    this.panelResults,
   });
 
   final String id;
@@ -811,6 +812,7 @@ class ModuleInspection {
   final String createdAt;
   final String updatedAt;
   final List<ConfirmedAnomaly> confirmedAnomalies;
+  final List<InspectionPanelResult>? panelResults;
 
   ModuleInspection copyWith({
     String? id,
@@ -828,6 +830,7 @@ class ModuleInspection {
     String? createdAt,
     String? updatedAt,
     List<ConfirmedAnomaly>? confirmedAnomalies,
+    List<InspectionPanelResult>? panelResults,
   }) {
     return ModuleInspection(
       id: id ?? this.id,
@@ -845,6 +848,7 @@ class ModuleInspection {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       confirmedAnomalies: confirmedAnomalies ?? this.confirmedAnomalies,
+      panelResults: panelResults ?? this.panelResults,
     );
   }
 
@@ -853,6 +857,11 @@ class ModuleInspection {
     final confirmed = rawConfirmed
         .map((a) => a is Map ? ConfirmedAnomaly.fromJson(Map<String, dynamic>.from(a)) : null)
         .whereType<ConfirmedAnomaly>()
+        .toList();
+    final rawPanelResults = json['panel_results'] as List<dynamic>?;
+    final panelResults = rawPanelResults
+        ?.map((p) => p is Map ? InspectionPanelResult.fromJson(Map<String, dynamic>.from(p)) : null)
+        .whereType<InspectionPanelResult>()
         .toList();
 
     return ModuleInspection(
@@ -871,6 +880,7 @@ class ModuleInspection {
       createdAt: json['created_at'] as String? ?? '',
       updatedAt: json['updated_at'] as String? ?? '',
       confirmedAnomalies: confirmed,
+      panelResults: panelResults,
     );
   }
 }
@@ -905,6 +915,11 @@ class ConfirmedAnomaly {
   final int actuatedAttemptsCount;
   final bool retryPending;
   final String? closedAt;
+
+  bool get isResolved => status == 'resolved';
+  bool get isResolvedLater => status == 'resolved_later';
+  bool get isCleared => isResolved || isResolvedLater;
+  bool get isActiveProblem => status == 'open' || status == 'unresolved';
 
   factory ConfirmedAnomaly.fromJson(Map<String, dynamic> json) {
     final rawConfirming = json['confirming_measurement_ids'] as List<dynamic>? ?? [];

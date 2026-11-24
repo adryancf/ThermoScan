@@ -203,8 +203,14 @@ void main() {
       // Baseline temp is rendered
       expect(find.textContaining('Baseline: 27.0°C'), findsWidgets);
 
-      // Health badge displays 1 Hotspot
+      // Compact outcome badge displays 1 Hotspot
       expect(find.text('1 Hotspot'), findsOneWidget);
+
+      // Expand raw frames tile to inspect panel accordions & step tiles
+      await tester.tap(
+        find.byKey(const Key('show_frames_tile_insp-hist-12345678')),
+      );
+      await tester.pumpAndSettle();
 
       // Panel 1 accordion shows 1 HOTSPOT
       expect(find.text('1 HOTSPOT'), findsOneWidget);

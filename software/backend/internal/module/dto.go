@@ -258,9 +258,10 @@ type InspectionDTO struct {
 	Status               string   `json:"status"`
 	FailureReason        *string  `json:"failure_reason,omitempty"`
 	VerificationResult   *string  `json:"verification_result,omitempty"`
-	CreatedAt            string                `json:"created_at"`
-	UpdatedAt            string                `json:"updated_at"`
-	ConfirmedAnomalies   []ConfirmedAnomalyDTO `json:"confirmed_anomalies"`
+	CreatedAt            string                     `json:"created_at"`
+	UpdatedAt            string                     `json:"updated_at"`
+	ConfirmedAnomalies   []ConfirmedAnomalyDTO      `json:"confirmed_anomalies"`
+	PanelResults         []InspectionPanelResultDTO `json:"panel_results,omitempty"`
 }
 
 type ConfirmedAnomalyDTO struct {

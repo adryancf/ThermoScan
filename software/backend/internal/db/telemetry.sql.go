@@ -1985,6 +1985,65 @@ func (q *Queries) ListOpenAnomalyEventsByModule(ctx context.Context, moduleID pg
 	return items, nil
 }
 
+const listUnresolvedAnomalyEventsByModule = `-- name: ListUnresolvedAnomalyEventsByModule :many
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE module_id = $1 AND status = 'unresolved'
+ORDER BY detected_at DESC
+`
+
+type ListUnresolvedAnomalyEventsByModuleRow struct {
+	ID                       pgtype.UUID
+	ModuleID                 pgtype.UUID
+	OriginMeasurementID      pgtype.UUID
+	ConfirmingMeasurementIds []pgtype.UUID
+	SourceEventID            pgtype.UUID
+	PanelIndex               int32
+	XPositionCm              string
+	DetectedAt               time.Time
+	Status                   string
+	ActuatedAttemptsCount    int32
+	RetryPending             bool
+	ClosedAt                 *time.Time
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+}
+
+func (q *Queries) ListUnresolvedAnomalyEventsByModule(ctx context.Context, moduleID pgtype.UUID) ([]ListUnresolvedAnomalyEventsByModuleRow, error) {
+	rows, err := q.db.Query(ctx, listUnresolvedAnomalyEventsByModule, moduleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUnresolvedAnomalyEventsByModuleRow{}
+	for rows.Next() {
+		var i ListUnresolvedAnomalyEventsByModuleRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ModuleID,
+			&i.OriginMeasurementID,
+			&i.ConfirmingMeasurementIds,
+			&i.SourceEventID,
+			&i.PanelIndex,
+			&i.XPositionCm,
+			&i.DetectedAt,
+			&i.Status,
+			&i.ActuatedAttemptsCount,
+			&i.RetryPending,
+			&i.ClosedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordDeviceHandshakePing = `-- name: RecordDeviceHandshakePing :one
 INSERT INTO reservoir_readings (
     module_id,

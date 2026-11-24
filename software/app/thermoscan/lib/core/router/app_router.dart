@@ -169,7 +169,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/modules/:moduleId/thermal-inspection',
         builder: (context, state) {
           final moduleId = state.pathParameters['moduleId'] ?? '';
-          return ModuleThermalInspectionScreen(moduleId: moduleId);
+          final initialInspectionId = state.uri.queryParameters['inspectionId'];
+          return ModuleThermalInspectionScreen(
+            moduleId: moduleId,
+            initialInspectionId: initialInspectionId,
+          );
         },
       ),
 

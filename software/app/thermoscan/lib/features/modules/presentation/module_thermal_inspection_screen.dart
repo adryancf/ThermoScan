@@ -21,9 +21,11 @@ class ModuleThermalInspectionScreen extends ConsumerStatefulWidget {
   const ModuleThermalInspectionScreen({
     super.key,
     required this.moduleId,
+    this.initialInspectionId,
   });
 
   final String moduleId;
+  final String? initialInspectionId;
 
   @override
   ConsumerState<ModuleThermalInspectionScreen> createState() =>
@@ -33,6 +35,26 @@ class ModuleThermalInspectionScreen extends ConsumerStatefulWidget {
 class _ModuleThermalInspectionScreenState
     extends ConsumerState<ModuleThermalInspectionScreen> {
   ModuleInspection? _selectedHistoricalInspection;
+  bool _userClearedHistoricalSelection = false;
+  List<String> _activeHistoricalExtraIds = const [];
+
+  ModuleMeasurement? _latestMeasurementByTime(
+    List<ModuleMeasurement> items,
+  ) {
+    if (items.isEmpty) return null;
+    ModuleMeasurement best = items.first;
+    DateTime? bestDt = DateTime.tryParse(best.measuredAt);
+    for (var i = 1; i < items.length; i++) {
+      final candidate = items[i];
+      final candidateDt = DateTime.tryParse(candidate.measuredAt);
+      if (candidateDt != null &&
+          (bestDt == null || candidateDt.isAfter(bestDt))) {
+        best = candidate;
+        bestDt = candidateDt;
+      }
+    }
+    return best;
+  }
 
   String _formatIsoDate(String? iso) {
     if (iso == null || iso.isEmpty) return 'No timestamp';
@@ -53,11 +75,16 @@ class _ModuleThermalInspectionScreenState
     ref.invalidate(latestInspectionProvider(widget.moduleId));
     ref.invalidate(moduleInspectionsProvider(widget.moduleId));
     ref.invalidate(moduleCleaningsProvider(widget.moduleId));
-    if (_selectedHistoricalInspection != null) {
+    final idsToInvalidate = <String>{
+      if (_selectedHistoricalInspection != null)
+        _selectedHistoricalInspection!.id,
+      ..._activeHistoricalExtraIds,
+    };
+    for (final inspId in idsToInvalidate) {
       ref.invalidate(
         inspectionMeasurementsPagedProvider((
           moduleId: widget.moduleId,
-          inspectionId: _selectedHistoricalInspection!.id,
+          inspectionId: inspId,
           page: 1,
           limit: 200,
           panelIndex: null,
@@ -80,20 +107,97 @@ class _ModuleThermalInspectionScreenState
         ref.watch(moduleCleaningsProvider(widget.moduleId));
 
     final latestInspection = latestInspectionAsync.valueOrNull;
-    final isViewingLatest = _selectedHistoricalInspection == null ||
-        _selectedHistoricalInspection!.id == latestInspection?.inspection.id;
+    final rawInspectionsEarly =
+        inspectionsAsync.valueOrNull ?? const <ModuleInspection>[];
+    final allCleaningsEarly =
+        cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
+    final allMeasurementsEarly =
+        measurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
 
-    final historicalPagedAsync = !isViewingLatest
-        ? ref.watch(
+    final earlyBundles = InspectionRoutineBundle.buildBundles(
+      allInspections: rawInspectionsEarly,
+      allCleanings: allCleaningsEarly,
+      allMeasurements: allMeasurementsEarly,
+      latestInspection: latestInspection,
+    );
+    final latestActiveEarly =
+        InspectionRoutineBundle.getLatestActiveBundle(earlyBundles);
+    final latestRoutineIdEarly = latestActiveEarly?.routineInspection.id ??
+        ((latestInspection != null &&
+                latestInspection.inspection.status != 'scheduled')
+            ? latestInspection.inspection.id
+            : (earlyBundles.isNotEmpty
+                ? earlyBundles.first.routineInspection.id
+                : null));
+
+    ModuleInspection? selectedHistorical = _selectedHistoricalInspection;
+    if (selectedHistorical == null &&
+        !_userClearedHistoricalSelection &&
+        widget.initialInspectionId != null &&
+        widget.initialInspectionId!.isNotEmpty &&
+        widget.initialInspectionId != latestRoutineIdEarly) {
+      for (final b in earlyBundles) {
+        if (b.routineInspection.id == widget.initialInspectionId ||
+            b.verificationInspections
+                .any((v) => v.id == widget.initialInspectionId)) {
+          selectedHistorical = b.routineInspection;
+          break;
+        }
+      }
+    }
+
+    final isViewingLatest = selectedHistorical == null ||
+        selectedHistorical.id == latestRoutineIdEarly;
+
+    PagedMeasurements? historicalRoutinePaged;
+    final extraFetchedVerifMeasurements = <ModuleMeasurement>[];
+    final extraFetchIds = <String>[];
+
+    if (!isViewingLatest) {
+      historicalRoutinePaged = ref
+          .watch(
             inspectionMeasurementsPagedProvider((
               moduleId: widget.moduleId,
-              inspectionId: _selectedHistoricalInspection!.id,
+              inspectionId: selectedHistorical.id,
               page: 1,
               limit: 200,
               panelIndex: null,
             )),
           )
-        : null;
+          .valueOrNull;
+
+      InspectionRoutineBundle? rawHistBundle;
+      for (final b in earlyBundles) {
+        if (b.routineInspection.id == selectedHistorical.id) {
+          rawHistBundle = b;
+          break;
+        }
+      }
+      if (rawHistBundle != null) {
+        for (final v in rawHistBundle.verificationInspections) {
+          if (v.id.isEmpty || v.id == selectedHistorical.id) continue;
+          final alreadyLoaded =
+              allMeasurementsEarly.any((m) => m.inspectionId == v.id);
+          if (alreadyLoaded) continue;
+          extraFetchIds.add(v.id);
+          final verifPaged = ref
+              .watch(
+                inspectionMeasurementsPagedProvider((
+                  moduleId: widget.moduleId,
+                  inspectionId: v.id,
+                  page: 1,
+                  limit: 200,
+                  panelIndex: null,
+                )),
+              )
+              .valueOrNull;
+          if (verifPaged != null) {
+            extraFetchedVerifMeasurements.addAll(verifPaged.measurements);
+          }
+        }
+      }
+    }
+    _activeHistoricalExtraIds = extraFetchIds;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -175,17 +279,29 @@ class _ModuleThermalInspectionScreenState
         ),
         data: (details) {
           final mod = details.module;
-          final rawInspections =
-              inspectionsAsync.valueOrNull ?? const <ModuleInspection>[];
-          final allCleanings =
-              cleaningsAsync.valueOrNull ?? const <ModuleCleaning>[];
-          final allMeasurements =
-              measurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
+          final rawInspections = rawInspectionsEarly;
+          final allCleanings = allCleaningsEarly;
+
+          // Merge allMeasurements with any historical routine & verification
+          // frames fetched on demand via inspectionMeasurementsPagedProvider.
+          final mergedMeasurements = <ModuleMeasurement>[...allMeasurementsEarly];
+          final seenMeasIds = allMeasurementsEarly
+              .map((m) => m.id)
+              .where((id) => id.isNotEmpty)
+              .toSet();
+          for (final extra in [
+            ...?historicalRoutinePaged?.measurements,
+            ...extraFetchedVerifMeasurements,
+          ]) {
+            if (extra.id.isEmpty || seenMeasIds.add(extra.id)) {
+              mergedMeasurements.add(extra);
+            }
+          }
 
           final bundles = InspectionRoutineBundle.buildBundles(
             allInspections: rawInspections,
             allCleanings: allCleanings,
-            allMeasurements: allMeasurements,
+            allMeasurements: mergedMeasurements,
             latestInspection: latestInspection,
           );
 
@@ -194,10 +310,10 @@ class _ModuleThermalInspectionScreenState
           final ModuleMeasurement? activeLatestMeasurement;
           final List<ModuleMeasurement> activeVerificationMeasurements;
           final String? activePostCleaningResult;
-          final InspectionRoutineBundle? activeBundle;
+          final InspectionRoutineBundle activeBundle;
 
           if (isViewingLatest) {
-            final measurements = allMeasurements;
+            final measurements = allMeasurementsEarly;
             final rawLatestMeasurement =
                 measurements.isNotEmpty ? measurements.first : null;
             final currentMeasurements = filterMeasurementsForCurrentInspection(
@@ -205,63 +321,62 @@ class _ModuleThermalInspectionScreenState
               latestInspection: latestInspection,
               latestMeasurement: rawLatestMeasurement,
             );
-            activeMeasurements = currentMeasurements;
-            activeInspection = latestInspection;
-            activeLatestMeasurement = currentMeasurements.isNotEmpty
-                ? currentMeasurements.first
-                : rawLatestMeasurement;
 
             final latestActiveBundle =
                 InspectionRoutineBundle.getLatestActiveBundle(bundles);
-            final latestRoutineId = (latestInspection != null &&
-                    latestInspection.inspection.status != 'scheduled')
-                ? latestInspection.inspection.id
-                : (latestActiveBundle?.routineInspection.id ??
-                    (bundles.isNotEmpty
-                        ? bundles.first.routineInspection.id
-                        : ''));
-            final currentBundle = bundles.firstWhere(
-              (b) => b.routineInspection.id == latestRoutineId,
-              orElse: () =>
-                  latestActiveBundle ??
-                  (bundles.isNotEmpty
-                      ? bundles.first
-                      : InspectionRoutineBundle(
-                          routineInspection: latestInspection?.inspection ??
-                              const ModuleInspection(
-                                id: '',
-                                moduleId: '',
-                                sourceEventId: '',
-                                type: 'scheduled',
-                                scheduledFor: '',
-                                status: 'completed',
-                                createdAt: '',
-                                updatedAt: '',
-                              ),
-                          verificationInspections: const [],
-                          routineMeasurements: currentMeasurements,
-                          verificationMeasurements: const [],
-                          restoredMeasurements: currentMeasurements,
-                        )),
-            );
+            final currentBundle = latestActiveBundle ??
+                (bundles.isNotEmpty
+                    ? bundles.first
+                    : InspectionRoutineBundle(
+                        routineInspection: latestInspection?.inspection ??
+                            const ModuleInspection(
+                              id: '',
+                              moduleId: '',
+                              sourceEventId: '',
+                              type: 'scheduled',
+                              scheduledFor: '',
+                              status: 'completed',
+                              createdAt: '',
+                              updatedAt: '',
+                            ),
+                        verificationInspections: const [],
+                        routineMeasurements: currentMeasurements,
+                        verificationMeasurements: const [],
+                        restoredMeasurements: currentMeasurements,
+                      ));
+
+            activeBundle = currentBundle;
+            activeInspection =
+                currentBundle.toEffectiveLatestInspection(latestInspection);
+            activeMeasurements = currentBundle.routineMeasurements.isNotEmpty
+                ? currentBundle.routineMeasurements
+                : currentMeasurements;
+            activeLatestMeasurement =
+                _latestMeasurementByTime(activeMeasurements) ??
+                    (currentMeasurements.isNotEmpty
+                        ? currentMeasurements.first
+                        : rawLatestMeasurement);
             activeVerificationMeasurements =
                 currentBundle.verificationMeasurements;
             activePostCleaningResult = currentBundle.verificationResult;
-            activeBundle = currentBundle;
           } else {
-            final pagedMeas =
-                historicalPagedAsync?.valueOrNull?.measurements ??
-                    const <ModuleMeasurement>[];
+            final targetHist = selectedHistorical!;
+            final pagedMeas = historicalRoutinePaged?.measurements ??
+                const <ModuleMeasurement>[];
 
             final histBundle = bundles.firstWhere(
-              (b) =>
-                  b.routineInspection.id == _selectedHistoricalInspection!.id,
+              (b) => b.routineInspection.id == targetHist.id,
               orElse: () => InspectionRoutineBundle(
-                routineInspection: _selectedHistoricalInspection!,
+                routineInspection: targetHist,
                 verificationInspections: const [],
                 routineMeasurements: pagedMeas,
-                verificationMeasurements: const [],
-                restoredMeasurements: pagedMeas,
+                verificationMeasurements: extraFetchedVerifMeasurements,
+                restoredMeasurements: extraFetchedVerifMeasurements.isNotEmpty
+                    ? fuseRoutineWithVerificationMeasurements(
+                        routineMeasurements: pagedMeas,
+                        verificationMeasurements: extraFetchedVerifMeasurements,
+                      )
+                    : pagedMeas,
               ),
             );
 
@@ -269,20 +384,14 @@ class _ModuleThermalInspectionScreenState
                 ? histBundle.routineMeasurements
                 : pagedMeas;
 
+            activeBundle = histBundle;
             activeMeasurements = histMeasurements;
-            activeInspection = LatestInspection(
-              inspection: _selectedHistoricalInspection!,
-              totalMeasurements: histMeasurements.length,
-              confirmedAnomalies:
-                  _selectedHistoricalInspection!.confirmedAnomalies,
-            );
+            activeInspection = histBundle.toEffectiveLatestInspection(null);
             activeLatestMeasurement =
-                histMeasurements.isNotEmpty ? histMeasurements.first : null;
-
+                _latestMeasurementByTime(histMeasurements);
             activeVerificationMeasurements =
                 histBundle.verificationMeasurements;
             activePostCleaningResult = histBundle.verificationResult;
-            activeBundle = histBundle;
           }
 
           return RefreshIndicator(
@@ -305,8 +414,10 @@ class _ModuleThermalInspectionScreenState
                     latestInspection: activeInspection,
                     totalMeasurements: activeMeasurements.length,
                     isViewingLatest: isViewingLatest,
+                    selectedHistorical: selectedHistorical,
                     bundles: bundles,
-                    latestInspectionId: latestInspection?.inspection.id ??
+                    latestInspectionId: latestRoutineIdEarly ??
+                        latestInspection?.inspection.id ??
                         (bundles.isNotEmpty
                             ? bundles.first.routineInspection.id
                             : null),
@@ -318,11 +429,12 @@ class _ModuleThermalInspectionScreenState
                     module: mod,
                     latestMeasurement: activeLatestMeasurement,
                     latestInspection: activeInspection,
-                    measurements: isViewingLatest
-                        ? measurementsAsync.valueOrNull
-                        : activeMeasurements,
+                    measurements: activeMeasurements.isNotEmpty
+                        ? activeMeasurements
+                        : measurementsAsync.valueOrNull,
                     verificationMeasurements: activeVerificationMeasurements,
                     postCleaningResult: activePostCleaningResult,
+                    hotspotSummaries: activeBundle.hotspotSummaries,
                     fallbackBaselineTempC: activeBundle.baselineTemperatureC,
                     fallbackConfirmedAnomalies:
                         activeBundle.confirmedAnomalies,
@@ -343,6 +455,7 @@ class _ModuleThermalInspectionScreenState
     required LatestInspection? latestInspection,
     required int totalMeasurements,
     required bool isViewingLatest,
+    required ModuleInspection? selectedHistorical,
     required List<InspectionRoutineBundle> bundles,
     required String? latestInspectionId,
   }) {
@@ -486,6 +599,7 @@ class _ModuleThermalInspectionScreenState
                   context,
                   bundles: bundles,
                   latestInspectionId: latestInspectionId,
+                  selectedHistorical: selectedHistorical,
                 ),
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -525,7 +639,7 @@ class _ModuleThermalInspectionScreenState
               ),
             ],
           ),
-          if (!isViewingLatest && _selectedHistoricalInspection != null) ...[
+          if (!isViewingLatest && selectedHistorical != null) ...[
             const SizedBox(height: 12),
             Container(
               key: const Key('historical_scan_banner'),
@@ -553,7 +667,7 @@ class _ModuleThermalInspectionScreenState
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          'Viewing Historical Scan (${_formatIsoDate(_selectedHistoricalInspection!.finishedAt ?? _selectedHistoricalInspection!.startedAt ?? _selectedHistoricalInspection!.scheduledFor)})',
+                          'Viewing Historical Scan (${_formatIsoDate(selectedHistorical.finishedAt ?? selectedHistorical.startedAt ?? selectedHistorical.scheduledFor)})',
                           style: AppTypography.caption.copyWith(
                             color: AppColors.warning,
                             fontWeight: FontWeight.w600,
@@ -568,6 +682,7 @@ class _ModuleThermalInspectionScreenState
                     onTap: () {
                       setState(() {
                         _selectedHistoricalInspection = null;
+                        _userClearedHistoricalSelection = true;
                       });
                     },
                     child: Container(
@@ -674,6 +789,7 @@ class _ModuleThermalInspectionScreenState
     BuildContext context, {
     required List<InspectionRoutineBundle> bundles,
     required String? latestInspectionId,
+    required ModuleInspection? selectedHistorical,
   }) {
     showModalBottomSheet<void>(
       context: context,
@@ -767,10 +883,9 @@ class _ModuleThermalInspectionScreenState
                       final isLatest = index == 0 ||
                           (latestInspectionId != null &&
                               insp.id == latestInspectionId);
-                      final isSelected = (_selectedHistoricalInspection ==
-                                  null &&
+                      final isSelected = (selectedHistorical == null &&
                               isLatest) ||
-                          (_selectedHistoricalInspection?.id == insp.id);
+                          (selectedHistorical?.id == insp.id);
 
                       final isPostCleaning = insp.type == 'verification' ||
                           insp.type == 'post_cleaning' ||
@@ -786,6 +901,7 @@ class _ModuleThermalInspectionScreenState
                       final hotspotCount = bundle.confirmedAnomalies.length;
                       final hasVerif = bundle.hasPostCleaning;
                       final isResolved = bundle.isHotspotResolved;
+                      final outcomeBadge = _resolveSelectorOutcomeBadge(bundle);
 
                       return InkWell(
                         key: Key('scan_selector_item_${insp.id}'),
@@ -794,6 +910,7 @@ class _ModuleThermalInspectionScreenState
                           setState(() {
                             _selectedHistoricalInspection =
                                 isLatest ? null : insp;
+                            _userClearedHistoricalSelection = isLatest;
                           });
                           Navigator.of(modalContext).pop();
                         },
@@ -890,33 +1007,25 @@ class _ModuleThermalInspectionScreenState
                                               ),
                                             ),
                                           ),
-                                        if (hasVerif)
+                                        if (outcomeBadge != null)
                                           Container(
                                             padding: const EdgeInsets.symmetric(
                                               horizontal: 7,
                                               vertical: 2,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: isResolved
-                                                  ? AppColors.successBackground
-                                                  : AppColors.warningBackground,
+                                              color: outcomeBadge.bg,
                                               borderRadius:
                                                   BorderRadius.circular(999),
                                               border: Border.all(
-                                                color: isResolved
-                                                    ? AppColors.successBorder
-                                                    : AppColors.warningBorder,
+                                                color: outcomeBadge.border,
                                               ),
                                             ),
                                             child: Text(
-                                              isResolved
-                                                  ? 'RESOLVED (${bundle.verificationInspections.length} verif.)'
-                                                  : 'UNRESOLVED (${bundle.verificationInspections.length} verif.)',
+                                              outcomeBadge.label,
                                               style: AppTypography.caption
                                                   .copyWith(
-                                                color: isResolved
-                                                    ? AppColors.success
-                                                    : AppColors.warning,
+                                                color: outcomeBadge.fg,
                                                 fontWeight: FontWeight.w700,
                                                 fontSize: 9.5,
                                               ),
@@ -989,6 +1098,93 @@ class _ModuleThermalInspectionScreenState
         );
       },
     );
+  }
+
+  ({String label, Color bg, Color border, Color fg})?
+      _resolveSelectorOutcomeBadge(InspectionRoutineBundle bundle) {
+    final summaries = bundle.hotspotSummaries;
+    if (summaries.isNotEmpty) {
+      final total = summaries.length;
+      final resolved = bundle.resolvedCount;
+      final resolvedLater = bundle.resolvedLaterCount;
+      final unresolved = bundle.unresolvedCount;
+      final pending = bundle.pendingCount;
+      final cleared = resolved + resolvedLater;
+
+      if (resolvedLater > 0 &&
+          unresolved == 0 &&
+          resolved == 0 &&
+          pending == 0) {
+        return (
+          label: 'Cleared in Later Scan',
+          bg: AppColors.primarySoft,
+          border: AppColors.primary.withValues(alpha: 0.3),
+          fg: AppColors.primary,
+        );
+      }
+      if (cleared == total && total > 0) {
+        return (
+          label: 'All Resolved',
+          bg: AppColors.successBackground,
+          border: AppColors.successBorder,
+          fg: AppColors.success,
+        );
+      }
+      if (cleared > 0 && (unresolved > 0 || pending > 0)) {
+        return (
+          label: unresolved > 0
+              ? '$cleared Resolved · $unresolved Unresolved'
+              : '$cleared/$total Resolved',
+          bg: AppColors.warningBackground,
+          border: AppColors.warningBorder,
+          fg: AppColors.warning,
+        );
+      }
+      if (unresolved > 0) {
+        return (
+          label: '$unresolved Unresolved',
+          bg: AppColors.errorBackground,
+          border: AppColors.errorBorder,
+          fg: AppColors.error,
+        );
+      }
+      if (pending > 0) {
+        return (
+          label: 'Pending Verification',
+          bg: AppColors.warningBackground,
+          border: AppColors.warningBorder,
+          fg: AppColors.warning,
+        );
+      }
+      return null;
+    }
+
+    if (bundle.hasPostCleaning) {
+      final isResolved = bundle.isHotspotResolved;
+      return (
+        label: isResolved
+            ? 'RESOLVED (${bundle.verificationInspections.length} verif.)'
+            : 'UNRESOLVED (${bundle.verificationInspections.length} verif.)',
+        bg: isResolved
+            ? AppColors.successBackground
+            : AppColors.warningBackground,
+        border:
+            isResolved ? AppColors.successBorder : AppColors.warningBorder,
+        fg: isResolved ? AppColors.success : AppColors.warning,
+      );
+    }
+
+    if (bundle.confirmedAnomalies.isEmpty &&
+        bundle.routineInspection.status == 'completed') {
+      return (
+        label: 'Healthy',
+        bg: AppColors.successBackground,
+        border: AppColors.successBorder,
+        fg: AppColors.success,
+      );
+    }
+
+    return null;
   }
 
   void _showTechnicalGuideModal(BuildContext context) {

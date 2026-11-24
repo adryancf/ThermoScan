@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoscan/core/storage/token_storage.dart';
@@ -805,8 +806,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Scan History'), findsOneWidget);
-    expect(find.text('Active Inspection'), findsOneWidget);
-    expect(find.text('COMPLETED'), findsOneWidget);
+    expect(find.byKey(const Key('history_group_insp-1')), findsOneWidget);
+    expect(find.text('Healthy'), findsOneWidget);
 
     // Tap Cleanings in TabBar (SCR-12)
     await tester.tap(find.text('Cleanings'));

@@ -426,6 +426,12 @@ FROM anomaly_events
 WHERE module_id = $1 AND status = 'open'
 ORDER BY detected_at DESC;
 
+-- name: ListUnresolvedAnomalyEventsByModule :many
+SELECT id, module_id, origin_measurement_id, confirming_measurement_ids, source_event_id, panel_index, x_position_cm::text AS x_position_cm, detected_at, status, actuated_attempts_count, retry_pending, closed_at, created_at, updated_at
+FROM anomaly_events
+WHERE module_id = $1 AND status = 'unresolved'
+ORDER BY detected_at DESC;
+
 -- name: UpdateAnomalyEventStatus :one
 UPDATE anomaly_events
 SET status = $1,

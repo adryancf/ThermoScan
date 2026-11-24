@@ -465,6 +465,13 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Expand raw frames tile to inspect panel accordions
+      await tester.ensureVisible(
+        find.byKey(const Key('show_frames_tile_insp-1')),
+      );
+      await tester.tap(find.byKey(const Key('show_frames_tile_insp-1')));
+      await tester.pumpAndSettle();
+
       // Verify Panel Accordions are present in the Inspection History
       expect(find.byKey(const Key('panel_accordion_insp-1_1')), findsOneWidget);
       expect(find.byKey(const Key('panel_accordion_insp-1_2')), findsOneWidget);

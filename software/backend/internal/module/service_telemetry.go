@@ -1125,6 +1125,40 @@ func (s *Service) FinalizeInspection(
 					}
 				}
 			}
+			// If this verification had no confirmed hotspots, also transition any older
+			// unresolved anomalies at the same panel and within ±5.0 cm to 'resolved_later'.
+			if len(input.ConfirmedHotspots) == 0 {
+				if unresolvedAnoms, listErr := qtx.ListUnresolvedAnomalyEventsByModule(ctx, moduleID); listErr == nil {
+					for _, ua := range unresolvedAnoms {
+						if ua.ID.Bytes == origAnomaly.ID.Bytes {
+							continue
+						}
+						uaX, uaXErr := strconv.ParseFloat(ua.XPositionCm, 64)
+						samePos := ua.PanelIndex == origAnomaly.PanelIndex &&
+							origXErr == nil && uaXErr == nil && math.Abs(uaX-origX) <= 5.0
+						if !samePos {
+							continue
+						}
+						uaClosedAt := closedAt
+						if ua.ClosedAt != nil {
+							uaClosedAt = *ua.ClosedAt
+						}
+						if uaClosedAt.Before(ua.DetectedAt) {
+							uaClosedAt = ua.DetectedAt
+						}
+						if _, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+							Status:       "resolved_later",
+							RetryPending: false,
+							RetryReason:  pgtype.Text{Valid: false},
+							ClosedAt:     &uaClosedAt,
+							ID:           ua.ID,
+							ModuleID:     moduleID,
+						}); err != nil {
+							return nil, err
+						}
+					}
+				}
+			}
 		} else {
 			verifResultPg = pgtype.Text{String: "unresolved", Valid: true}
 			_, err = qtx.UpdateCleaningOperationPostResult(ctx, db.UpdateCleaningOperationPostResultParams{
@@ -1321,9 +1355,12 @@ func (s *Service) FinalizeInspection(
 		}
 	}
 
-	// If a full non-verification inspection finishes with zero hotspots (neither in
-	// confirmed_hotspots nor already created per-panel), resolve any prior open anomalies.
-	if insp.Type != "verification" && len(input.ConfirmedHotspots) == 0 {
+	// For non-verification routine inspections, check prior 'open' and 'unresolved'
+	// anomalies on this module per position (±5.0 cm on the same panel):
+	// - Prior 'open' anomalies with no hotspot within ±5.0 cm -> 'resolved'
+	// - Prior 'unresolved' anomalies with no hotspot within ±5.0 cm -> 'resolved_later'
+	//   (preserving closed_at and leaving cleaning_operations.post_cleaning_result untouched).
+	if insp.Type != "verification" {
 		inspAnoms, err := qtx.ListAnomaliesByInspection(ctx, db.ListAnomaliesByInspectionParams{
 			InspectionID: insp.ID,
 			ModuleID:     moduleID,
@@ -1331,12 +1368,55 @@ func (s *Service) FinalizeInspection(
 		if err != nil {
 			return nil, err
 		}
-		if len(inspAnoms) == 0 {
+
+		type hotspotPos struct {
+			panelIndex int32
+			xCm        float64
+		}
+		inspAnomIDs := make(map[[16]byte]struct{}, len(inspAnoms))
+		currentHotspots := make([]hotspotPos, 0, len(inspAnoms)+len(input.ConfirmedHotspots))
+		for _, ia := range inspAnoms {
+			inspAnomIDs[ia.ID.Bytes] = struct{}{}
+			if iaX, parseErr := strconv.ParseFloat(ia.XPositionCm, 64); parseErr == nil {
+				currentHotspots = append(currentHotspots, hotspotPos{
+					panelIndex: ia.PanelIndex,
+					xCm:        iaX,
+				})
+			}
+		}
+		for _, ch := range input.ConfirmedHotspots {
+			pIdx := int32(1)
+			if lenCm > 0 {
+				pIdx = ResolvePanelPosition(cnt, lenCm, spcCm, ch.GlobalXPositionCm).PanelIndex
+			} else if ch.PanelIndex != nil && *ch.PanelIndex > 0 {
+				pIdx = *ch.PanelIndex
+			}
+			currentHotspots = append(currentHotspots, hotspotPos{
+				panelIndex: pIdx,
+				xCm:        ch.GlobalXPositionCm,
+			})
+		}
+
+		hasHotspotNear := func(panelIndex int32, xCm float64) bool {
+			for _, h := range currentHotspots {
+				if h.panelIndex == panelIndex && math.Abs(h.xCm-xCm) <= 5.0 {
+					return true
+				}
+			}
+			return false
+		}
+
+		// Resolve prior 'open' anomalies only on a completely clean routine scan (0 hotspots),
+		// preserving existing contract behavior for historical open anomalies.
+		if len(currentHotspots) == 0 {
 			openAnomalies, err := qtx.ListOpenAnomalyEventsByModule(ctx, moduleID)
 			if err != nil {
 				return nil, err
 			}
 			for _, oa := range openAnomalies {
+				if _, inThisInsp := inspAnomIDs[oa.ID.Bytes]; inThisInsp {
+					continue
+				}
 				closedAt := finAt
 				if closedAt.Before(oa.DetectedAt) {
 					closedAt = oa.DetectedAt
@@ -1351,6 +1431,37 @@ func (s *Service) FinalizeInspection(
 				}); err != nil {
 					return nil, err
 				}
+			}
+		}
+
+		unresolvedAnomalies, err := qtx.ListUnresolvedAnomalyEventsByModule(ctx, moduleID)
+		if err != nil {
+			return nil, err
+		}
+		for _, ua := range unresolvedAnomalies {
+			if _, inThisInsp := inspAnomIDs[ua.ID.Bytes]; inThisInsp {
+				continue
+			}
+			uaX, uaXErr := strconv.ParseFloat(ua.XPositionCm, 64)
+			if uaXErr == nil && hasHotspotNear(ua.PanelIndex, uaX) {
+				continue
+			}
+			closedAt := finAt
+			if ua.ClosedAt != nil {
+				closedAt = *ua.ClosedAt
+			}
+			if closedAt.Before(ua.DetectedAt) {
+				closedAt = ua.DetectedAt
+			}
+			if _, err = qtx.UpdateAnomalyEventVerification(ctx, db.UpdateAnomalyEventVerificationParams{
+				Status:       "resolved_later",
+				RetryPending: false,
+				RetryReason:  pgtype.Text{Valid: false},
+				ClosedAt:     &closedAt,
+				ID:           ua.ID,
+				ModuleID:     moduleID,
+			}); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -1891,6 +2002,32 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 		}
 		anomalies := s.mapAnomalyRowsToDTO(anomRows, cnt, lenCm, spcCm)
 
+		var panelResults []InspectionPanelResultDTO
+		if inspRow.Type != "verification" {
+			prRows, prErr := s.queries.ListInspectionPanelResults(ctx, db.ListInspectionPanelResultsParams{
+				InspectionID: inspRow.ID,
+				ModuleID:     moduleID,
+			})
+			if prErr != nil {
+				return nil, prErr
+			}
+			if len(prRows) > 0 {
+				panelResults = make([]InspectionPanelResultDTO, 0, len(prRows))
+				for _, pr := range prRows {
+					bVal, _ := strconv.ParseFloat(pr.BaselineTemperatureC, 64)
+					panelResults = append(panelResults, InspectionPanelResultDTO{
+						InspectionID:         auth.FormatUUID(pr.InspectionID),
+						ModuleID:             auth.FormatUUID(pr.ModuleID),
+						PanelIndex:           pr.PanelIndex,
+						BaselineTemperatureC: bVal,
+						TruncatedByMemory:    pr.TruncatedByMemory,
+						FinishedAt:           pr.FinishedAt.UTC().Format(time.RFC3339),
+						CreatedAt:            pr.CreatedAt.UTC().Format(time.RFC3339),
+					})
+				}
+			}
+		}
+
 		out = append(out, InspectionDTO{
 			ID:                   auth.FormatUUID(inspRow.ID),
 			ModuleID:             auth.FormatUUID(inspRow.ModuleID),
@@ -1907,6 +2044,7 @@ func (s *Service) ListInspections(ctx context.Context, principal auth.Principal,
 			CreatedAt:            inspRow.CreatedAt.UTC().Format(time.RFC3339),
 			UpdatedAt:            inspRow.UpdatedAt.UTC().Format(time.RFC3339),
 			ConfirmedAnomalies:   anomalies,
+			PanelResults:         panelResults,
 		})
 	}
 	return out, nil

@@ -633,13 +633,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      // Expand raw frames tile to inspect panel association
+      await tester.tap(find.byKey(const Key('show_frames_tile_insp-1')));
+      await tester.pumpAndSettle();
+
       // Should be grouped under Panel 2, not Panel 1
       expect(find.textContaining('Panel 2'), findsOneWidget);
       expect(find.textContaining('Panel 1'), findsNothing);
     });
 
     testWidgets(
-        '8. Peak Temp icon color respects firmware confirmation, staying secondary when deltaT > 5.0 without confirmed anomalies',
+        '8. Outcome badge stays Healthy when deltaT > 5.0 without confirmed anomalies',
         (tester) async {
       const mHot = ModuleMeasurement(
         id: 'meas-hot',
@@ -691,14 +695,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Delta text is visible as informational
-      expect(find.text('+8.0°C above normal'), findsOneWidget);
-
-      // Thermostat icon should be AppColors.secondary, NOT AppColors.error
-      final iconFinder = find.byIcon(Icons.thermostat_rounded);
-      expect(iconFinder, findsOneWidget);
-      final iconWidget = tester.widget<Icon>(iconFinder);
-      expect(iconWidget.color, equals(AppColors.secondary));
+      // Delta text is visible as informational in the 1-line summary
+      expect(find.textContaining('Max Δ +8.0 °C'), findsOneWidget);
+      expect(find.text('Healthy'), findsOneWidget);
+      expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
+      final checkIcon = tester.widget<Icon>(
+        find.byIcon(Icons.check_circle_outline_rounded),
+      );
+      expect(checkIcon.color, equals(AppColors.success));
     });
 
     testWidgets('9. Electrical current displays in milliamperes (mA) rather than Amperes', (tester) async {
@@ -753,6 +757,9 @@ void main() {
           ),
         ),
       );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('show_frames_tile_insp-1')));
       await tester.pumpAndSettle();
 
       // Should display '250.0mA', never '0.25A'
@@ -888,19 +895,21 @@ void main() {
       expect(find.byKey(const Key('post_cleaning_toggle_bar')), findsOneWidget);
       expect(find.byKey(const Key('toggle_restored_view')), findsOneWidget);
       expect(find.byKey(const Key('toggle_original_scan')), findsOneWidget);
-      expect(find.text('Restored View · Hotspot Healed'), findsOneWidget);
+      expect(find.text('After Cleaning'), findsOneWidget);
+      expect(find.text('Before Cleaning'), findsOneWidget);
+      expect(find.text('After Cleaning · Hotspot Healed'), findsOneWidget);
 
-      // Tapping Original Scan switches to pre-cleaning view
+      // Tapping Before Cleaning switches to pre-cleaning view
       await tester.tap(find.byKey(const Key('toggle_original_scan')));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Original Scan · +13.0°C Hotspot'), findsOneWidget);
+      expect(find.textContaining('Before Cleaning · +13.0°C Hotspot'), findsOneWidget);
 
-      // Tapping Restored View switches back
+      // Tapping After Cleaning switches back
       await tester.tap(find.byKey(const Key('toggle_restored_view')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Restored View · Hotspot Healed'), findsOneWidget);
+      expect(find.text('After Cleaning · Hotspot Healed'), findsOneWidget);
     });
 
     testWidgets('12. ModuleMeasurementsScreen nests post-cleaning verifications under parent routine', (tester) async {
@@ -1014,7 +1023,7 @@ void main() {
       expect(find.byKey(const Key('nested_post_cleaning_insp-routine-main')), findsOneWidget);
 
       // Verified badge in header
-      expect(find.text('VERIFIED RESOLVED'), findsOneWidget);
+      expect(find.text('1 Hotspot · Resolved'), findsOneWidget);
       expect(find.text('Post-Cleaning Verification'), findsOneWidget);
     });
 

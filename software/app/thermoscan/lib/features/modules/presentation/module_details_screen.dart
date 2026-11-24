@@ -1285,6 +1285,17 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         ? currentMeasurements.first
         : rawLatestMeasurement;
 
+    final effectiveLatestInspection =
+        latestBundle?.toEffectiveLatestInspection(latestInspection) ??
+            latestInspection;
+    final effectiveRoutineMeasurements = (latestBundle != null &&
+            latestBundle.routineMeasurements.isNotEmpty)
+        ? latestBundle.routineMeasurements
+        : currentMeasurements;
+    final effectiveLatestMeasurement =
+        _latestMeasurementByTime(effectiveRoutineMeasurements) ??
+            latestMeasurement;
+
     return RefreshIndicator(
       color: AppColors.primary,
       onRefresh: () async {
@@ -1380,9 +1391,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             _buildExecutiveHealthBanner(
               mod: mod,
               deviceStatus: deviceStatus,
-              latestInspection: latestInspection,
-              latestMeasurement: latestMeasurement,
-              measurements: currentMeasurements,
+              latestInspection: effectiveLatestInspection,
+              latestMeasurement: effectiveLatestMeasurement,
+              measurements: effectiveRoutineMeasurements,
               hasPostCleaning: latestBundle?.hasPostCleaning ?? false,
               isHotspotResolved: latestBundle?.isHotspotResolved ?? false,
               fallbackBaselineTempC: latestBundle?.baselineTemperatureC,
@@ -1394,9 +1405,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             if (!mod.isPendingConfiguration) ...[
               CleanThermalPreviewCard(
                 module: mod,
-                latestMeasurement: latestMeasurement,
-                latestInspection: latestInspection,
-                measurements: measurementsAsync.valueOrNull,
+                latestMeasurement: effectiveLatestMeasurement,
+                latestInspection: effectiveLatestInspection,
+                measurements: effectiveRoutineMeasurements,
                 verificationMeasurements: verifMeasurements,
                 postCleaningResult: postCleaningResult,
                 fallbackBaselineTempC: latestBundle?.baselineTemperatureC,
@@ -1405,9 +1416,11 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               const SizedBox(height: 16),
               _buildKeyTelemetryGrid(
                 mod: mod,
-                latestMeasurement: latestMeasurement,
-                latestInspection: latestInspection,
-                measurements: currentMeasurements,
+                latestMeasurement: effectiveLatestMeasurement,
+                latestInspection: effectiveLatestInspection,
+                measurements: effectiveRoutineMeasurements,
+                isResolved: (latestBundle?.hasPostCleaning ?? false) &&
+                    (latestBundle?.isHotspotResolved ?? false),
               ),
               const SizedBox(height: 16),
             ],
@@ -1463,6 +1476,24 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     );
   }
 
+  ModuleMeasurement? _latestMeasurementByTime(
+    List<ModuleMeasurement> items,
+  ) {
+    if (items.isEmpty) return null;
+    ModuleMeasurement best = items.first;
+    DateTime? bestDt = DateTime.tryParse(best.measuredAt);
+    for (var i = 1; i < items.length; i++) {
+      final candidate = items[i];
+      final candidateDt = DateTime.tryParse(candidate.measuredAt);
+      if (candidateDt != null &&
+          (bestDt == null || candidateDt.isAfter(bestDt))) {
+        best = candidate;
+        bestDt = candidateDt;
+      }
+    }
+    return best;
+  }
+
   /// Executive Health Hero Banner
   /// Communicates array health verdict to clients within 3 seconds.
   /// Strict relative threshold: baseline + 10°C or confirmed inspection anomaly.
@@ -1478,11 +1509,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     List<ConfirmedAnomaly>? fallbackConfirmedAnomalies,
   }) {
     final isInspScheduled = latestInspection?.inspection.status == 'scheduled';
-    final confirmedAnomalies = (!isInspScheduled && latestInspection != null)
+    final rawConfirmedAnomalies = (!isInspScheduled && latestInspection != null)
         ? latestInspection.confirmedAnomalies
         : (fallbackConfirmedAnomalies ??
             latestInspection?.confirmedAnomalies ??
-            const []);
+            const <ConfirmedAnomaly>[]);
+    final confirmedAnomalies =
+        rawConfirmedAnomalies.where((a) => !a.isCleared).toList();
     final hasHotspot = confirmedAnomalies.isNotEmpty;
     final hasTelemetry = latestInspection != null ||
         latestMeasurement != null ||
@@ -2018,9 +2051,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     required ModuleMeasurement? latestMeasurement,
     required LatestInspection? latestInspection,
     required List<ModuleMeasurement> measurements,
+    bool isResolved = false,
   }) {
-    final confirmedAnomalies = latestInspection?.confirmedAnomalies ?? const [];
-    final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
+    final confirmedAnomalies = (latestInspection?.confirmedAnomalies ?? const [])
+        .where((a) => !a.isCleared)
+        .toList();
+    final hasConfirmedHotspots = !isResolved && confirmedAnomalies.isNotEmpty;
 
     final isInspScheduled = latestInspection?.inspection.status == 'scheduled';
     final double? baselineTemp =
@@ -2045,9 +2081,26 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       fallbackMeasurement: latestMeasurement,
     );
 
-    final voltage = latestMeasurement?.voltageV;
-    final current = latestMeasurement?.currentA;
-    final power = latestMeasurement?.powerW ??
+    ModuleMeasurement? elecMeas = latestMeasurement;
+    if (elecMeas == null ||
+        (elecMeas.voltageV == null &&
+            elecMeas.currentA == null &&
+            elecMeas.powerW == null)) {
+      for (final dm in measurements) {
+        if (dm.voltageV != null || dm.currentA != null || dm.powerW != null) {
+          if (elecMeas == null ||
+              (dm.powerW ?? 0.0) > (elecMeas.powerW ?? 0.0) ||
+              ((dm.powerW ?? 0.0) == (elecMeas.powerW ?? 0.0) &&
+                  (dm.voltageV ?? 0.0) > (elecMeas.voltageV ?? 0.0))) {
+            elecMeas = dm;
+          }
+        }
+      }
+    }
+
+    final voltage = elecMeas?.voltageV;
+    final current = elecMeas?.currentA;
+    final power = elecMeas?.powerW ??
         (voltage != null && current != null ? voltage * current : null);
 
     return Column(

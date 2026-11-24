@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_matrix_inspector_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
@@ -18,6 +19,7 @@ class RadiometricScanCard extends StatefulWidget {
     this.measurements,
     this.verificationMeasurements,
     this.postCleaningResult,
+    this.hotspotSummaries,
     this.initiallyExpanded,
     this.showDetailedSections = false,
     this.deduplicateSpatially = true,
@@ -31,6 +33,7 @@ class RadiometricScanCard extends StatefulWidget {
   final List<ModuleMeasurement>? measurements;
   final List<ModuleMeasurement>? verificationMeasurements;
   final String? postCleaningResult;
+  final List<HotspotVerificationSummary>? hotspotSummaries;
   final bool? initiallyExpanded;
   final bool showDetailedSections;
   final bool deduplicateSpatially;
@@ -194,12 +197,17 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         widget.verificationMeasurements ?? const <ModuleMeasurement>[];
     final bool hasPostCleaning = verifMeas.isNotEmpty;
     final bool isHotspotResolved = widget.postCleaningResult == 'resolved';
+    final summaries =
+        widget.hotspotSummaries ?? const <HotspotVerificationSummary>[];
+    final summaryByAnomalyId = <String, HotspotVerificationSummary>{
+      for (final s in summaries) s.anomaly.id: s,
+    };
 
     final effectiveMeasurements = (hasPostCleaning && _showRestoredView)
-        ? deduplicateMeasurementsSpatially([
-            ...rawMeasurements,
-            ...verifMeas,
-          ])
+        ? fuseRoutineWithVerificationMeasurements(
+            routineMeasurements: rawMeasurements,
+            verificationMeasurements: verifMeas,
+          )
         : rawMeasurements;
 
     if (m == null && insp == null && effectiveMeasurements.isEmpty) {
@@ -251,10 +259,22 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         : (widget.fallbackConfirmedAnomalies ??
             insp?.confirmedAnomalies ??
             const []);
-    final confirmedAnomalies =
-        (hasPostCleaning && _showRestoredView && isHotspotResolved)
-            ? const <ConfirmedAnomaly>[]
-            : rawAnomalies;
+    final List<ConfirmedAnomaly> confirmedAnomalies;
+    if (hasPostCleaning && _showRestoredView) {
+      confirmedAnomalies = rawAnomalies.where((a) {
+        if (a.isCleared) return false;
+        final summary = summaryByAnomalyId[a.id];
+        if (summary != null) {
+          return !summary.isCleared;
+        }
+        if (isHotspotResolved) return false;
+        return true;
+      }).toList();
+    } else if (!hasPostCleaning) {
+      confirmedAnomalies = rawAnomalies.where((a) => !a.isCleared).toList();
+    } else {
+      confirmedAnomalies = rawAnomalies;
+    }
     final visibleAnomalies = _focusedPanelIndex == null
         ? confirmedAnomalies
         : confirmedAnomalies.where((a) {
@@ -395,22 +415,31 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     );
 
     final String deltaText;
+    final bool hasAnyRemainingActive = confirmedAnomalies.isNotEmpty;
     final bool isErrorBadge = (hasPostCleaning && !_showRestoredView && rawAnomalies.isNotEmpty) ||
         hasConfirmedHotspots ||
-        (hasPostCleaning && _showRestoredView && !isHotspotResolved && rawAnomalies.isNotEmpty);
+        (hasPostCleaning && _showRestoredView && hasAnyRemainingActive);
 
     if (hasPostCleaning && _showRestoredView) {
-      if (isHotspotResolved) {
-        deltaText = 'Restored View · Hotspot Healed';
+      if (!hasAnyRemainingActive) {
+        final onlyClearedLater = summaries.isNotEmpty &&
+            summaries.every((s) => s.isResolvedLater);
+        deltaText = onlyClearedLater
+            ? 'After Cleaning · Cleared Later'
+            : 'After Cleaning · Hotspot Healed';
       } else {
         deltaText = delta != null
-            ? 'Restored View · Persistent (+${delta.toStringAsFixed(1)}°C)'
-            : 'Restored View · Hotspot Persistent';
+            ? 'After Cleaning · Persistent (+${delta.toStringAsFixed(1)}°C)'
+            : 'After Cleaning · Hotspot Persistent';
       }
     } else if (hasPostCleaning && !_showRestoredView) {
       deltaText = delta != null
-          ? 'Original Scan · +${delta.toStringAsFixed(1)}°C Hotspot'
-          : 'Original Scan (Pre-Cleaning)';
+          ? 'Before Cleaning · +${delta.toStringAsFixed(1)}°C Hotspot'
+          : 'Before Cleaning (Pre-Cleaning)';
+    } else if (rawAnomalies.isNotEmpty && rawAnomalies.every((a) => a.isCleared)) {
+      deltaText = rawAnomalies.any((a) => a.isResolvedLater)
+          ? 'Cleared in Later Scan'
+          : 'Hotspot Resolved';
     } else if (hasConfirmedHotspots) {
       deltaText = delta != null
           ? '+${delta.toStringAsFixed(1)}°C above normal (Hotspot)'
@@ -420,6 +449,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           ? '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}°C (Normal)'
           : 'Normal';
     }
+
+    final bool showVerdictBanner = summaries.any(
+      (s) =>
+          s.cleaning != null ||
+          s.afterTempC != null ||
+          s.isResolved ||
+          s.isResolvedLater ||
+          s.isUnresolved,
+    );
 
     return Container(
       width: double.infinity,
@@ -460,7 +498,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                           ),
                           Text(
                             hasPostCleaning && _showRestoredView
-                                ? 'Restored view fusing routine scan with post-cleaning frames'
+                                ? 'After cleaning: routine scan fused with verification frames'
                                 : 'Full temperature scan across your solar panels',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.textSecondary,
@@ -522,7 +560,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   Expanded(
                     child: InkWell(
                       key: const Key('toggle_restored_view'),
-                      onTap: () => setState(() => _showRestoredView = true),
+                      onTap: () => setState(() {
+                        _showRestoredView = true;
+                        _selectedHotspotIndex = null;
+                        _selectedFrameIndex = null;
+                      }),
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -544,7 +586,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              'Restored View',
+                              'After Cleaning',
                               style: AppTypography.caption.copyWith(
                                 color: _showRestoredView
                                     ? Colors.white
@@ -564,7 +606,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   Expanded(
                     child: InkWell(
                       key: const Key('toggle_original_scan'),
-                      onTap: () => setState(() => _showRestoredView = false),
+                      onTap: () => setState(() {
+                        _showRestoredView = false;
+                        _selectedHotspotIndex = null;
+                        _selectedFrameIndex = null;
+                      }),
                       borderRadius: BorderRadius.circular(8),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 6),
@@ -589,7 +635,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              'Original Scan',
+                              'Before Cleaning',
                               style: AppTypography.caption.copyWith(
                                 color: !_showRestoredView
                                     ? AppColors.textPrimary
@@ -607,6 +653,16 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 8),
+          ],
+
+          // Post-Cleaning Verdict Banner (above heat map)
+          if (showVerdictBanner) ...[
+            _buildPostCleaningVerdictBanner(
+              summaries: summaries,
+              sortedRaw: sortedRaw,
+              displayedMeasurements: displayedMeasurements,
             ),
             const SizedBox(height: 8),
           ],
@@ -2066,6 +2122,235 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostCleaningVerdictBanner({
+    required List<HotspotVerificationSummary> summaries,
+    required List<ModuleMeasurement> sortedRaw,
+    required List<ModuleMeasurement> displayedMeasurements,
+  }) {
+    final total = summaries.length;
+    final resolvedCount = summaries.where((s) => s.isResolved).length;
+    final resolvedLaterCount = summaries.where((s) => s.isResolvedLater).length;
+    final unresolvedCount = summaries.where((s) => s.isUnresolved).length;
+    final pendingCount =
+        summaries.where((s) => s.isPendingVerification).length;
+    final unwashedCount = summaries.where((s) => s.isUnwashed).length;
+    final clearedTotal = resolvedCount + resolvedLaterCount;
+
+    final String title;
+    final Color bg;
+    final Color border;
+    final Color accent;
+    final IconData icon;
+
+    if (unresolvedCount == 0 && pendingCount == 0 && unwashedCount == 0) {
+      if (resolvedCount == 0 && resolvedLaterCount > 0) {
+        title = 'Unresolved by Wash · Cleared in Later Scan';
+        bg = AppColors.primarySoft.withValues(alpha: 0.65);
+        border = AppColors.primary.withValues(alpha: 0.35);
+        accent = AppColors.primary;
+        icon = Icons.verified_outlined;
+      } else if (resolvedLaterCount > 0) {
+        title = 'Post-Cleaning Verified · All Hotspots Cleared';
+        bg = AppColors.successBackground;
+        border = AppColors.successBorder;
+        accent = AppColors.success;
+        icon = Icons.task_alt_rounded;
+      } else {
+        title = total == 1
+            ? 'Post-Cleaning Verified · Hotspot Resolved'
+            : 'Post-Cleaning Verified · All Hotspots Resolved';
+        bg = AppColors.successBackground;
+        border = AppColors.successBorder;
+        accent = AppColors.success;
+        icon = Icons.task_alt_rounded;
+      }
+    } else if (clearedTotal > 0) {
+      title = 'Post-Cleaning Check · $clearedTotal of $total Resolved';
+      bg = AppColors.warningBackground;
+      border = AppColors.warningBorder;
+      accent = AppColors.warning;
+      icon = Icons.rule_rounded;
+    } else if (unresolvedCount > 0) {
+      title = total == 1
+          ? 'Post-Cleaning Check · Hotspot Still Present'
+          : 'Post-Cleaning Check · $unresolvedCount Unresolved';
+      bg = AppColors.errorBackground;
+      border = AppColors.errorBorder;
+      accent = AppColors.error;
+      icon = Icons.warning_amber_rounded;
+    } else {
+      title = 'Post-Cleaning Check · Verification Pending';
+      bg = AppColors.primarySoft.withValues(alpha: 0.65);
+      border = AppColors.primary.withValues(alpha: 0.35);
+      accent = AppColors.primary;
+      icon = Icons.hourglass_top_rounded;
+    }
+
+    return Container(
+      key: const Key('post_cleaning_verdict_banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: accent),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: AppTypography.caption.copyWith(
+                    color: accent,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ...summaries.asMap().entries.map((entry) {
+            final idx = entry.key;
+            final s = entry.value;
+            final pIdx = (s.anomaly.panelIndex != null &&
+                    s.anomaly.panelIndex! > 0)
+                ? s.anomaly.panelIndex!
+                : widget.module
+                    .resolvePanelPosition(s.anomaly.xPositionCm)
+                    .panelIndex;
+
+            final String tempPart;
+            if (s.afterTempC != null) {
+              final d = s.deltaChangeC!;
+              final dSign = d >= 0 ? '+' : '';
+              tempPart =
+                  '${s.beforeTempC.toStringAsFixed(1)} °C → ${s.afterTempC!.toStringAsFixed(1)} °C ($dSign${d.toStringAsFixed(1)} °C)';
+            } else {
+              tempPart = '${s.beforeTempC.toStringAsFixed(1)} °C';
+            }
+
+            final String outcomeLabel;
+            final Color rowColor;
+            switch (s.outcome) {
+              case 'resolved':
+                outcomeLabel = 'Resolved';
+                rowColor = AppColors.success;
+                break;
+              case 'resolved_later':
+                outcomeLabel = 'Cleared in Later Scan';
+                rowColor = AppColors.primary;
+                break;
+              case 'unresolved':
+                outcomeLabel = 'Unresolved';
+                rowColor = AppColors.error;
+                break;
+              case 'pending_verification':
+                outcomeLabel = 'Pending';
+                rowColor = AppColors.warning;
+                break;
+              default:
+                outcomeLabel = 'Unwashed';
+                rowColor = AppColors.textSecondary;
+            }
+
+            final rowText =
+                'P$pIdx · X = ${s.anomaly.xPositionCm.toStringAsFixed(1)} cm: $tempPart · $outcomeLabel';
+
+            return Padding(
+              padding: EdgeInsets.only(top: idx == 0 ? 0 : 4),
+              child: InkWell(
+                key: Key('verdict_hotspot_row_${idx + 1}'),
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  final switchPanelToAll = _focusedPanelIndex != null &&
+                      pIdx > 0 &&
+                      _focusedPanelIndex != pIdx;
+                  final targetFrames = switchPanelToAll
+                      ? sortedRaw
+                      : displayedMeasurements;
+                  if (targetFrames.isEmpty) return;
+
+                  int bestIdx = 0;
+                  double bestDist = double.infinity;
+                  for (var i = 0; i < targetFrames.length; i++) {
+                    final f = targetFrames[i];
+                    final samePanel = f.panelIndex == null ||
+                        f.panelIndex! <= 0 ||
+                        pIdx <= 0 ||
+                        f.panelIndex == pIdx;
+                    final dist = (f.xPositionCm - s.anomaly.xPositionCm).abs() +
+                        (samePanel ? 0.0 : 10000.0);
+                    if (dist < bestDist) {
+                      bestDist = dist;
+                      bestIdx = i;
+                    }
+                  }
+
+                  setState(() {
+                    _playbackTimer?.cancel();
+                    _playbackTimer = null;
+                    if (switchPanelToAll) {
+                      _focusedPanelIndex = null;
+                    }
+                    _timelineFrameIndex = bestIdx;
+                    _selectedFrameIndex = bestIdx;
+                  });
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: border.withValues(alpha: 0.6)),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: rowColor,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          rowText,
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 10.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.my_location_rounded,
+                        size: 13,
+                        color: rowColor,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
         ],
       ),
     );

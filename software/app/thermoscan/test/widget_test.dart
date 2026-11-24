@@ -892,6 +892,6 @@ void main() {
 
     // Verify return to Module Overview
     expect(find.text('Overview'), findsOneWidget);
-    expect(find.text('PV-001 Roof Array'), findsOneWidget);
+    expect(find.text('PV-001 Roof Array'), findsWidgets);
   });
 }

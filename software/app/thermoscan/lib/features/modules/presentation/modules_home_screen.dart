@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
-import 'package:thermoscan/core/widgets/app_text_field.dart';
 import 'package:thermoscan/core/widgets/skeleton_loader.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
@@ -113,14 +112,42 @@ class _ModulesHomeScreenState extends ConsumerState<ModulesHomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      AppTextField(
-                        label: 'Search Panels',
-                        hintText: 'Search by panel name or device ID...',
+                      TextField(
                         controller: _searchCtrl,
-                        prefixIcon: Icons.search,
                         onChanged: (val) => setState(() {
                           _searchQuery = val.trim().toLowerCase();
                         }),
+                        style: AppTypography.body,
+                        decoration: InputDecoration(
+                          hintText: 'Search panels or device ID...',
+                          hintStyle: AppTypography.bodySmall,
+                          prefixIcon: const Icon(
+                            Icons.search,
+                            color: AppColors.textSecondary,
+                            size: 20,
+                          ),
+                          filled: true,
+                          fillColor: AppColors.surface,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppColors.border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppColors.border),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: AppColors.primary,
+                              width: 1.5,
+                            ),
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 12),
                       SingleChildScrollView(
@@ -346,7 +373,7 @@ class _ModuleListCard extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  if (hasAlert) ...[
+                  if (hasAlert)
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -376,40 +403,36 @@ class _ModuleListCard extends ConsumerWidget {
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 6),
-                  ],
-                  ModuleMonitoringStatusBadge(status: module.monitoringStatus),
+                    )
+                  else if (isPending)
+                    ModuleMonitoringStatusBadge(status: module.monitoringStatus),
                 ],
               ),
               const SizedBox(height: 12),
               const Divider(height: 1),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              const SizedBox(height: 10),
+              Row(
                 children: [
                   _ConnectionStatusPill(module: module),
                   if (module.firmwareState != null &&
-                      module.firmwareState!.trim().isNotEmpty)
+                      module.firmwareState!.trim().isNotEmpty &&
+                      module.firmwareState!.trim().toUpperCase() != 'IDLE') ...[
+                    const SizedBox(width: 8),
                     FirmwareStateBadge(
                       firmwareState: module.firmwareState,
                       firmwareStateDetail: module.firmwareStateDetail,
                       compact: true,
                     ),
-                  _RelationshipBadge(label: module.relationshipLabel),
-                  if (module.panelCount != null &&
-                      module.panelLengthCm != null &&
-                      module.panelWidthCm != null)
-                    _InfoPill(
-                      icon: Icons.grid_view_outlined,
-                      label:
-                          '${module.panelCount} panels (${module.panelLengthCm!.toStringAsFixed(0)}×${module.panelWidthCm!.toStringAsFixed(0)} cm)',
+                  ],
+                  const Spacer(),
+                  Text(
+                    module.panelCount != null
+                        ? '${module.panelCount} ${module.panelCount == 1 ? 'panel' : 'panels'} · Every ${module.inspectionIntervalDays}d'
+                        : 'Every ${module.inspectionIntervalDays}d',
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textSecondary,
+                      fontSize: 12,
                     ),
-                  _InfoPill(
-                    icon: Icons.schedule_outlined,
-                    label: 'Every ${module.inspectionIntervalDays}d',
                   ),
                 ],
               ),
@@ -602,65 +625,6 @@ class _ConnectionStatusPill extends StatelessWidget {
               fontWeight: FontWeight.w700,
               color: text,
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RelationshipBadge extends StatelessWidget {
-  const _RelationshipBadge({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Text(
-        label,
-        style: AppTypography.caption.copyWith(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: AppColors.primary,
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoPill extends StatelessWidget {
-  const _InfoPill({
-    required this.icon,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.background,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: AppColors.textSecondary),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: AppTypography.caption.copyWith(fontSize: 11),
           ),
         ],
       ),

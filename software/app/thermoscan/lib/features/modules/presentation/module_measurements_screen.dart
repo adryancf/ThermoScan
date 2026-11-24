@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/core/utils/date_formatter.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
@@ -606,23 +607,13 @@ class _ModuleMeasurementsScreenState
 
   String _formatReadableTimestamp(String? isoString) {
     if (isoString == null || isoString.isEmpty) return 'N/A';
-    final dt = DateTime.tryParse(isoString)?.toLocal();
+    final dt = DateTime.tryParse(isoString);
     if (dt == null) return isoString;
-
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    final monthName = months[dt.month - 1];
-    final day = dt.day.toString().padLeft(2, '0');
-    final year = dt.year;
-
-    final hour = dt.hour;
-    final min = dt.minute.toString().padLeft(2, '0');
-    final ampm = hour >= 12 ? 'PM' : 'AM';
-    final h12 = hour % 12 == 0 ? 12 : hour % 12;
-
-    return '$monthName $day, $year · $h12:$min $ampm';
+    return AppDateFormatter.formatDateTime(
+      dt,
+      includeYear: true,
+      fallback: 'N/A',
+    );
   }
 
   ({

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/core/utils/date_formatter.dart';
 import 'package:thermoscan/core/widgets/skeleton_loader.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/alerts/domain/alert_models.dart';
@@ -21,40 +22,11 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
   // Filters: 'all', 'critical', 'warning', 'hotspot', 'water'
   String _filter = 'all';
 
-  String _formatTimeAgo(String dateStr) {
-    final parsed = DateTime.tryParse(dateStr);
-    if (parsed == null) return 'recently';
-    final diff = DateTime.now().toUtc().difference(parsed.toUtc());
-    if (diff.inMinutes < 1) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
-    if (diff.inHours < 24) return '${diff.inHours}h ago';
-    return '${diff.inDays}d ago';
-  }
+  String _formatTimeAgo(String dateStr) =>
+      AppDateFormatter.formatRelativeTime(dateStr);
 
-  String _formatInspectionDate(String? dateStr) {
-    if (dateStr == null || dateStr.isEmpty) return 'Recent';
-    final parsed = DateTime.tryParse(dateStr);
-    if (parsed == null) return dateStr;
-    final local = parsed.toLocal();
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    final month = months[local.month - 1];
-    final hour = local.hour.toString().padLeft(2, '0');
-    final min = local.minute.toString().padLeft(2, '0');
-    return '$month ${local.day}, $hour:$min';
-  }
+  String _formatInspectionDate(String? dateStr) =>
+      AppDateFormatter.formatDateTimeShort(dateStr);
 
   Widget _buildKpiCard({
     required String label,

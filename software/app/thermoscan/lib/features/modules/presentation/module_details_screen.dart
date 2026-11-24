@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/network/api_exception.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/core/utils/date_formatter.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
 import 'package:thermoscan/features/alerts/presentation/alerts_controller.dart';
@@ -524,50 +525,11 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     return idx > 0 ? iso.substring(0, idx) : iso;
   }
 
-  String _formatDateTime(DateTime? dt) {
-    if (dt == null) return 'recent';
-    final d = dt.toLocal();
-    final day = d.day.toString().padLeft(2, '0');
-    final month = d.month.toString().padLeft(2, '0');
-    final year = d.year;
-    final hour = d.hour.toString().padLeft(2, '0');
-    final min = d.minute.toString().padLeft(2, '0');
-    return '$day/$month/$year $hour:$min';
-  }
+  String _formatDateTime(DateTime? dt) =>
+      AppDateFormatter.formatDateTime(dt, includeYear: true, fallback: 'recent');
 
-  String _formatReadableTimestamp(String? iso) {
-    if (iso == null || iso.isEmpty) return 'Recent';
-    final dt = DateTime.tryParse(iso)?.toLocal();
-    if (dt == null) return iso;
-
-    final now = DateTime.now();
-    final isToday =
-        dt.year == now.year && dt.month == now.month && dt.day == now.day;
-
-    final hour12 = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
-    final minuteStr = dt.minute.toString().padLeft(2, '0');
-    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
-    final timeStr = '$hour12:$minuteStr $ampm';
-
-    if (isToday) {
-      return 'Today at $timeStr';
-    }
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec'
-    ];
-    return '${months[dt.month - 1]} ${dt.day}, ${dt.year} at $timeStr';
-  }
+  String _formatReadableTimestamp(String? iso) =>
+      AppDateFormatter.formatDateTimeShort(iso);
 
   String _formatNextInspectionLabel(String? iso, {bool isPendingManual = false}) {
     if (isPendingManual) {
@@ -708,7 +670,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             child: Scaffold(
               backgroundColor: AppColors.background,
               appBar: ThermoScanAppBar(
-                title: 'Module Overview',
+                title: mod.name,
                 role: user?.role ?? 'technician',
                 showBack: true,
                 onBack: () => context.go('/modules'),
@@ -1362,6 +1324,95 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     );
   }
 
+  Widget _buildQuickActionsBar(PvModule mod, DeviceStatus? deviceStatus) {
+    final isOnline = deviceStatus?.isOnline ?? mod.isOnline;
+
+    Widget buildAction({
+      required IconData icon,
+      required String label,
+      required bool loading,
+      required VoidCallback? onTap,
+    }) {
+      return Expanded(
+        child: Material(
+          color: AppColors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: const BorderSide(color: AppColors.border),
+          ),
+          child: InkWell(
+            onTap: loading ? null : onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (loading)
+                    const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.primary,
+                      ),
+                    )
+                  else
+                    Icon(
+                      icon,
+                      size: 16,
+                      color: isOnline
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
+                    ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption.copyWith(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: isOnline
+                            ? AppColors.textPrimary
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        buildAction(
+          icon: Icons.play_arrow_rounded,
+          label: 'Scan',
+          loading: _isTriggeringInspection,
+          onTap: () => _triggerManualScan(mod.id),
+        ),
+        const SizedBox(width: 8),
+        buildAction(
+          icon: Icons.radar_rounded,
+          label: 'Read Point',
+          loading: _isTriggeringLocalizedReading,
+          onTap: () => _promptAndTriggerLocalizedReading(mod, deviceStatus),
+        ),
+        const SizedBox(width: 8),
+        buildAction(
+          icon: Icons.cleaning_services_outlined,
+          label: 'Wash',
+          loading: _isTriggeringCleaning,
+          onTap: () => _promptAndTriggerManualCleaning(mod),
+        ),
+      ],
+    );
+  }
+
   Widget _buildOverviewTab(
     BuildContext context,
     PvModule mod,
@@ -1433,6 +1484,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Quick Robot Actions Bar (for Technicians & Managers on configured modules)
+            if (!mod.isPendingConfiguration &&
+                !(ref.watch(authControllerProvider).user?.isClient ??
+                    false)) ...[
+              _buildQuickActionsBar(mod, deviceStatus),
+              const SizedBox(height: 16),
+            ],
             // 1. Pending Configuration Banner
             if (mod.isPendingConfiguration) ...[
               Container(

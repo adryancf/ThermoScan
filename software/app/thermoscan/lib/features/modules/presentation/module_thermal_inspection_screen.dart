@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
+import 'package:thermoscan/core/utils/date_formatter.dart';
 import 'package:thermoscan/core/widgets/app_buttons.dart';
 import 'package:thermoscan/core/widgets/status_chips.dart';
 import 'package:thermoscan/core/widgets/top_app_bar.dart';
@@ -56,18 +57,8 @@ class _ModuleThermalInspectionScreenState
     return best;
   }
 
-  String _formatIsoDate(String? iso) {
-    if (iso == null || iso.isEmpty) return 'No timestamp';
-    final dt = DateTime.tryParse(iso);
-    if (dt == null) return iso;
-    final d = dt.toLocal();
-    final day = d.day.toString().padLeft(2, '0');
-    final month = d.month.toString().padLeft(2, '0');
-    final year = d.year;
-    final hour = d.hour.toString().padLeft(2, '0');
-    final minute = d.minute.toString().padLeft(2, '0');
-    return '$year-$month-$day $hour:$minute';
-  }
+  String _formatIsoDate(String? iso) =>
+      AppDateFormatter.formatDateTimeShort(iso, fallback: 'No timestamp');
 
   void _refreshAll() {
     ref.invalidate(moduleDetailsProvider(widget.moduleId));

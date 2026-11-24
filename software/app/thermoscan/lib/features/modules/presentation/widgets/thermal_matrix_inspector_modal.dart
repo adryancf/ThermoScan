@@ -23,8 +23,8 @@ class SingleFrameThermalMatrixPainter extends SingleFrameMatrixPainter {
   void paint(Canvas canvas, Size size) {
     super.paint(canvas, size);
 
-    const cols = ThermalCoverageInfo.sensorCols;
-    const rows = ThermalCoverageInfo.sensorRows;
+    const cols = ThermalCoverageInfo.railSensorPixels; // 24 along rail X
+    const rows = ThermalCoverageInfo.panoramaRows; // 32 across panel Y
     final cellW = size.width / cols;
     final cellH = size.height / rows;
 
@@ -81,18 +81,18 @@ class SingleFrameThermalMatrixPainter extends SingleFrameMatrixPainter {
         }
       }
     }
-    final row = bestIdx ~/ ThermalCoverageInfo.sensorCols;
-    final col = bestIdx % ThermalCoverageInfo.sensorCols;
+    final sensorRow = bestIdx ~/ ThermalCoverageInfo.sensorCols; // 0..23 -> displayCol
+    final sensorCol = bestIdx % ThermalCoverageInfo.sensorCols; // 0..31 -> displayRow
     return (
-      col: col.clamp(0, ThermalCoverageInfo.sensorCols - 1),
-      row: row.clamp(0, ThermalCoverageInfo.sensorRows - 1),
+      col: sensorRow.clamp(0, ThermalCoverageInfo.railSensorPixels - 1),
+      row: sensorCol.clamp(0, ThermalCoverageInfo.panoramaRows - 1),
       temp: bestVal ?? fallbackTemp,
     );
   }
-  return (col: 16, row: 12, temp: fallbackTemp);
+  return (col: 12, row: 16, temp: fallbackTemp);
 }
 
-/// Returns the valid temperature at `(col, row)` in a 32×24 frame, or `null` if unavailable.
+/// Returns the valid temperature at rotated display `(col, row)` (`24×32`), or `null` if unavailable.
 double? getThermalPixelTemp(
   List<double?>? thermalFrame,
   int col,
@@ -100,9 +100,9 @@ double? getThermalPixelTemp(
 ) {
   if (thermalFrame != null &&
       thermalFrame.length == ThermalCoverageInfo.sensorPixelCount) {
-    final idx = (row.clamp(0, ThermalCoverageInfo.sensorRows - 1) *
-            ThermalCoverageInfo.sensorCols) +
-        col.clamp(0, ThermalCoverageInfo.sensorCols - 1);
+    final sensorRow = col.clamp(0, ThermalCoverageInfo.railSensorPixels - 1);
+    final sensorCol = row.clamp(0, ThermalCoverageInfo.panoramaRows - 1);
+    final idx = (sensorRow * ThermalCoverageInfo.sensorCols) + sensorCol;
     final val = thermalFrame[idx];
     if (ThermalPanoramaData.isValidPixelValue(val)) {
       return val;
@@ -265,12 +265,12 @@ class _InteractiveThermalMatrixViewState
   void _selectAt(Offset localPos, Size canvasSize) {
     final w = canvasSize.width <= 0 ? 1.0 : canvasSize.width;
     final h = canvasSize.height <= 0 ? 1.0 : canvasSize.height;
-    final col = ((localPos.dx / w) * ThermalCoverageInfo.sensorCols)
+    final col = ((localPos.dx / w) * ThermalCoverageInfo.railSensorPixels)
         .floor()
-        .clamp(0, ThermalCoverageInfo.sensorCols - 1);
-    final row = ((localPos.dy / h) * ThermalCoverageInfo.sensorRows)
+        .clamp(0, ThermalCoverageInfo.railSensorPixels - 1);
+    final row = ((localPos.dy / h) * ThermalCoverageInfo.panoramaRows)
         .floor()
-        .clamp(0, ThermalCoverageInfo.sensorRows - 1);
+        .clamp(0, ThermalCoverageInfo.panoramaRows - 1);
     if (col != _selectedCol || row != _selectedRow) {
       setState(() {
         _selectedCol = col;
@@ -343,62 +343,73 @@ class _InteractiveThermalMatrixViewState
           ),
           const SizedBox(height: 8),
         ],
-        Container(
+        SizedBox(
           height: widget.canvasHeight,
           width: double.infinity,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final canvasSize = Size(
-                  math.max(1.0, constraints.maxWidth),
-                  math.max(1.0, constraints.maxHeight),
-                );
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapDown: (d) => _selectAt(d.localPosition, canvasSize),
-                  onPanUpdate: (d) => _selectAt(d.localPosition, canvasSize),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CustomPaint(
-                        key: widget.canvasKey,
-                        painter: SingleFrameThermalMatrixPainter(
-                          thermalFrame:
-                              hasMatrix ? widget.thermalFrame : const <double?>[],
-                          colorForTemperature: widget.colorForTemperature,
-                          selectedCol: _selectedCol,
-                          selectedRow: _selectedRow,
-                        ),
-                      ),
-                      if (!hasMatrix)
-                        Center(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.65),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text(
-                              'No 32×24 matrix data in this acquisition',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: Colors.white,
+          child: Center(
+            child: AspectRatio(
+              aspectRatio: ThermalCoverageInfo.railSensorPixels /
+                  ThermalCoverageInfo.panoramaRows,
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.border),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final canvasSize = Size(
+                        math.max(1.0, constraints.maxWidth),
+                        math.max(1.0, constraints.maxHeight),
+                      );
+                      return GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: (d) =>
+                            _selectAt(d.localPosition, canvasSize),
+                        onPanUpdate: (d) =>
+                            _selectAt(d.localPosition, canvasSize),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            CustomPaint(
+                              key: widget.canvasKey,
+                              painter: SingleFrameThermalMatrixPainter(
+                                thermalFrame: hasMatrix
+                                    ? widget.thermalFrame
+                                    : const <double?>[],
+                                colorForTemperature: widget.colorForTemperature,
+                                selectedCol: _selectedCol,
+                                selectedRow: _selectedRow,
                               ),
                             ),
-                          ),
+                            if (!hasMatrix)
+                              Center(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.65),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'No 24×32 matrix data in this acquisition',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
-                    ],
+                      );
+                    },
                   ),
-                );
-              },
+                ),
+              ),
             ),
           ),
         ),

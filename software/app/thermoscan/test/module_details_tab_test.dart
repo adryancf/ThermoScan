@@ -1268,16 +1268,15 @@ void main() {
     testWidgets(
       '6. Panorama renders valid thermal_frame, complements invalid pixels (null/NaN) from neighbor overlap, and uses neutral fallback (never 0.0°C)',
       (tester) async {
-        // Frame 1 at X = 0.0 cm (covers [-2.5, +2.5]):
-        // Has null at X = -2.0 cm (non-overlapping region -> unresolvedInvalid)
-        // and NaN at X = +0.5 cm (overlapping region with Frame 2 -> complemented by Frame 2!)
+        // Frame 1 at X = 0.0 cm (covers [-9.2, +9.2] with rotated 24x32 optical FOV 18.4 cm):
+        // Has null at X = -2.0 cm (sensorRow = ((-2.0 - (-9.2)) / 18.4 * 24).floor() = 9, sensorCol = 0)
+        // and NaN at X = +0.5 cm (sensorRow = ((0.5 - (-9.2)) / 18.4 * 24).floor() = 12, sensorCol = 0).
         final frame1Pixels = List<double?>.filled(768, 35.0);
-        // At X = -2.0 cm (col = (( -2.0 - (-2.5) ) / 5.0 * 32).floor() = 3), row 0 -> null
-        frame1Pixels[3] = null;
-        // At X = +0.5 cm (col = (( 0.5 - (-2.5) ) / 5.0 * 32).floor() = 19), row 0 -> NaN
-        frame1Pixels[19] = double.nan;
+        frame1Pixels[9 * 32 + 0] = null;
+        frame1Pixels[12 * 32 + 0] = double.nan;
 
-        // Frame 2 at X = 2.0 cm (covers [-0.5, +4.5]): all valid 48.0°C
+        // Frame 2 at X = 8.0 cm (covers [-1.2, +17.2]): overlaps X = +0.5 cm (complements NaN)
+        // but does NOT cover X = -2.0 cm (so X = -2.0 cm stays unresolvedInvalid).
         final frame2Pixels = List<double?>.filled(768, 48.0);
 
         final m1 = ModuleMeasurement(
@@ -1297,7 +1296,7 @@ void main() {
           inspectionId: 'insp-1',
           sourceEventId: 'evt-2',
           measuredAt: '2026-11-03T12:00:10Z',
-          xPositionCm: 2.0,
+          xPositionCm: 8.0,
           maxTemperatureC: 48.0,
           thermalFrame: frame2Pixels,
           receivedAt: '2026-11-03T12:00:15Z',

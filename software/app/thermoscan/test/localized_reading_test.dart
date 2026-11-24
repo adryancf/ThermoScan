@@ -412,10 +412,10 @@ void main() {
         findsOneWidget,
       );
 
-      // Initially defaults to peak pixel (Col 20, Row 12)
+      // Initially defaults to peak pixel: raw (sensorRow 12, sensorCol 20) -> rotated 24x32 (Col 12, Row 20)
       final telemetry = find.byKey(const Key('selected_pixel_telemetry'));
       expect(
-        find.descendant(of: telemetry, matching: find.text('Pixel (Col 20, Row 12)')),
+        find.descendant(of: telemetry, matching: find.text('Pixel (Col 12, Row 20)')),
         findsOneWidget,
       );
       expect(
@@ -423,12 +423,12 @@ void main() {
         findsOneWidget,
       );
 
-      // Tap near top-left cell (Col 1, Row 1) -> 21.4 °C
+      // Tap near top-left cell (Col 1, Row 1) in 24x32 grid -> 21.4 °C
       final canvasFinder = find.byKey(const Key('single_frame_matrix_canvas'));
       final rect = tester.getRect(canvasFinder);
       final cell1x1Pos = Offset(
-        rect.left + (1.5 / 32.0) * rect.width,
-        rect.top + (1.5 / 24.0) * rect.height,
+        rect.left + (1.5 / 24.0) * rect.width,
+        rect.top + (1.5 / 32.0) * rect.height,
       );
       await tester.tapAt(cell1x1Pos);
       await tester.pumpAndSettle();
@@ -442,7 +442,7 @@ void main() {
         findsOneWidget,
       );
 
-      // Drag across canvas to bottom-right corner (Col 31, Row 23) -> 44.8 °C
+      // Drag across canvas to bottom-right corner (Col 23, Row 31) in 24x32 grid -> 44.8 °C
       final bottomRightTarget = Offset(
         rect.right - 2.0,
         rect.bottom - 2.0,
@@ -454,7 +454,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.descendant(of: telemetry, matching: find.text('Pixel (Col 31, Row 23)')),
+        find.descendant(of: telemetry, matching: find.text('Pixel (Col 23, Row 31)')),
         findsOneWidget,
       );
       expect(

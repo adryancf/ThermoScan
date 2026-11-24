@@ -345,8 +345,9 @@ void main() {
       final p1Color = panorama.colorMapperForFrame(panel1Frame)(40.77);
       expect((p1Color.g * 255.0).round(), greaterThan(180));
 
-      // Verify cell resolution in Panel 1 also uses Panel 1's baseline (not alarm orange/red)
-      final hotCell = panorama.resolveAt(50.0, 12);
+      // Verify cell resolution in Panel 1 also uses Panel 1's baseline (not alarm orange/red).
+      // Peak pixel was placed at raw (sensorRow=12, sensorCol=16) -> rotated display row 16 at X=50.0 cm.
+      final hotCell = panorama.resolveAt(50.0, 16);
       expect(hotCell.hasValidTemperature, isTrue);
       expect(hotCell.temperatureC, equals(40.77));
       final cellColor = panorama.colorForCell(hotCell, xCm: 50.0);

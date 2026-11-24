@@ -394,6 +394,18 @@ class ThermalCoverageInfo {
   static const int sensorCols = 32;
   static const int sensorPixelCount = sensorRows * sensorCols;
 
+  /// Optical field-of-view along the rail (X axis) for the MLX90640 110°×75°
+  /// mounted with its 75° (24-pixel) axis along the rail at ~12 cm height:
+  /// 2 * 12 cm * tan(37.5°) ≈ 18.4 cm.
+  static const double stitchFovCm = 18.4;
+  static const double halfStitchFovCm = stitchFovCm / 2.0;
+
+  /// Vertical pixel count in the rotated display (32 pixels = 110° across panel).
+  static const int panoramaRows = sensorCols;
+
+  /// Horizontal sensor pixels along the rail (24 pixels = 75° along rail X).
+  static const int railSensorPixels = sensorRows;
+
   final double? panelLengthCm;
   final int loadedMeasurementsCount;
   final int? totalInspectionMeasurements;
@@ -824,15 +836,15 @@ class ThermalPanoramaData {
 
     final domainSpan = (maxDomainX - minDomainX).clamp(5.0, double.infinity);
     const colWidthCm =
-        ThermalCoverageInfo.fovCm / ThermalCoverageInfo.sensorCols;
-    final gridCols = (domainSpan / colWidthCm).ceil().clamp(32, 1600);
+        ThermalCoverageInfo.stitchFovCm / ThermalCoverageInfo.railSensorPixels;
+    final gridCols = (domainSpan / colWidthCm).ceil().clamp(24, 1600);
     final actualColStepCm = domainSpan / gridCols;
 
     var complementedCount = 0;
     var unresolvedCount = 0;
 
     final cells = List<List<ThermalCellResolution>>.generate(
-      ThermalCoverageInfo.sensorRows,
+      ThermalCoverageInfo.panoramaRows,
       (row) => List<ThermalCellResolution>.generate(gridCols, (col) {
         final xCm = minDomainX + (col + 0.5) * actualColStepCm;
         final res = resolveCellAtStatic(
@@ -974,7 +986,7 @@ class ThermalPanoramaData {
     List<GapInterval> gapIntervals = const [],
     List<PanelBound> panelBounds = const [],
   }) {
-    if (row < 0 || row >= ThermalCoverageInfo.sensorRows) {
+    if (row < 0 || row >= ThermalCoverageInfo.panoramaRows) {
       return const ThermalCellResolution(status: ThermalCellStatus.uncovered);
     }
 
@@ -1012,8 +1024,8 @@ class ThermalPanoramaData {
         }
       }
 
-      final startX = m.xPositionCm - ThermalCoverageInfo.halfFovCm;
-      final endX = m.xPositionCm + ThermalCoverageInfo.halfFovCm;
+      final startX = m.xPositionCm - ThermalCoverageInfo.halfStitchFovCm;
+      final endX = m.xPositionCm + ThermalCoverageInfo.halfStitchFovCm;
       if (xCm >= startX && xCm <= endX) {
         candidates.add(
           _CoveringFrameCandidate(
@@ -1038,13 +1050,13 @@ class ThermalPanoramaData {
     var skippedInvalidCandidate = false;
     for (final candidate in candidates) {
       final startX =
-          candidate.measurement.xPositionCm - ThermalCoverageInfo.halfFovCm;
-      final relativeX = (xCm - startX) / ThermalCoverageInfo.fovCm;
-      final col = (relativeX * ThermalCoverageInfo.sensorCols).floor().clamp(
-        0,
-        ThermalCoverageInfo.sensorCols - 1,
-      );
-      final pixelIdx = row * ThermalCoverageInfo.sensorCols + col;
+          candidate.measurement.xPositionCm - ThermalCoverageInfo.halfStitchFovCm;
+      final relativeX = (xCm - startX) / ThermalCoverageInfo.stitchFovCm;
+      final sensorRow = (relativeX * ThermalCoverageInfo.railSensorPixels)
+          .floor()
+          .clamp(0, ThermalCoverageInfo.railSensorPixels - 1);
+      final sensorCol = row;
+      final pixelIdx = sensorRow * ThermalCoverageInfo.sensorCols + sensorCol;
       final pixelVal = candidate.measurement.thermalFrame![pixelIdx];
 
       if (isValidPixelValue(pixelVal)) {
@@ -1259,7 +1271,7 @@ class ThermalPanoramaPainter extends CustomPainter {
     final pxPerCm = size.width / domainSpan;
 
     if (panorama.hasAnyThermalMatrix && panorama.gridColumns > 0) {
-      final rows = ThermalCoverageInfo.sensorRows;
+      final rows = panorama.gridCells.length;
       final cols = panorama.gridColumns;
       final cellW = size.width / cols;
       final cellH = size.height / rows;
@@ -1440,23 +1452,25 @@ class SingleFrameMatrixPainter extends CustomPainter {
       return;
     }
 
-    final rows = ThermalCoverageInfo.sensorRows;
-    final cols = ThermalCoverageInfo.sensorCols;
-    final cellW = size.width / cols;
-    final cellH = size.height / rows;
+    const displayCols = ThermalCoverageInfo.railSensorPixels; // 24 along rail X
+    const displayRows = ThermalCoverageInfo.panoramaRows; // 32 across panel Y
+    final cellW = size.width / displayCols;
+    final cellH = size.height / displayRows;
     final cellPaint = Paint()..style = PaintingStyle.fill;
 
-    for (var r = 0; r < rows; r++) {
-      final top = r * cellH;
-      for (var c = 0; c < cols; c++) {
-        final val = thermalFrame[r * cols + c];
+    for (var displayRow = 0; displayRow < displayRows; displayRow++) {
+      final top = displayRow * cellH;
+      for (var displayCol = 0; displayCol < displayCols; displayCol++) {
+        // Rotated 90°: sensorRow = displayCol (0..23), sensorCol = displayRow (0..31)
+        final val =
+            thermalFrame[displayCol * ThermalCoverageInfo.sensorCols + displayRow];
         if (ThermalPanoramaData.isValidPixelValue(val)) {
           cellPaint.color = colorForTemperature(val!);
         } else {
           cellPaint.color = ThermalPanoramaPainter.unresolvedInvalidColor;
         }
 
-        final left = c * cellW;
+        final left = displayCol * cellW;
         canvas.drawRect(
           Rect.fromLTWH(left, top, cellW + 0.3, cellH + 0.3),
           cellPaint,

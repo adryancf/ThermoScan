@@ -250,8 +250,9 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     }
 
     std::string url = base_url_ + "/api/v1/devices/" + module_id_ + "/ping";
-    Serial.printf("[PING] Sending ping to %s (water=%d, limits=%d, thermal=%d, cleaning_ack=%d)...\n",
-                  url.c_str(), water_ok, limits_ok, thermal_ok, manual_cleaning_ack_pending_);
+    Serial.printf("[PING] Sending ping to %s (water=%d, limits=%d, thermal=%d, cleaning_ack=%d, reading_ack=%d)...\n",
+                  url.c_str(), water_ok, limits_ok, thermal_ok,
+                  manual_cleaning_ack_pending_, manual_reading_ack_pending_);
 
     HTTPClient http;
     http.begin(url.c_str());
@@ -271,7 +272,8 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
     }
 
     std::string requestBody = buildPingPayload(
-        water_ok, limits_ok, thermal_ok, next_insp_str, manual_cleaning_ack_pending_, reset_ack_pending_);
+        water_ok, limits_ok, thermal_ok, next_insp_str,
+        manual_cleaning_ack_pending_, reset_ack_pending_, manual_reading_ack_pending_);
 
     int httpCode = http.POST(String(requestBody.c_str()));
 
@@ -290,14 +292,16 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
         http.end();
 
         manual_cleaning_ack_pending_ = false;
+        manual_reading_ack_pending_ = false;
         reset_ack_pending_ = false;
         state_ring_head_ = 0;
         state_ring_count_ = 0;
         parsePingResponse(response.c_str());
 
-        Serial.printf("[PING] Success HTTP 200 | config_pending=%d | manual_insp=%d | manual_clean=%d (x=%.1f)\n",
+        Serial.printf("[PING] Success HTTP 200 | config_pending=%d | manual_insp=%d | manual_clean=%d (x=%.1f) | manual_read=%d (x=%.1f)\n",
                       config_pending_, manual_inspection_pending_,
-                      manual_cleaning_pending_, manual_cleaning_target_x_cm_);
+                      manual_cleaning_pending_, manual_cleaning_target_x_cm_,
+                      manual_reading_pending_, manual_reading_target_x_cm_);
         return true;
     }
 
@@ -663,6 +667,60 @@ bool HttpCloudClient::ingestCleaningReport(const CleaningReportInput& input, std
         Serial.printf("[CLEANING] Failed to submit cleaning report! HTTP code: %d\n", httpCode);
     }
     http.end();
+    return false;
+}
+
+bool HttpCloudClient::sendLocalizedReading(float x_position_cm,
+                                           uint8_t panel_index,
+                                           uint32_t measured_at_epoch,
+                                           float min_temp_c,
+                                           float max_temp_c,
+                                           float avg_temp_c,
+                                           const float* pixels_768) {
+    if (!isConnected() || device_token_.empty()) {
+        Serial.println(F("[LOCAL_READ] Aborted: No Wi-Fi or device token!"));
+        return false;
+    }
+
+    std::string url = base_url_ + "/api/v1/devices/localized-reading";
+    Serial.printf("[LOCAL_READ] Sending localized thermal reading (Panel %u, X=%.1f cm, min=%.2f, max=%.2f, avg=%.2f)...\n",
+                  static_cast<unsigned>(panel_index), x_position_cm, min_temp_c, max_temp_c, avg_temp_c);
+
+    // Build payload directly into a single reserved buffer before opening HTTP/TLS buffers.
+    std::string requestBody = buildLocalizedReadingJson(
+        x_position_cm, panel_index, measured_at_epoch, min_temp_c, max_temp_c, avg_temp_c, pixels_768);
+#if defined(ARDUINO) || defined(ESP32)
+    Serial.printf("[LOCAL_READ] Body %u bytes | free heap %u | largest block %u\n",
+                  static_cast<unsigned>(requestBody.size()),
+                  static_cast<unsigned>(ESP.getFreeHeap()),
+                  static_cast<unsigned>(ESP.getMaxAllocHeap()));
+#endif
+
+    HTTPClient http;
+    http.begin(url.c_str());
+    configureHttpTimeouts(http, 10000);
+    appendAuthHeader(http);
+    http.addHeader("X-Device-Token", device_token_.c_str());
+
+#if defined(ARDUINO) || defined(ESP32)
+    int httpCode = http.POST(reinterpret_cast<uint8_t*>(&requestBody[0]), requestBody.size());
+#else
+    int httpCode = http.POST(requestBody);
+#endif
+    http.end();
+
+    if (httpCode == 401) {
+        Serial.println(F("[LOCAL_READ] FAILED HTTP 401: Invalid token!"));
+        auth_error_ = true;
+        return false;
+    }
+
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+        Serial.printf("[LOCAL_READ] Localized reading recorded successfully! (HTTP %d)\n", httpCode);
+        return true;
+    }
+
+    Serial.printf("[LOCAL_READ] Failed to send localized reading! HTTP code: %d\n", httpCode);
     return false;
 }
 

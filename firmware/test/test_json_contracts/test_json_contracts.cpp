@@ -600,6 +600,145 @@ void test_ping_verification_ready_at_serialization() {
     TEST_ASSERT_TRUE(doc4["verification_ready_at"].isNull());
 }
 
+void test_localized_reading_json_contract() {
+    std::vector<float> pixels(768, 32.25f);
+    pixels[0] = NAN;
+    pixels[1] = INFINITY;
+    pixels[2] = -INFINITY;
+    pixels[10] = 28.50f;
+    pixels[767] = 54.75f;
+
+    // 1. Valid epoch > 1700000000 includes measured_at in RFC3339 UTC
+    std::string json_valid = HttpCloudClient::buildLocalizedReadingJson(
+        42.5f, 2, 1730721600, 28.50f, 54.75f, 32.30f, pixels.data());
+    TEST_ASSERT_TRUE(!json_valid.empty());
+
+    JsonDocument doc;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc, json_valid).code());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 42.5f, doc["x_position_cm"].as<float>());
+    TEST_ASSERT_EQUAL_UINT8(2, doc["panel_index"].as<uint8_t>());
+    TEST_ASSERT_FALSE(doc["measured_at"].isNull());
+    TEST_ASSERT_TRUE(isValidRFC3339(doc["measured_at"].as<std::string>()));
+    TEST_ASSERT_EQUAL_STRING("2024-11-04T12:00:00Z", doc["measured_at"].as<const char*>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 28.50f, doc["min_temperature_c"].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 54.75f, doc["max_temperature_c"].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 32.30f, doc["avg_temperature_c"].as<float>());
+
+    TEST_ASSERT_TRUE(doc["thermal_matrix"].is<JsonArray>());
+    JsonArray mat = doc["thermal_matrix"].as<JsonArray>();
+    TEST_ASSERT_EQUAL(768, mat.size());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, mat[0].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, mat[1].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, mat[2].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 28.50f, mat[10].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 54.75f, mat[767].as<float>());
+
+    // 2. Epoch <= 1700000000 omits measured_at
+    std::string json_no_ts = HttpCloudClient::buildLocalizedReadingJson(
+        15.0f, 1, 0, 25.0f, 30.0f, 27.5f, pixels.data());
+    JsonDocument doc2;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc2, json_no_ts).code());
+    TEST_ASSERT_TRUE(doc2["measured_at"].isNull());
+    TEST_ASSERT_EQUAL(768, doc2["thermal_matrix"].as<JsonArray>().size());
+}
+
+void test_ping_manual_reading_status_and_ack_contract() {
+    // 1. Ping without manual_reading_ack
+    std::string no_ack = HttpCloudClient::buildPingJson(
+        true, true, true, "", false, nullptr, nullptr, nullptr, 0, false, "", false);
+    JsonDocument doc1;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc1, no_ack).code());
+    TEST_ASSERT_TRUE(doc1["manual_reading_ack"].isNull());
+
+    // 2. Ping with manual_reading_ack = true
+    std::string with_ack = HttpCloudClient::buildPingJson(
+        true, true, true, "", false, nullptr, nullptr, nullptr, 0, false, "", true);
+    JsonDocument doc2;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc2, with_ack).code());
+    TEST_ASSERT_TRUE(doc2["manual_reading_ack"].as<bool>());
+
+    // 3. Parse device_status with manual_reading_pending & target_x_cm
+    HttpCloudClient client("http://localhost:8080");
+    TEST_ASSERT_FALSE(client.isManualReadingPending());
+    TEST_ASSERT_TRUE(client.parsePingResponse(
+        "{\"device_status\":{\"manual_reading_pending\":true,\"manual_reading_target_x_cm\":63.5}}"));
+    TEST_ASSERT_TRUE(client.isManualReadingPending());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 63.5f, client.getManualReadingTargetXCm());
+
+    client.clearManualReadingPending();
+    TEST_ASSERT_FALSE(client.isManualReadingPending());
+
+    // 4. Top-level manual_reading_pending & clearing on false
+    TEST_ASSERT_TRUE(client.parsePingResponse(
+        "{\"manual_reading_pending\":true,\"manual_reading_target_x_cm\":12.25}"));
+    TEST_ASSERT_TRUE(client.isManualReadingPending());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 12.25f, client.getManualReadingTargetXCm());
+
+    TEST_ASSERT_TRUE(client.parsePingResponse(
+        "{\"device_status\":{\"manual_reading_pending\":false}}"));
+    TEST_ASSERT_FALSE(client.isManualReadingPending());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 0.0f, client.getManualReadingTargetXCm());
+}
+
+void test_ping_manual_reading_ack_cleared_only_on_http_200() {
+    int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+    TEST_ASSERT_TRUE(server_fd >= 0);
+
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    TEST_ASSERT_EQUAL(0, bind(server_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)));
+    TEST_ASSERT_EQUAL(0, listen(server_fd, 4));
+
+    socklen_t len = sizeof(addr);
+    TEST_ASSERT_EQUAL(0, getsockname(server_fd, reinterpret_cast<sockaddr*>(&addr), &len));
+    int port = ntohs(addr.sin_port);
+
+    std::vector<std::string> captured_bodies;
+    std::thread srv([server_fd, &captured_bodies]() {
+        const char* resp500 = "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        const char* resp200 = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+        char buf[4096];
+        for (int i = 0; i < 3; ++i) {
+            int cfd = accept(server_fd, nullptr, nullptr);
+            if (cfd >= 0) {
+                ssize_t n = recv(cfd, buf, sizeof(buf) - 1, 0);
+                if (n > 0) {
+                    buf[n] = '\0';
+                    captured_bodies.emplace_back(buf);
+                }
+                const char* resp = (i == 0) ? resp500 : resp200;
+                send(cfd, resp, strlen(resp), 0);
+                close(cfd);
+            }
+        }
+        close(server_fd);
+    });
+
+    WiFi.setConnected(true);
+    HttpCloudClient client("http://127.0.0.1:" + std::to_string(port));
+    client.setCredentials("mod-1", "dev_sec_test");
+    client.setManualReadingAckPending(true);
+
+    // 1st ping: HTTP 500 -> manual_reading_ack remains pending
+    TEST_ASSERT_FALSE(client.sendPingWithDiagnostics(true, true, true));
+    // 2nd ping: HTTP 200 -> manual_reading_ack sent and cleared
+    TEST_ASSERT_TRUE(client.sendPingWithDiagnostics(true, true, true));
+    // 3rd ping: HTTP 200 -> manual_reading_ack omitted
+    TEST_ASSERT_TRUE(client.sendPingWithDiagnostics(true, true, true));
+
+    srv.join();
+
+    TEST_ASSERT_EQUAL_UINT(3, captured_bodies.size());
+    TEST_ASSERT_TRUE(captured_bodies[0].find("\"manual_reading_ack\":true") != std::string::npos);
+    TEST_ASSERT_TRUE(captured_bodies[1].find("\"manual_reading_ack\":true") != std::string::npos);
+    TEST_ASSERT_TRUE(captured_bodies[2].find("\"manual_reading_ack\"") == std::string::npos);
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
@@ -614,5 +753,8 @@ int main(int argc, char** argv) {
     RUN_TEST(test_ping_reset_pending_and_ack_json_contract);
     RUN_TEST(test_ping_reset_ack_cleared_only_on_http_200);
     RUN_TEST(test_ping_verification_ready_at_serialization);
+    RUN_TEST(test_localized_reading_json_contract);
+    RUN_TEST(test_ping_manual_reading_status_and_ack_contract);
+    RUN_TEST(test_ping_manual_reading_ack_cleared_only_on_http_200);
     return UNITY_END();
 }

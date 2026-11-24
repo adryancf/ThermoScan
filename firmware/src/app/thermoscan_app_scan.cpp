@@ -53,6 +53,12 @@ void ThermoscanApp::handleIdle() {
         Serial.printf("[APP] Ping detected pending manual cleaning request from backend (target_x=%.1f cm)!\n", target_x);
         triggerManualCleaning(target_x);
     }
+    if (cloud_ != nullptr && cloud_->isManualReadingPending()) {
+        const float target_x = cloud_->getManualReadingTargetXCm();
+        cloud_->clearManualReadingPending();
+        Serial.printf("[APP] Ping detected pending manual localized reading request from backend (target_x=%.1f cm)!\n", target_x);
+        triggerManualReading(target_x);
+    }
 
     // Determine ping interval: use fast ping (5s) when initial configuration is not yet synchronized,
     // otherwise use standard configured interval (default 5s)
@@ -87,6 +93,12 @@ void ThermoscanApp::handleIdle() {
             cloud_->clearManualCleaningPending();
             Serial.printf("[APP] Periodic ping detected pending manual cleaning request (target_x=%.1f cm)!\n", target_x);
             triggerManualCleaning(target_x);
+        }
+        if (cloud_->isManualReadingPending()) {
+            const float target_x = cloud_->getManualReadingTargetXCm();
+            cloud_->clearManualReadingPending();
+            Serial.printf("[APP] Periodic ping detected pending manual localized reading request (target_x=%.1f cm)!\n", target_x);
+            triggerManualReading(target_x);
         }
     }
 
@@ -130,6 +142,12 @@ void ThermoscanApp::handleIdle() {
         return;
     }
 
+    if (manual_reading_requested_) {
+        manual_reading_requested_ = false;
+        executeLocalizedReading(manual_reading_target_x_);
+        return;
+    }
+
     // 2. Pending configuration synchronization
     if (config_update_pending_ && !config_sync_failed_waiting_ping_) {
         transitionTo(AppState::SYNCING);
@@ -144,6 +162,96 @@ void ThermoscanApp::handleIdle() {
             return;
         }
     }
+}
+
+void ThermoscanApp::executeLocalizedReading(float target_x_cm) {
+#if defined(ARDUINO) || defined(ESP32)
+    Serial.printf("[LOCAL_READ] Starting localized thermal reading at X = %.1f cm | free heap before: %u bytes\n",
+                  target_x_cm, static_cast<unsigned>(ESP.getFreeHeap()));
+#else
+    Serial.printf("[LOCAL_READ] Starting localized thermal reading at X = %.1f cm\n", target_x_cm);
+#endif
+
+    const domain::PanelPositionInfo pos = domain::resolvePanelPosition(
+        static_cast<uint8_t>(config_.panel_count > 0 ? config_.panel_count : 1),
+        config_.panel_length_cm,
+        config_.panel_spacing_cm,
+        target_x_cm);
+    const uint8_t panel_index = (pos.panel_index > 0) ? pos.panel_index : 1;
+
+    bool motion_ok = true;
+    if (motion_ != nullptr) {
+        if (!motion_->isHomed()) {
+            motion_ok = motion_->home();
+        }
+        if (motion_ok) {
+            motion_->moveToXCm(target_x_cm);
+        }
+    }
+
+    if (motion_ok && camera_ != nullptr) {
+        camera_->setTiltAngle(CAMERA_DEFAULT_ANGLE);
+#if defined(ARDUINO) || defined(ESP32)
+        delay(SERVO_SETTLE_DELAY_MS);
+#endif
+    }
+
+    bool sent_ok = false;
+    if (motion_ok && camera_ != nullptr) {
+        std::unique_ptr<ThermalFrame> frame(new ThermalFrame());
+        const bool frame_ok = camera_->captureFrame(*frame);
+        if (frame_ok) {
+            float min_t = 0.0f;
+            float max_t = 0.0f;
+            float sum_t = 0.0f;
+            size_t valid_count = 0;
+            for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
+                const float t = frame->pixels[i];
+                if (domain::ThermalAnalyzer::isValidPixel(t)) {
+                    if (valid_count == 0 || t < min_t) {
+                        min_t = t;
+                    }
+                    if (valid_count == 0 || t > max_t) {
+                        max_t = t;
+                    }
+                    sum_t += t;
+                    ++valid_count;
+                }
+            }
+
+            if (valid_count > 0) {
+                const float avg_t = sum_t / static_cast<float>(valid_count);
+                const uint32_t measured_at = getCurrentTime();
+                if (cloud_ != nullptr) {
+                    sent_ok = cloud_->sendLocalizedReading(
+                        target_x_cm, panel_index, measured_at, min_t, max_t, avg_t, frame->pixels);
+                } else {
+                    sent_ok = true;
+                }
+            } else {
+                Serial.println(F("[LOCAL_READ] Warning: Captured frame had zero valid pixels."));
+            }
+        } else {
+            Serial.println(F("[LOCAL_READ] Warning: Thermal camera captureFrame() failed."));
+        }
+    } // frame destroyed immediately here before return-to-home
+
+    if (!sent_ok && cloud_ != nullptr) {
+        cloud_->setManualReadingAckPending(true);
+    }
+
+    // ALWAYS return carriage to start (X = 0.0f) and disable stepper, even on failure
+    if (motion_ != nullptr) {
+        motion_->moveToXCm(0.0f);
+        motion_->disableMotor();
+    }
+
+#if defined(ARDUINO) || defined(ESP32)
+    Serial.printf("[LOCAL_READ] Localized reading finished (ok=%d) | free heap after: %u bytes\n",
+                  sent_ok ? 1 : 0, static_cast<unsigned>(ESP.getFreeHeap()));
+#else
+    Serial.printf("[LOCAL_READ] Localized reading finished (ok=%d)\n", sent_ok ? 1 : 0);
+#endif
 }
 
 bool ThermoscanApp::flushScanTelemetryBatch(std::vector<std::vector<float>>& batch_frames_data,

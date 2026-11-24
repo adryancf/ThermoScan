@@ -156,6 +156,28 @@ public:
     virtual void clearManualCleaningPending() {}
     virtual void setManualCleaningAckPending(bool pending) { (void)pending; }
 
+    // Manual localized thermal reading pending query, target, reset, ack, and upload
+    virtual bool isManualReadingPending() const { return false; }
+    virtual float getManualReadingTargetXCm() const { return 0.0f; }
+    virtual void clearManualReadingPending() {}
+    virtual void setManualReadingAckPending(bool pending) { (void)pending; }
+    virtual bool sendLocalizedReading(float x_position_cm,
+                                      uint8_t panel_index,
+                                      uint32_t measured_at_epoch,
+                                      float min_temp_c,
+                                      float max_temp_c,
+                                      float avg_temp_c,
+                                      const float* pixels_768) {
+        (void)x_position_cm;
+        (void)panel_index;
+        (void)measured_at_epoch;
+        (void)min_temp_c;
+        (void)max_temp_c;
+        (void)avg_temp_c;
+        (void)pixels_768;
+        return true;
+    }
+
     // Reset routine pending query, reset, and ack
     virtual bool isResetPending() const { return false; }
     virtual void clearResetPending() {}

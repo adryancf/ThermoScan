@@ -336,6 +336,10 @@ type DeviceStatusDTO struct {
 	ManualInspectionPending bool                 `json:"manual_inspection_pending"`
 	ManualCleaningPending   bool                 `json:"manual_cleaning_pending"`
 	ManualCleaningTargetXCm *float64             `json:"manual_cleaning_target_x_cm,omitempty"`
+	ManualReadingPending    bool                 `json:"manual_reading_pending"`
+	ManualReadingTargetXCm  *float64             `json:"manual_reading_target_x_cm,omitempty"`
+	LocalizedReadingAt      *string              `json:"localized_reading_at,omitempty"`
+	LocalizedReadingXCm     *float64             `json:"localized_reading_x_cm,omitempty"`
 	ResetPending            bool                 `json:"reset_pending"`
 	PingIntervalSeconds     int                  `json:"ping_interval_seconds"`
 	OnlineWindowSeconds     int                  `json:"online_window_seconds"`
@@ -405,6 +409,7 @@ type RecordDevicePingInput struct {
 	NextInspectionAt    *time.Time             `json:"next_inspection_at,omitempty"`
 	VerificationReadyAt *time.Time             `json:"verification_ready_at,omitempty"`
 	ManualCleaningAck   *bool                  `json:"manual_cleaning_ack,omitempty"`
+	ManualReadingAck    *bool                  `json:"manual_reading_ack,omitempty"`
 	ResetAck            *bool                  `json:"reset_ack,omitempty"`
 	FirmwareState       *string                `json:"firmware_state,omitempty"`
 	FirmwareStateDetail *string                `json:"firmware_state_detail,omitempty"`
@@ -443,6 +448,44 @@ type TriggerCleaningDTO struct {
 	Message           string  `json:"message"`
 	Status            string  `json:"status"`
 	TargetXPositionCm float64 `json:"target_x_position_cm"`
+}
+
+type TriggerReadingInput struct {
+	TargetXPositionCm float64 `json:"target_x_position_cm"`
+}
+
+type TriggerReadingDTO struct {
+	Success           bool    `json:"success"`
+	Message           string  `json:"message"`
+	TargetXPositionCm float64 `json:"target_x_position_cm"`
+	PanelIndex        int32   `json:"panel_index"`
+}
+
+type SubmitLocalizedReadingInput struct {
+	XPositionCm     float64    `json:"x_position_cm"`
+	PanelIndex      int32      `json:"panel_index"`
+	MeasuredAt      *time.Time `json:"measured_at,omitempty"`
+	MinTemperatureC float64    `json:"min_temperature_c"`
+	MaxTemperatureC float64    `json:"max_temperature_c"`
+	AvgTemperatureC float64    `json:"avg_temperature_c"`
+	ThermalMatrix   []float64  `json:"thermal_matrix"`
+}
+
+type SubmitLocalizedReadingDTO struct {
+	Success            bool   `json:"success"`
+	LocalizedReadingAt string `json:"localized_reading_at"`
+}
+
+type LocalizedReadingDTO struct {
+	ModuleID           string    `json:"module_id"`
+	XPositionCm        float64   `json:"x_position_cm"`
+	PanelIndex         int32     `json:"panel_index"`
+	MeasuredAt         string    `json:"measured_at"`
+	LocalizedReadingAt string    `json:"localized_reading_at"`
+	MinTemperatureC    float64   `json:"min_temperature_c"`
+	MaxTemperatureC    float64   `json:"max_temperature_c"`
+	AvgTemperatureC    float64   `json:"avg_temperature_c"`
+	ThermalMatrix      []float64 `json:"thermal_matrix"`
 }
 
 type DeviceGeometryDTO struct {

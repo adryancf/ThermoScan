@@ -6,6 +6,7 @@
 #define Serial diagnostics::getGlobalDualSerial()
 #endif
 
+#include <cstdio>
 #include <ctime>
 #include <cmath>
 
@@ -37,7 +38,8 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
                                          const StateTransitionEntry* transitions,
                                          size_t transition_count,
                                          bool reset_ack,
-                                         const std::string& verification_ready_at) {
+                                         const std::string& verification_ready_at,
+                                         bool manual_reading_ack) {
     JsonDocument doc;
     doc["water_available"] = water_ok;
     doc["limits_check_passed"] = limits_ok;
@@ -51,6 +53,9 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
     }
     if (manual_cleaning_ack) {
         doc["manual_cleaning_ack"] = true;
+    }
+    if (manual_reading_ack) {
+        doc["manual_reading_ack"] = true;
     }
     if (reset_ack) {
         doc["reset_ack"] = true;
@@ -91,7 +96,8 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
 std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
                                             const std::string& next_inspection_at,
                                             bool manual_cleaning_ack,
-                                            bool reset_ack) const {
+                                            bool reset_ack,
+                                            bool manual_reading_ack) const {
     StateTransitionEntry ordered[STATE_RING_CAPACITY];
     const size_t count = (state_ring_count_ <= STATE_RING_CAPACITY) ? state_ring_count_ : STATE_RING_CAPACITY;
     for (size_t i = 0; i < count; ++i) {
@@ -109,7 +115,8 @@ std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, boo
                          ordered,
                          count,
                          reset_ack,
-                         verification_ready_at);
+                         verification_ready_at,
+                         manual_reading_ack);
 }
 
 bool HttpCloudClient::parsePingResponse(const std::string& response_json) {
@@ -156,6 +163,21 @@ bool HttpCloudClient::parsePingResponse(const std::string& response_json) {
     } else {
         manual_cleaning_pending_ = false;
         manual_cleaning_target_x_cm_ = 0.0f;
+    }
+
+    if (respDoc["manual_reading_pending"] == true ||
+        (!statusObj.isNull() && statusObj["manual_reading_pending"] == true)) {
+        manual_reading_pending_ = true;
+        if (respDoc["manual_reading_target_x_cm"].is<float>()) {
+            manual_reading_target_x_cm_ = respDoc["manual_reading_target_x_cm"].as<float>();
+        } else if (!statusObj.isNull() && statusObj["manual_reading_target_x_cm"].is<float>()) {
+            manual_reading_target_x_cm_ = statusObj["manual_reading_target_x_cm"].as<float>();
+        } else {
+            manual_reading_target_x_cm_ = 0.0f;
+        }
+    } else {
+        manual_reading_pending_ = false;
+        manual_reading_target_x_cm_ = 0.0f;
     }
 
     if (respDoc["reset_pending"] == true ||
@@ -352,6 +374,65 @@ std::string HttpCloudClient::buildCleaningReportJson(const CleaningReportInput& 
     std::string requestBody;
     serializeJson(doc, requestBody);
     return requestBody;
+}
+
+
+std::string HttpCloudClient::buildLocalizedReadingJson(float x_position_cm,
+                                                       uint8_t panel_index,
+                                                       uint32_t measured_at_epoch,
+                                                       float min_temp_c,
+                                                       float max_temp_c,
+                                                       float avg_temp_c,
+                                                       const float* pixels_768) {
+    auto sanitize = [](float v) -> float {
+        return (std::isnan(v) || std::isinf(v)) ? 0.0f : v;
+    };
+
+    // Single pre-allocated buffer: avoids ArduinoJson overhead and heap fragmentation on ESP32.
+    std::string payload;
+    payload.reserve(6400);
+
+    char buf[160];
+    int n = std::snprintf(buf, sizeof(buf),
+                          "{\"x_position_cm\":%.2f,\"panel_index\":%u,",
+                          static_cast<double>(sanitize(x_position_cm)),
+                          static_cast<unsigned>(panel_index));
+    if (n > 0) {
+        payload.append(buf, static_cast<size_t>(n));
+    }
+
+    if (measured_at_epoch > 1700000000UL) {
+        const std::string ts = formatEpochToRFC3339(measured_at_epoch);
+        if (!ts.empty()) {
+            payload.append("\"measured_at\":\"");
+            payload.append(ts);
+            payload.append("\",");
+        }
+    }
+
+    n = std::snprintf(buf, sizeof(buf),
+                      "\"min_temperature_c\":%.2f,\"max_temperature_c\":%.2f,\"avg_temperature_c\":%.2f,\"thermal_matrix\":[",
+                      static_cast<double>(sanitize(min_temp_c)),
+                      static_cast<double>(sanitize(max_temp_c)),
+                      static_cast<double>(sanitize(avg_temp_c)));
+    if (n > 0) {
+        payload.append(buf, static_cast<size_t>(n));
+    }
+
+    char pbuf[24];
+    for (size_t i = 0; i < 768; ++i) {
+        if (i > 0) {
+            payload.push_back(',');
+        }
+        const float v = (pixels_768 != nullptr) ? sanitize(pixels_768[i]) : 0.0f;
+        const int pn = std::snprintf(pbuf, sizeof(pbuf), "%.2f", static_cast<double>(v));
+        if (pn > 0) {
+            payload.append(pbuf, static_cast<size_t>(pn));
+        }
+    }
+
+    payload.append("]}");
+    return payload;
 }
 
 

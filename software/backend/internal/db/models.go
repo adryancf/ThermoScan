@@ -159,6 +159,10 @@ type Module struct {
 	PowerSensors               []byte
 	ManualCleaningPending      bool
 	ManualCleaningTargetXCm    pgtype.Numeric
+	ManualReadingPending       bool
+	ManualReadingTargetXCm     pgtype.Numeric
+	LocalizedReadingAt         *time.Time
+	LocalizedReadingResult     []byte
 	ResetPending               bool
 	FirmwareState              string
 	FirmwareStateDetail        pgtype.Text

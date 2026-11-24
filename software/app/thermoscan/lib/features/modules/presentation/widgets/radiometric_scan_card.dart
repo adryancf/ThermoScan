@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/thermal_matrix_inspector_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
 /// SCR-10: Physical Thermal Frames & Radiometric Telemetry Metrics
@@ -2742,45 +2743,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     );
   }
 
-  ({int col, int row, double temp}) _findPeakPixel(ModuleMeasurement frame) {
-    final tf = frame.thermalFrame;
-    if (tf != null && tf.length == ThermalCoverageInfo.sensorPixelCount) {
-      var bestIdx = 0;
-      double? bestVal;
-      for (var i = 0; i < tf.length; i++) {
-        final v = tf[i];
-        if (ThermalPanoramaData.isValidPixelValue(v)) {
-          if (bestVal == null || v! > bestVal) {
-            bestVal = v;
-            bestIdx = i;
-          }
-        }
-      }
-      final row = bestIdx ~/ ThermalCoverageInfo.sensorCols;
-      final col = bestIdx % ThermalCoverageInfo.sensorCols;
-      return (
-        col: col.clamp(0, ThermalCoverageInfo.sensorCols - 1),
-        row: row.clamp(0, ThermalCoverageInfo.sensorRows - 1),
-        temp: bestVal ?? frame.maxTemperatureC,
-      );
-    }
-    return (col: 16, row: 12, temp: frame.maxTemperatureC);
-  }
-
-  double _getPixelTemp(ModuleMeasurement frame, int col, int row) {
-    final tf = frame.thermalFrame;
-    if (tf != null && tf.length == ThermalCoverageInfo.sensorPixelCount) {
-      final idx = (row.clamp(0, ThermalCoverageInfo.sensorRows - 1) *
-              ThermalCoverageInfo.sensorCols) +
-          col.clamp(0, ThermalCoverageInfo.sensorCols - 1);
-      final val = tf[idx];
-      if (ThermalPanoramaData.isValidPixelValue(val)) {
-        return val!;
-      }
-    }
-    return frame.maxTemperatureC;
-  }
-
   /// Quick Frame Selector Modal Bottom Sheet (tap on Fx/y scrubber chip).
   void _showQuickFrameSelector({
     required BuildContext context,
@@ -2999,9 +2961,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
   }) {
     if (sortedFrames.isEmpty) return;
     var currentFrameIndex = initialFrameIndex.clamp(0, sortedFrames.length - 1);
-    var initialPeak = _findPeakPixel(sortedFrames[currentFrameIndex]);
-    var selectedCol = initialPeak.col;
-    var selectedRow = initialPeak.row;
 
     showModalBottomSheet<void>(
       context: context,
@@ -3012,21 +2971,11 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           builder: (modalContext, setModalState) {
             final measurement = sortedFrames[currentFrameIndex];
             final tf = measurement.thermalFrame;
-            final hasMatrix = tf != null &&
-                tf.length == ThermalCoverageInfo.sensorPixelCount;
             final anomalyLabels = getFrameAnomalyLabels(
               measurement,
               confirmedAnomalies,
             );
             final isConfirmed = anomalyLabels.isNotEmpty;
-            final pixelTemp = _getPixelTemp(
-              measurement,
-              selectedCol,
-              selectedRow,
-            );
-            final pixelDelta = (baselineTemp != null && baselineTemp > 0)
-                ? (pixelTemp - baselineTemp)
-                : null;
 
             return SafeArea(
               child: SingleChildScrollView(
@@ -3141,12 +3090,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             onTap: currentFrameIndex > 0
                                 ? () {
                                     final nextIdx = currentFrameIndex - 1;
-                                    final peak =
-                                        _findPeakPixel(sortedFrames[nextIdx]);
                                     setModalState(() {
                                       currentFrameIndex = nextIdx;
-                                      selectedCol = peak.col;
-                                      selectedRow = peak.row;
                                     });
                                     if (mounted) {
                                       setState(() {
@@ -3191,12 +3136,8 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                             onTap: currentFrameIndex < sortedFrames.length - 1
                                 ? () {
                                     final nextIdx = currentFrameIndex + 1;
-                                    final peak =
-                                        _findPeakPixel(sortedFrames[nextIdx]);
                                     setModalState(() {
                                       currentFrameIndex = nextIdx;
-                                      selectedCol = peak.col;
-                                      selectedRow = peak.row;
                                     });
                                     if (mounted) {
                                       setState(() {
@@ -3233,145 +3174,17 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       ),
                       const SizedBox(height: 8),
 
-                      // Interactive 32x24 Thermal Matrix View with Pixel Crosshair
-                      Container(
-                        height: 150,
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final canvasSize = Size(
-                                constraints.maxWidth,
-                                constraints.maxHeight,
-                              );
-                              void selectAt(Offset localPos) {
-                                final w = canvasSize.width <= 0
-                                    ? 1.0
-                                    : canvasSize.width;
-                                final h = canvasSize.height <= 0
-                                    ? 1.0
-                                    : canvasSize.height;
-                                final c = ((localPos.dx / w) *
-                                        ThermalCoverageInfo.sensorCols)
-                                    .floor()
-                                    .clamp(
-                                      0,
-                                      ThermalCoverageInfo.sensorCols - 1,
-                                    );
-                                final r = ((localPos.dy / h) *
-                                        ThermalCoverageInfo.sensorRows)
-                                    .floor()
-                                    .clamp(
-                                      0,
-                                      ThermalCoverageInfo.sensorRows - 1,
-                                    );
-                                setModalState(() {
-                                  selectedCol = c;
-                                  selectedRow = r;
-                                });
-                              }
-
-                              return GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTapDown: (d) => selectAt(d.localPosition),
-                                onPanUpdate: (d) => selectAt(d.localPosition),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    CustomPaint(
-                                      key: const Key(
-                                        'single_frame_matrix_canvas',
-                                      ),
-                                      painter:
-                                          _SingleFrameMatrixWithCrosshairPainter(
-                                        thermalFrame: tf ?? const <double?>[],
-                                        colorForTemperature:
-                                            panorama.colorForTemperature,
-                                        selectedCol: selectedCol,
-                                        selectedRow: selectedRow,
-                                      ),
-                                    ),
-                                    if (!hasMatrix)
-                                      Center(
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 4,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black.withValues(
-                                              alpha: 0.65,
-                                            ),
-                                            borderRadius:
-                                                BorderRadius.circular(6),
-                                          ),
-                                          child: const Text(
-                                            'No 32×24 matrix data in this acquisition',
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-
-                      // Selected Pixel Telemetry Bar
-                      Container(
-                        key: const Key('selected_pixel_telemetry'),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Pixel (Col $selectedCol, Row $selectedRow)',
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            Text(
-                              '${pixelTemp.toStringAsFixed(1)} °C',
-                              style: AppTypography.caption.copyWith(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.primary,
-                              ),
-                            ),
-                            if (pixelDelta != null)
-                              Text(
-                                '${pixelDelta >= 0 ? '+' : ''}${pixelDelta.toStringAsFixed(1)} °C vs Normal',
-                                style: AppTypography.caption.copyWith(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: pixelDelta >= 10.0
-                                      ? AppColors.error
-                                      : AppColors.textSecondary,
-                                ),
-                              ),
-                          ],
-                        ),
+                      // Shared Interactive 32x24 Thermal Matrix View with Pixel Crosshair
+                      InteractiveThermalMatrixView(
+                        thermalFrame: tf ?? const <double?>[],
+                        colorForTemperature: panorama.colorForTemperature,
+                        fallbackPeakTemp: measurement.maxTemperatureC,
+                        baselineTemp: baselineTemp,
+                        scaleColors: panorama.scaleGradientColors,
+                        showStatsRow: true,
+                        showColorScale: true,
+                        canvasHeight: 150,
+                        frameIdentity: '${measurement.id}_$currentFrameIndex',
                       ),
                       const SizedBox(height: 8),
 
@@ -3678,65 +3491,6 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
         ],
       ),
     );
-  }
-}
-
-/// CustomPainter that renders the 32×24 single frame matrix plus an interactive crosshair
-/// highlighting the currently selected `(selectedCol, selectedRow)` pixel.
-class _SingleFrameMatrixWithCrosshairPainter extends SingleFrameMatrixPainter {
-  const _SingleFrameMatrixWithCrosshairPainter({
-    required super.thermalFrame,
-    required super.colorForTemperature,
-    required this.selectedCol,
-    required this.selectedRow,
-  });
-
-  final int selectedCol;
-  final int selectedRow;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    super.paint(canvas, size);
-
-    final cols = ThermalCoverageInfo.sensorCols;
-    final rows = ThermalCoverageInfo.sensorRows;
-    final cellW = size.width / cols;
-    final cellH = size.height / rows;
-
-    final col = selectedCol.clamp(0, cols - 1);
-    final row = selectedRow.clamp(0, rows - 1);
-    final cx = (col + 0.5) * cellW;
-    final cy = (row + 0.5) * cellH;
-
-    final crosshairGuidePaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.65)
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
-
-    canvas.drawLine(Offset(cx, 0), Offset(cx, size.height), crosshairGuidePaint);
-    canvas.drawLine(Offset(0, cy), Offset(size.width, cy), crosshairGuidePaint);
-
-    final cellRect = Rect.fromLTWH(col * cellW, row * cellH, cellW, cellH);
-    final outerBorderPaint = Paint()
-      ..color = Colors.black.withValues(alpha: 0.85)
-      ..strokeWidth = 2.4
-      ..style = PaintingStyle.stroke;
-    final innerBorderPaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 1.4
-      ..style = PaintingStyle.stroke;
-
-    canvas.drawRect(cellRect.inflate(1.0), outerBorderPaint);
-    canvas.drawRect(cellRect.inflate(1.0), innerBorderPaint);
-  }
-
-  @override
-  bool shouldRepaint(
-    covariant _SingleFrameMatrixWithCrosshairPainter oldDelegate,
-  ) {
-    return super.shouldRepaint(oldDelegate) ||
-        oldDelegate.selectedCol != selectedCol ||
-        oldDelegate.selectedRow != selectedRow;
   }
 }
 

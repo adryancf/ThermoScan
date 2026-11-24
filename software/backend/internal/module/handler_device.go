@@ -296,3 +296,79 @@ func (h *Handler) handleIngestCleaning(w http.ResponseWriter, r *http.Request) {
 		"cleaning": clean,
 	})
 }
+
+func (h *Handler) handleRecordLocalizedReading(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	if !strings.HasPrefix(principal.Email, "device@") {
+		httpjson.WriteError(w, http.StatusForbidden, "device token required", "FORBIDDEN")
+		return
+	}
+
+	moduleID, err := parseModuleIDParam(r)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	if principal.ID.Bytes != moduleID.Bytes {
+		httpjson.WriteError(w, http.StatusForbidden, "device token does not match module", "FORBIDDEN")
+		return
+	}
+
+	var req SubmitLocalizedReadingInput
+	if err := httpjson.DecodeJSON(r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid json body: "+err.Error(), "INVALID_BODY")
+		return
+	}
+
+	res, err := h.service.RecordLocalizedReading(r.Context(), moduleID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		case errors.Is(err, ErrInvalidInput):
+			httpjson.WriteError(w, http.StatusBadRequest, "invalid localized reading input (thermal_matrix must have 768 finite values)", "INVALID_INPUT")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error: "+err.Error(), "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, res)
+}
+
+func (h *Handler) handleGetLocalizedReading(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleID, err := auth.ParseUUID(chi.URLParam(r, "moduleID"))
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module ID", "INVALID_ID")
+		return
+	}
+
+	reading, err := h.service.GetLocalizedReading(r.Context(), principal, moduleID)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "localized reading not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "insufficient permissions", "FORBIDDEN")
+		default:
+			httpjson.WriteError(w, http.StatusInternalServerError, "internal server error", "INTERNAL_ERROR")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, reading)
+}

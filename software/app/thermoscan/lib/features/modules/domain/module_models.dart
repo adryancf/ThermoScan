@@ -105,6 +105,10 @@ class PvModule {
     this.firmwareStateDetail,
     this.firmwareStateUpdatedAt,
     this.verificationReadyAt,
+    this.manualReadingPending = false,
+    this.manualReadingTargetXCm,
+    this.localizedReadingAt,
+    this.localizedReadingXCm,
   }) : _explicitIsOnline = isOnline;
 
   final String id;
@@ -149,6 +153,10 @@ class PvModule {
   final String? firmwareStateDetail;
   final String? firmwareStateUpdatedAt;
   final String? verificationReadyAt;
+  final bool manualReadingPending;
+  final double? manualReadingTargetXCm;
+  final String? localizedReadingAt;
+  final double? localizedReadingXCm;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -335,6 +343,17 @@ class PvModule {
       firmwareStateDetail: (json['firmware_state_detail'] ?? json['firmwareStateDetail']) as String?,
       firmwareStateUpdatedAt: (json['firmware_state_updated_at'] ?? json['firmwareStateUpdatedAt']) as String?,
       verificationReadyAt: (json['verification_ready_at'] ?? json['verificationReadyAt']) as String?,
+      manualReadingPending: (json['manual_reading_pending'] ??
+              json['manualReadingPending']) as bool? ??
+          false,
+      manualReadingTargetXCm: _parseDouble(
+        json['manual_reading_target_x_cm'] ?? json['manualReadingTargetXCm'],
+      ),
+      localizedReadingAt: (json['localized_reading_at'] ??
+              json['localizedReadingAt']) as String?,
+      localizedReadingXCm: _parseDouble(
+        json['localized_reading_x_cm'] ?? json['localizedReadingXCm'],
+      ),
     );
   }
 
@@ -382,6 +401,13 @@ class PvModule {
       if (pingIntervalSeconds != null) 'ping_interval_seconds': pingIntervalSeconds,
       if (onlineWindowSeconds != null) 'online_window_seconds': onlineWindowSeconds,
       if (lastPingAt != null) 'last_ping_at': lastPingAt,
+      if (manualReadingPending) 'manual_reading_pending': manualReadingPending,
+      if (manualReadingTargetXCm != null)
+        'manual_reading_target_x_cm': manualReadingTargetXCm,
+      if (localizedReadingAt != null)
+        'localized_reading_at': localizedReadingAt,
+      if (localizedReadingXCm != null)
+        'localized_reading_x_cm': localizedReadingXCm,
     };
   }
 }
@@ -1161,6 +1187,10 @@ class DeviceStatus {
     this.firmwareStateDetail,
     this.firmwareStateUpdatedAt,
     this.verificationReadyAt,
+    this.manualReadingPending = false,
+    this.manualReadingTargetXCm,
+    this.localizedReadingAt,
+    this.localizedReadingXCm,
   }) : _explicitIsOnline = isOnline;
 
   final String moduleId;
@@ -1186,6 +1216,10 @@ class DeviceStatus {
   final String? firmwareStateDetail;
   final String? firmwareStateUpdatedAt;
   final String? verificationReadyAt;
+  final bool manualReadingPending;
+  final double? manualReadingTargetXCm;
+  final String? localizedReadingAt;
+  final double? localizedReadingXCm;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -1265,6 +1299,17 @@ class DeviceStatus {
       firmwareStateDetail: (json['firmware_state_detail'] ?? json['firmwareStateDetail']) as String?,
       firmwareStateUpdatedAt: (json['firmware_state_updated_at'] ?? json['firmwareStateUpdatedAt']) as String?,
       verificationReadyAt: (json['verification_ready_at'] ?? json['verificationReadyAt']) as String?,
+      manualReadingPending: (json['manual_reading_pending'] ??
+              json['manualReadingPending']) as bool? ??
+          false,
+      manualReadingTargetXCm: _parseDouble(
+        json['manual_reading_target_x_cm'] ?? json['manualReadingTargetXCm'],
+      ),
+      localizedReadingAt: (json['localized_reading_at'] ??
+              json['localizedReadingAt']) as String?,
+      localizedReadingXCm: _parseDouble(
+        json['localized_reading_x_cm'] ?? json['localizedReadingXCm'],
+      ),
     );
   }
 
@@ -1300,6 +1345,100 @@ class DeviceStatus {
       if (verificationReadyAt != null)
         'verification_ready_at': verificationReadyAt,
       'reset_pending': resetPending,
+      'manual_reading_pending': manualReadingPending,
+      if (manualReadingTargetXCm != null)
+        'manual_reading_target_x_cm': manualReadingTargetXCm,
+      if (localizedReadingAt != null)
+        'localized_reading_at': localizedReadingAt,
+      if (localizedReadingXCm != null)
+        'localized_reading_x_cm': localizedReadingXCm,
+    };
+  }
+}
+
+class LocalizedReading {
+  const LocalizedReading({
+    required this.moduleId,
+    required this.xPositionCm,
+    this.panelIndex,
+    required this.measuredAt,
+    this.localizedReadingAt,
+    required this.minTemperatureC,
+    required this.maxTemperatureC,
+    required this.avgTemperatureC,
+    required this.thermalMatrix,
+  });
+
+  final String moduleId;
+  final double xPositionCm;
+  final int? panelIndex;
+  final String measuredAt;
+  final String? localizedReadingAt;
+  final double minTemperatureC;
+  final double maxTemperatureC;
+  final double avgTemperatureC;
+  final List<double> thermalMatrix;
+
+  String get effectiveTimestamp =>
+      (localizedReadingAt != null && localizedReadingAt!.isNotEmpty)
+          ? localizedReadingAt!
+          : measuredAt;
+
+  factory LocalizedReading.fromJson(Map<String, dynamic> json) {
+    final rawMatrix = (json['thermal_matrix'] ??
+            json['thermalMatrix'] ??
+            json['thermal_frame'] ??
+            json['thermalFrame']) as List<dynamic>? ??
+        const [];
+    final matrix = rawMatrix
+        .map((e) => _parseDouble(e) ?? double.nan)
+        .toList(growable: false);
+
+    final valid = matrix.where((v) => v.isFinite).toList(growable: false);
+    final computedMin =
+        valid.isEmpty ? 0.0 : valid.reduce((a, b) => a < b ? a : b);
+    final computedMax =
+        valid.isEmpty ? 0.0 : valid.reduce((a, b) => a > b ? a : b);
+    final computedAvg =
+        valid.isEmpty ? 0.0 : valid.reduce((a, b) => a + b) / valid.length;
+
+    return LocalizedReading(
+      moduleId: (json['module_id'] ?? json['moduleId']) as String? ?? '',
+      xPositionCm:
+          _parseDouble(json['x_position_cm'] ?? json['xPositionCm']) ?? 0.0,
+      panelIndex: _parseInt(json['panel_index'] ?? json['panelIndex']),
+      measuredAt:
+          (json['measured_at'] ?? json['measuredAt']) as String? ?? '',
+      localizedReadingAt: (json['localized_reading_at'] ??
+              json['localizedReadingAt']) as String?,
+      minTemperatureC: _parseDouble(
+            json['min_temperature_c'] ?? json['minTemperatureC'],
+          ) ??
+          computedMin,
+      maxTemperatureC: _parseDouble(
+            json['max_temperature_c'] ?? json['maxTemperatureC'],
+          ) ??
+          computedMax,
+      avgTemperatureC: _parseDouble(
+            json['avg_temperature_c'] ?? json['avgTemperatureC'],
+          ) ??
+          computedAvg,
+      thermalMatrix: matrix,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'module_id': moduleId,
+      'x_position_cm': xPositionCm,
+      if (panelIndex != null) 'panel_index': panelIndex,
+      'measured_at': measuredAt,
+      if (localizedReadingAt != null)
+        'localized_reading_at': localizedReadingAt,
+      'min_temperature_c': minTemperatureC,
+      'max_temperature_c': maxTemperatureC,
+      'avg_temperature_c': avgTemperatureC,
+      'thermal_matrix': thermalMatrix,
     };
   }
 }

@@ -393,6 +393,35 @@ class ModuleRepository {
     }
   }
 
+  Future<void> triggerManualReading({
+    required String moduleId,
+    required double targetXPositionCm,
+  }) async {
+    try {
+      await dio.post<Map<String, dynamic>>(
+        '/modules/$moduleId/trigger-reading',
+        data: {'target_x_position_cm': targetXPositionCm},
+      );
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
+  Future<LocalizedReading> getLocalizedReading(String moduleId) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/localized-reading',
+      );
+      final data = response.data ?? const <String, dynamic>{};
+      final raw = data['localized_reading'] is Map<String, dynamic>
+          ? data['localized_reading'] as Map<String, dynamic>
+          : data;
+      return LocalizedReading.fromJson(raw);
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
   Future<void> resetRoutine(String moduleId) async {
     try {
       await dio.post<Map<String, dynamic>>(

@@ -2,6 +2,7 @@
 #define THERMOSCAN_APP_THERMOSCAN_APP_H
 
 #include <cstdint>
+#include <memory>
 #include "thermoscan_config.h"
 #include <string>
 #include <vector>
@@ -101,6 +102,7 @@ public:
     // Manual triggers
     void triggerManualInspection();
     void triggerManualCleaning(float target_x_cm);
+    void triggerManualReading(float target_x_cm);
 
     // Safety and state restoration
     void executeEmergencyStop(const char* detail = nullptr);
@@ -161,6 +163,8 @@ private:
     bool manual_cleaning_requested_{false};
     bool manual_cleaning_active_{false};
     float manual_cleaning_target_x_{0.0f};
+    bool manual_reading_requested_{false};
+    float manual_reading_target_x_{0.0f};
 
     bool config_update_pending_{false};
     bool config_sync_failed_waiting_ping_{false};
@@ -189,6 +193,7 @@ private:
     bool flushScanTelemetryBatch(std::vector<std::vector<float>>& batch_frames_data,
                                  std::vector<PowerSnapshot>& batch_power_data,
                                  std::vector<std::string>& failed_meas_ids);
+    void executeLocalizedReading(float target_x_cm);
 };
 
 } // namespace app

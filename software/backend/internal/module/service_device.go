@@ -141,6 +141,15 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		firmwareStateUpdatedAtStr = &str
 	}
 
+	var localizedReadingAtStr *string
+	var localizedReadingXCm *float64
+	if row.LocalizedReadingAt != nil {
+		lr := row.LocalizedReadingAt.UTC().Format(time.RFC3339)
+		localizedReadingAtStr = &lr
+		x := row.LocalizedReadingXCm
+		localizedReadingXCm = &x
+	}
+
 	dto := &DeviceStatusDTO{
 		ModuleID:            auth.FormatUUID(row.ID),
 		MACAddress:          row.MacAddress,
@@ -155,6 +164,10 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		ConfigurationSync:   syncDTO,
 		ManualCleaningPending:   row.ManualCleaningPending,
 		ManualCleaningTargetXCm: numericToFloatPtr(row.ManualCleaningTargetXCm),
+		ManualReadingPending:    row.ManualReadingPending,
+		ManualReadingTargetXCm:  numericToFloatPtr(row.ManualReadingTargetXCm),
+		LocalizedReadingAt:      localizedReadingAtStr,
+		LocalizedReadingXCm:     localizedReadingXCm,
 		ResetPending:            row.ResetPending,
 		PingIntervalSeconds:     s.PingIntervalSeconds(),
 		OnlineWindowSeconds:     s.OnlineWindowSeconds(),
@@ -277,6 +290,9 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 
 	if input.ManualCleaningAck != nil && *input.ManualCleaningAck {
 		_ = qtx.ClearManualCleaningPending(ctx, moduleID)
+	}
+	if input.ManualReadingAck != nil && *input.ManualReadingAck {
+		_ = qtx.ClearManualReadingPending(ctx, moduleID)
 	}
 	if input.ResetAck != nil && *input.ResetAck {
 		_ = qtx.ClearResetPending(ctx, moduleID)
@@ -747,6 +763,196 @@ func (s *Service) TriggerManualCleaning(ctx context.Context, principal auth.Prin
 		Message:           fmt.Sprintf("Cleaning requested at position %.1f cm (Panel %d). It will start on next device check-in.", targetX, posRes.PanelIndex),
 		Status:            "scheduled",
 		TargetXPositionCm: targetX,
+	}, nil
+}
+
+type storedLocalizedReading struct {
+	XPositionCm     float64   `json:"x_position_cm"`
+	PanelIndex      int32     `json:"panel_index"`
+	MeasuredAt      string    `json:"measured_at"`
+	MinTemperatureC float64   `json:"min_temperature_c"`
+	MaxTemperatureC float64   `json:"max_temperature_c"`
+	AvgTemperatureC float64   `json:"avg_temperature_c"`
+	ThermalMatrix   []float64 `json:"thermal_matrix"`
+}
+
+func (s *Service) TriggerManualReading(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID, input TriggerReadingInput) (*TriggerReadingDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	mod, err := s.queries.GetModuleByID(ctx, db.GetModuleByIDParams{
+		CompanyID: principal.CompanyID,
+		ID:        moduleID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if !mod.IsActive {
+		return nil, ErrForbidden
+	}
+
+	if mod.MonitoringStatus == StatusPendingConfiguration || mod.ConfiguredAt == nil {
+		return nil, ErrInvalidInput
+	}
+
+	if _, _, err := s.resolveUserModuleRelationship(ctx, s.queries, principal, mod.ID, mod.InstallerTechnicianID); err != nil {
+		return nil, err
+	}
+
+	pLen := numericToFloatPtr(mod.PanelLengthCm)
+	pCnt := pgInt4ToInt32Ptr(mod.PanelCount)
+	pSpc := numericToFloatPtr(mod.PanelSpacingCm)
+	cnt := int32(1)
+	if pCnt != nil && *pCnt > 0 {
+		cnt = *pCnt
+	}
+	lenCm := 0.0
+	if pLen != nil {
+		lenCm = *pLen
+	}
+	spcCm := 0.0
+	if pSpc != nil && *pSpc > 0 {
+		spcCm = *pSpc
+	}
+
+	posRes, err := ValidatePanelAndPosition(input.TargetXPositionCm, lenCm, spcCm, cnt, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	targetX := input.TargetXPositionCm
+	targetXNumeric := floatPtrToNumeric(&targetX)
+
+	_, err = s.queries.SetManualReadingPending(ctx, db.SetManualReadingPendingParams{
+		ID:                     moduleID,
+		ManualReadingTargetXCm: targetXNumeric,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &TriggerReadingDTO{
+		Success:           true,
+		Message:           fmt.Sprintf("Localized reading requested at position %.1f cm (Panel %d). It will start on next device check-in.", targetX, posRes.PanelIndex),
+		TargetXPositionCm: targetX,
+		PanelIndex:        posRes.PanelIndex,
+	}, nil
+}
+
+func (s *Service) RecordLocalizedReading(ctx context.Context, moduleID pgtype.UUID, input SubmitLocalizedReadingInput) (*SubmitLocalizedReadingDTO, error) {
+	if !moduleID.Valid {
+		return nil, ErrInvalidInput
+	}
+
+	if len(input.ThermalMatrix) != 768 {
+		return nil, ErrInvalidInput
+	}
+
+	if !isFinite(input.XPositionCm) || !isFinite(input.MinTemperatureC) || !isFinite(input.MaxTemperatureC) || !isFinite(input.AvgTemperatureC) {
+		return nil, ErrInvalidInput
+	}
+	for _, v := range input.ThermalMatrix {
+		if !isFinite(v) {
+			return nil, ErrInvalidInput
+		}
+	}
+
+	mod, err := s.queries.GetModuleByIDForDevice(ctx, moduleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if !mod.IsActive {
+		return nil, ErrForbidden
+	}
+
+	measuredAt := time.Now().UTC()
+	if input.MeasuredAt != nil {
+		measuredAt = input.MeasuredAt.UTC()
+	}
+
+	payload := storedLocalizedReading{
+		XPositionCm:     input.XPositionCm,
+		PanelIndex:      input.PanelIndex,
+		MeasuredAt:      measuredAt.Format(time.RFC3339),
+		MinTemperatureC: input.MinTemperatureC,
+		MaxTemperatureC: input.MaxTemperatureC,
+		AvgTemperatureC: input.AvgTemperatureC,
+		ThermalMatrix:   input.ThermalMatrix,
+	}
+	rawJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	localizedAt, err := s.queries.SaveLocalizedReading(ctx, db.SaveLocalizedReadingParams{
+		ID:                     moduleID,
+		LocalizedReadingResult: rawJSON,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	atStr := time.Now().UTC().Format(time.RFC3339)
+	if localizedAt != nil {
+		atStr = localizedAt.UTC().Format(time.RFC3339)
+	}
+
+	return &SubmitLocalizedReadingDTO{
+		Success:            true,
+		LocalizedReadingAt: atStr,
+	}, nil
+}
+
+func (s *Service) GetLocalizedReading(ctx context.Context, principal auth.Principal, moduleID pgtype.UUID) (*LocalizedReadingDTO, error) {
+	if !principal.CompanyID.Valid || !moduleID.Valid {
+		return nil, ErrForbidden
+	}
+
+	row, err := s.queries.GetLocalizedReading(ctx, db.GetLocalizedReadingParams{
+		ID:        moduleID,
+		CompanyID: principal.CompanyID,
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+
+	if _, _, err := s.resolveUserModuleRelationship(ctx, s.queries, principal, row.ID, row.InstallerTechnicianID); err != nil {
+		return nil, err
+	}
+
+	if row.LocalizedReadingAt == nil || len(row.LocalizedReadingResult) == 0 {
+		return nil, ErrNotFound
+	}
+
+	var stored storedLocalizedReading
+	if err := json.Unmarshal(row.LocalizedReadingResult, &stored); err != nil {
+		return nil, err
+	}
+
+	return &LocalizedReadingDTO{
+		ModuleID:           auth.FormatUUID(row.ID),
+		XPositionCm:        stored.XPositionCm,
+		PanelIndex:         stored.PanelIndex,
+		MeasuredAt:         stored.MeasuredAt,
+		LocalizedReadingAt: row.LocalizedReadingAt.UTC().Format(time.RFC3339),
+		MinTemperatureC:    stored.MinTemperatureC,
+		MaxTemperatureC:    stored.MaxTemperatureC,
+		AvgTemperatureC:    stored.AvgTemperatureC,
+		ThermalMatrix:      stored.ThermalMatrix,
 	}, nil
 }
 

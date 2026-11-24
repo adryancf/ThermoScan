@@ -170,6 +170,19 @@ func (q *Queries) ClearManualCleaningPending(ctx context.Context, id pgtype.UUID
 	return err
 }
 
+const clearManualReadingPending = `-- name: ClearManualReadingPending :exec
+UPDATE modules
+SET manual_reading_pending = false,
+    manual_reading_target_x_cm = NULL,
+    updated_at = NOW()
+WHERE id = $1
+`
+
+func (q *Queries) ClearManualReadingPending(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, clearManualReadingPending, id)
+	return err
+}
+
 const clearResetPending = `-- name: ClearResetPending :exec
 UPDATE modules
 SET reset_pending = false,
@@ -586,8 +599,43 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 	return err
 }
 
+const getLocalizedReading = `-- name: GetLocalizedReading :one
+SELECT
+    id,
+    installer_technician_id,
+    localized_reading_at,
+    localized_reading_result
+FROM modules
+WHERE id = $1
+  AND company_id = $2
+`
+
+type GetLocalizedReadingParams struct {
+	ID        pgtype.UUID
+	CompanyID pgtype.UUID
+}
+
+type GetLocalizedReadingRow struct {
+	ID                     pgtype.UUID
+	InstallerTechnicianID  pgtype.UUID
+	LocalizedReadingAt     *time.Time
+	LocalizedReadingResult []byte
+}
+
+func (q *Queries) GetLocalizedReading(ctx context.Context, arg GetLocalizedReadingParams) (GetLocalizedReadingRow, error) {
+	row := q.db.QueryRow(ctx, getLocalizedReading, arg.ID, arg.CompanyID)
+	var i GetLocalizedReadingRow
+	err := row.Scan(
+		&i.ID,
+		&i.InstallerTechnicianID,
+		&i.LocalizedReadingAt,
+		&i.LocalizedReadingResult,
+	)
+	return i, err
+}
+
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -628,6 +676,10 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.ManualReadingPending,
+		&i.ManualReadingTargetXCm,
+		&i.LocalizedReadingAt,
+		&i.LocalizedReadingResult,
 		&i.ResetPending,
 		&i.FirmwareState,
 		&i.FirmwareStateDetail,
@@ -670,6 +722,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -725,6 +781,10 @@ type GetModuleByIDRow struct {
 	PowerSensors               []byte
 	ManualCleaningPending      bool
 	ManualCleaningTargetXCm    pgtype.Numeric
+	ManualReadingPending       bool
+	ManualReadingTargetXCm     pgtype.Numeric
+	LocalizedReadingAt         *time.Time
+	LocalizedReadingXCm        float64
 	ResetPending               bool
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
@@ -774,6 +834,10 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.ManualReadingPending,
+		&i.ManualReadingTargetXCm,
+		&i.LocalizedReadingAt,
+		&i.LocalizedReadingXCm,
 		&i.ResetPending,
 		&i.LimitsCheckPassed,
 		&i.ThermalSensorActive,
@@ -795,7 +859,7 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 }
 
 const getModuleByIDForDevice = `-- name: GetModuleByIDForDevice :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE id = $1
 `
 
@@ -836,6 +900,10 @@ func (q *Queries) GetModuleByIDForDevice(ctx context.Context, id pgtype.UUID) (M
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.ManualReadingPending,
+		&i.ManualReadingTargetXCm,
+		&i.LocalizedReadingAt,
+		&i.LocalizedReadingResult,
 		&i.ResetPending,
 		&i.FirmwareState,
 		&i.FirmwareStateDetail,
@@ -876,6 +944,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -929,6 +1001,10 @@ type GetModuleByIDForUpdateRow struct {
 	PowerSensors               []byte
 	ManualCleaningPending      bool
 	ManualCleaningTargetXCm    pgtype.Numeric
+	ManualReadingPending       bool
+	ManualReadingTargetXCm     pgtype.Numeric
+	LocalizedReadingAt         *time.Time
+	LocalizedReadingXCm        float64
 	ResetPending               bool
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
@@ -976,6 +1052,10 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.ManualReadingPending,
+		&i.ManualReadingTargetXCm,
+		&i.LocalizedReadingAt,
+		&i.LocalizedReadingXCm,
 		&i.ResetPending,
 		&i.LimitsCheckPassed,
 		&i.ThermalSensorActive,
@@ -997,7 +1077,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -1038,6 +1118,10 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.PowerSensors,
 		&i.ManualCleaningPending,
 		&i.ManualCleaningTargetXCm,
+		&i.ManualReadingPending,
+		&i.ManualReadingTargetXCm,
+		&i.LocalizedReadingAt,
+		&i.LocalizedReadingResult,
 		&i.ResetPending,
 		&i.FirmwareState,
 		&i.FirmwareStateDetail,
@@ -1686,6 +1770,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -1743,6 +1831,10 @@ type ListModulesForManagerRow struct {
 	PowerSensors               []byte
 	ManualCleaningPending      bool
 	ManualCleaningTargetXCm    pgtype.Numeric
+	ManualReadingPending       bool
+	ManualReadingTargetXCm     pgtype.Numeric
+	LocalizedReadingAt         *time.Time
+	LocalizedReadingXCm        float64
 	ResetPending               bool
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
@@ -1798,6 +1890,10 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.PowerSensors,
 			&i.ManualCleaningPending,
 			&i.ManualCleaningTargetXCm,
+			&i.ManualReadingPending,
+			&i.ManualReadingTargetXCm,
+			&i.LocalizedReadingAt,
+			&i.LocalizedReadingXCm,
 			&i.ResetPending,
 			&i.LimitsCheckPassed,
 			&i.ThermalSensorActive,
@@ -1854,6 +1950,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -1915,6 +2015,10 @@ type ListModulesForTechnicianRow struct {
 	PowerSensors               []byte
 	ManualCleaningPending      bool
 	ManualCleaningTargetXCm    pgtype.Numeric
+	ManualReadingPending       bool
+	ManualReadingTargetXCm     pgtype.Numeric
+	LocalizedReadingAt         *time.Time
+	LocalizedReadingXCm        float64
 	ResetPending               bool
 	LimitsCheckPassed          bool
 	ThermalSensorActive        bool
@@ -1975,6 +2079,10 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.PowerSensors,
 			&i.ManualCleaningPending,
 			&i.ManualCleaningTargetXCm,
+			&i.ManualReadingPending,
+			&i.ManualReadingTargetXCm,
+			&i.LocalizedReadingAt,
+			&i.LocalizedReadingXCm,
 			&i.ResetPending,
 			&i.LimitsCheckPassed,
 			&i.ThermalSensorActive,
@@ -2097,6 +2205,29 @@ func (q *Queries) RemoveModuleClient(ctx context.Context, arg RemoveModuleClient
 	return err
 }
 
+const saveLocalizedReading = `-- name: SaveLocalizedReading :one
+UPDATE modules
+SET localized_reading_result = $2,
+    localized_reading_at = NOW(),
+    manual_reading_pending = false,
+    manual_reading_target_x_cm = NULL,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING localized_reading_at
+`
+
+type SaveLocalizedReadingParams struct {
+	ID                     pgtype.UUID
+	LocalizedReadingResult []byte
+}
+
+func (q *Queries) SaveLocalizedReading(ctx context.Context, arg SaveLocalizedReadingParams) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, saveLocalizedReading, arg.ID, arg.LocalizedReadingResult)
+	var localized_reading_at *time.Time
+	err := row.Scan(&localized_reading_at)
+	return localized_reading_at, err
+}
+
 const setManualCleaningPending = `-- name: SetManualCleaningPending :one
 UPDATE modules
 SET manual_cleaning_pending = true,
@@ -2121,6 +2252,33 @@ func (q *Queries) SetManualCleaningPending(ctx context.Context, arg SetManualCle
 	row := q.db.QueryRow(ctx, setManualCleaningPending, arg.ID, arg.ManualCleaningTargetXCm)
 	var i SetManualCleaningPendingRow
 	err := row.Scan(&i.ID, &i.ManualCleaningPending, &i.ManualCleaningTargetXCm)
+	return i, err
+}
+
+const setManualReadingPending = `-- name: SetManualReadingPending :one
+UPDATE modules
+SET manual_reading_pending = true,
+    manual_reading_target_x_cm = $2,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, manual_reading_pending, manual_reading_target_x_cm
+`
+
+type SetManualReadingPendingParams struct {
+	ID                     pgtype.UUID
+	ManualReadingTargetXCm pgtype.Numeric
+}
+
+type SetManualReadingPendingRow struct {
+	ID                     pgtype.UUID
+	ManualReadingPending   bool
+	ManualReadingTargetXCm pgtype.Numeric
+}
+
+func (q *Queries) SetManualReadingPending(ctx context.Context, arg SetManualReadingPendingParams) (SetManualReadingPendingRow, error) {
+	row := q.db.QueryRow(ctx, setManualReadingPending, arg.ID, arg.ManualReadingTargetXCm)
+	var i SetManualReadingPendingRow
+	err := row.Scan(&i.ID, &i.ManualReadingPending, &i.ManualReadingTargetXCm)
 	return i, err
 }
 
@@ -2163,6 +2321,8 @@ UPDATE modules
 SET reset_pending = true,
     manual_cleaning_pending = false,
     manual_cleaning_target_x_cm = NULL,
+    manual_reading_pending = false,
+    manual_reading_target_x_cm = NULL,
     updated_at = now()
 WHERE id = $1
 `

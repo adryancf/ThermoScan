@@ -48,11 +48,13 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.Authenticate(h.queries, h.tokens))
+			r.Post("/localized-reading", h.handleRecordLocalizedReading)
 			r.Post("/inspections/{inspectionSourceEventId}/abort", h.handleAbortInspection)
 			r.Route("/{id}", func(r chi.Router) {
 				r.Get("/configuration", h.handleGetDeviceConfiguration)
 				r.Post("/configuration/ack", h.handleAcknowledgeDeviceConfiguration)
 				r.Post("/ping", h.handleRecordDevicePing)
+				r.Post("/localized-reading", h.handleRecordLocalizedReading)
 				r.Post("/telemetry", h.handleIngestTelemetry)
 				r.Post("/inspections/{inspectionSourceEventId}/panels/{panelIndex}/result", h.handleRecordPanelThermalResult)
 				r.Post("/inspections/{inspectionSourceEventId}/finalize", h.handleFinalizeInspection)
@@ -89,6 +91,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{moduleID}/inspections/{inspectionId}/measurements", h.handleListInspectionMeasurements)
 		r.Post("/{moduleID}/trigger-inspection", h.handleTriggerManualInspection)
 		r.Post("/{moduleID}/trigger-cleaning", h.handleTriggerManualCleaning)
+		r.Post("/{moduleID}/trigger-reading", h.handleTriggerManualReading)
+		r.Get("/{moduleID}/localized-reading", h.handleGetLocalizedReading)
 		r.Post("/{moduleID}/reset-routine", h.handleResetRoutine)
 		r.Get("/{moduleID}/device-status", h.handleGetDeviceStatus)
 		r.Get("/{moduleID}/state-logs", h.handleListModuleStateLogs)
@@ -512,6 +516,46 @@ func (h *Handler) handleTriggerManualCleaning(w http.ResponseWriter, r *http.Req
 	}
 
 	resp, err := h.service.TriggerManualCleaning(r.Context(), principal, moduleID, req)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrNotFound):
+			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
+		case errors.Is(err, ErrForbidden):
+			httpjson.WriteError(w, http.StatusForbidden, "forbidden", "FORBIDDEN")
+		case errors.Is(err, ErrMeasurementInGap):
+			httpjson.WriteError(w, http.StatusBadRequest, err.Error(), "COORDINATE_IN_GAP")
+		case errors.Is(err, ErrPositionOutOfBounds):
+			httpjson.WriteError(w, http.StatusBadRequest, err.Error(), "POSITION_OUT_OF_BOUNDS")
+		default:
+			httpjson.WriteError(w, http.StatusBadRequest, err.Error(), "INVALID_INPUT")
+		}
+		return
+	}
+
+	httpjson.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) handleTriggerManualReading(w http.ResponseWriter, r *http.Request) {
+	principal, ok := auth.PrincipalFromContext(r.Context())
+	if !ok || !principal.CompanyID.Valid {
+		httpjson.WriteError(w, http.StatusUnauthorized, "authentication required", "UNAUTHORIZED")
+		return
+	}
+
+	moduleIDStr := chi.URLParam(r, "moduleID")
+	moduleID, err := auth.ParseUUID(moduleIDStr)
+	if err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid module id", "INVALID_INPUT")
+		return
+	}
+
+	var req TriggerReadingInput
+	if err := httpjson.DecodeJSON(r, &req); err != nil {
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid request body", "INVALID_INPUT")
+		return
+	}
+
+	resp, err := h.service.TriggerManualReading(r.Context(), principal, moduleID, req)
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrNotFound):

@@ -331,6 +331,11 @@ void ThermoscanApp::handleWaitingVerification() {
             cloud_->clearManualCleaningPending();
             triggerManualCleaning(target_x);
         }
+        if (cloud_->isManualReadingPending()) {
+            const float target_x = cloud_->getManualReadingTargetXCm();
+            cloud_->clearManualReadingPending();
+            triggerManualReading(target_x);
+        }
     }
 }
 

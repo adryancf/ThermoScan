@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:thermoscan/core/storage/token_storage.dart';
@@ -858,10 +857,10 @@ void main() {
     await tester.tap(find.text('PV-001 Roof Array'));
     await tester.pumpAndSettle();
 
-    // Tap more actions (⋮) in AppBar and select "ESP32 Device Verification"
-    final popupMenuFinder = find.byType(PopupMenuButton<String>);
-    expect(popupMenuFinder, findsOneWidget);
-    await tester.tap(popupMenuFinder);
+    // Tap more actions (⋮) in AppBar and select "Robot Connection Check"
+    final moreActionsFinder = find.byTooltip('More actions');
+    expect(moreActionsFinder, findsOneWidget);
+    await tester.tap(moreActionsFinder);
     await tester.pumpAndSettle();
 
     final verifyOptionFinder = find.text('Robot Connection Check');

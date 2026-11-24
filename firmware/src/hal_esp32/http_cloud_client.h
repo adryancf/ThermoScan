@@ -58,6 +58,17 @@ public:
     float getManualCleaningTargetXCm() const override { return manual_cleaning_target_x_cm_; }
     void clearManualCleaningPending() override { manual_cleaning_pending_ = false; }
     void setManualCleaningAckPending(bool pending) override { manual_cleaning_ack_pending_ = pending; }
+    bool isManualReadingPending() const override { return manual_reading_pending_; }
+    float getManualReadingTargetXCm() const override { return manual_reading_target_x_cm_; }
+    void clearManualReadingPending() override { manual_reading_pending_ = false; }
+    void setManualReadingAckPending(bool pending) override { manual_reading_ack_pending_ = pending; }
+    bool sendLocalizedReading(float x_position_cm,
+                              uint8_t panel_index,
+                              uint32_t measured_at_epoch,
+                              float min_temp_c,
+                              float max_temp_c,
+                              float avg_temp_c,
+                              const float* pixels_768) override;
     bool isResetPending() const override { return reset_pending_; }
     void clearResetPending() override { reset_pending_ = false; }
     void setResetAckPending(bool pending) override { reset_ack_pending_ = pending; }
@@ -81,6 +92,13 @@ public:
     static std::string buildFinalizeJson(const FinalizeInspectionInput& input);
     static std::string buildAbortInspectionJson(const std::string& failure_reason);
     static std::string buildCleaningReportJson(const CleaningReportInput& input);
+    static std::string buildLocalizedReadingJson(float x_position_cm,
+                                                 uint8_t panel_index,
+                                                 uint32_t measured_at_epoch,
+                                                 float min_temp_c,
+                                                 float max_temp_c,
+                                                 float avg_temp_c,
+                                                 const float* pixels_768);
     static std::string buildPingJson(bool water_ok, bool limits_ok, bool thermal_ok,
                                      const std::string& next_inspection_at = "",
                                      bool manual_cleaning_ack = false,
@@ -89,11 +107,13 @@ public:
                                      const StateTransitionEntry* transitions = nullptr,
                                      size_t transition_count = 0,
                                      bool reset_ack = false,
-                                     const std::string& verification_ready_at = "");
+                                     const std::string& verification_ready_at = "",
+                                     bool manual_reading_ack = false);
     std::string buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
                                  const std::string& next_inspection_at = "",
                                  bool manual_cleaning_ack = false,
-                                 bool reset_ack = false) const;
+                                 bool reset_ack = false,
+                                 bool manual_reading_ack = false) const;
     bool parsePingResponse(const std::string& response_json);
 
     // Advanced & Diagnostic helpers
@@ -126,6 +146,9 @@ private:
     bool manual_cleaning_pending_{false};
     float manual_cleaning_target_x_cm_{0.0f};
     bool manual_cleaning_ack_pending_{false};
+    bool manual_reading_pending_{false};
+    float manual_reading_target_x_cm_{0.0f};
+    bool manual_reading_ack_pending_{false};
     bool reset_pending_{false};
     bool reset_ack_pending_{false};
     uint32_t verification_ready_at_epoch_{0};

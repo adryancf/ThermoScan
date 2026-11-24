@@ -22,6 +22,7 @@ import 'package:thermoscan/features/modules/presentation/modules_home_screen.dar
 import 'package:thermoscan/features/modules/presentation/widgets/clean_thermal_preview_card.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/firmware_state_badge.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/routine_progress_stepper.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/thermal_matrix_inspector_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
 /// SCR-10: Module Details Screen with TabBar / TabBarView navigation
@@ -45,6 +46,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   bool _updatingEmailPref = false;
   bool _isTriggeringInspection = false;
   bool _isTriggeringCleaning = false;
+  bool _isTriggeringLocalizedReading = false;
+  bool _isFetchingLocalizedReading = false;
+  bool _awaitingLocalizedReading = false;
+  String? _previousLocalizedReadingAt;
+  double? _pendingLocalizedTargetXCm;
+  Timer? _localizedReadingTimeoutTimer;
   Timer? _statusRefreshTimer;
   String? _lastObservedFirmwareState;
 
@@ -76,7 +83,67 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   @override
   void dispose() {
     _statusRefreshTimer?.cancel();
+    _localizedReadingTimeoutTimer?.cancel();
     super.dispose();
+  }
+
+  void _handleDeviceStatusUpdate(DeviceStatus newStatus) {
+    if (!_awaitingLocalizedReading) return;
+    final newAt = newStatus.localizedReadingAt;
+    if (newAt != null &&
+        newAt.isNotEmpty &&
+        newAt != _previousLocalizedReadingAt) {
+      _localizedReadingTimeoutTimer?.cancel();
+      _localizedReadingTimeoutTimer = null;
+      setState(() {
+        _awaitingLocalizedReading = false;
+        _pendingLocalizedTargetXCm = null;
+      });
+      unawaited(_openStoredLocalizedReading(widget.moduleId));
+    }
+  }
+
+  Future<void> _openStoredLocalizedReading(String moduleId) async {
+    if (_isFetchingLocalizedReading) return;
+    setState(() => _isFetchingLocalizedReading = true);
+    try {
+      final reading = await ref
+          .read(moduleRepositoryProvider)
+          .getLocalizedReading(moduleId);
+      if (!mounted) return;
+      await showLocalizedReadingDialog(context, reading);
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to load localized reading: $err'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isFetchingLocalizedReading = false);
+      }
+    }
+  }
+
+  Future<double?> _promptTargetXPositionCm({
+    required String title,
+    String? description,
+    required String confirmLabel,
+    required PvModule mod,
+    double? initialXCm,
+  }) {
+    return showDialog<double>(
+      context: context,
+      builder: (_) => _TargetXPositionDialog(
+        title: title,
+        description: description,
+        confirmLabel: confirmLabel,
+        mod: mod,
+        initialXCm: initialXCm,
+      ),
+    );
   }
 
   Future<void> _triggerManualScan(String moduleId) async {
@@ -112,60 +179,85 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     }
   }
 
-  Future<void> _promptAndTriggerManualCleaning(String moduleId) async {
-    final controller = TextEditingController();
-    String? errorText;
-
-    final targetX = await showDialog<double>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Manual Cleaning'),
-          content: TextField(
-            controller: controller,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            autofocus: true,
-            decoration: InputDecoration(
-              labelText: 'Target X Position (cm)',
-              hintText: 'e.g. 120.5',
-              errorText: errorText,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final parsed = double.tryParse(
-                  controller.text.trim().replaceAll(',', '.'),
-                );
-                if (parsed == null || parsed < 0) {
-                  setDialogState(() {
-                    errorText = 'Enter a valid non-negative number';
-                  });
-                  return;
-                }
-                Navigator.of(ctx).pop(parsed);
-              },
-              child: const Text('Trigger'),
-            ),
-          ],
-        ),
-      ),
+  Future<void> _promptAndTriggerLocalizedReading(
+    PvModule mod,
+    DeviceStatus? deviceStatus,
+  ) async {
+    final targetX = await _promptTargetXPositionCm(
+      title: 'Localized Reading',
+      description:
+          'Move the sensor carriage to X (cm) and capture a single 32×24 thermal frame.',
+      confirmLabel: 'Capture',
+      mod: mod,
+      initialXCm: deviceStatus?.localizedReadingXCm ?? mod.localizedReadingXCm,
     );
+    if (targetX == null || !mounted) return;
 
-    controller.dispose();
+    final currentStatus =
+        ref.read(moduleDeviceStatusProvider(mod.id)).valueOrNull ??
+            deviceStatus;
+    final prevReadingAt =
+        currentStatus?.localizedReadingAt ?? mod.localizedReadingAt;
+
+    setState(() => _isTriggeringLocalizedReading = true);
+    try {
+      await ref.read(moduleRepositoryProvider).triggerManualReading(
+            moduleId: mod.id,
+            targetXPositionCm: targetX,
+          );
+      if (!mounted) return;
+      _localizedReadingTimeoutTimer?.cancel();
+      _localizedReadingTimeoutTimer = Timer(const Duration(seconds: 60), () {
+        if (!mounted || !_awaitingLocalizedReading) return;
+        setState(() {
+          _awaitingLocalizedReading = false;
+          _pendingLocalizedTargetXCm = null;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Localized reading capture timed out after 60s. Check More actions later.',
+            ),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      });
+      setState(() {
+        _awaitingLocalizedReading = true;
+        _previousLocalizedReadingAt = prevReadingAt;
+        _pendingLocalizedTargetXCm = targetX;
+      });
+      ref.invalidate(moduleDeviceStatusProvider(mod.id));
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to request localized reading: $err'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isTriggeringLocalizedReading = false);
+      }
+    }
+  }
+
+  Future<void> _promptAndTriggerManualCleaning(PvModule mod) async {
+    final targetX = await _promptTargetXPositionCm(
+      title: 'Manual Cleaning',
+      confirmLabel: 'Trigger',
+      mod: mod,
+    );
     if (targetX == null || !mounted) return;
 
     setState(() => _isTriggeringCleaning = true);
     try {
       await ref.read(moduleRepositoryProvider).triggerManualCleaning(
-            moduleId: moduleId,
+            moduleId: mod.id,
             targetXPositionCm: targetX,
           );
-      ref.invalidate(moduleDeviceStatusProvider(moduleId));
+      ref.invalidate(moduleDeviceStatusProvider(mod.id));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -487,6 +579,17 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     final deviceStatusAsync =
         ref.watch(moduleDeviceStatusProvider(widget.moduleId));
 
+    ref.listen<AsyncValue<DeviceStatus>>(
+      moduleDeviceStatusProvider(widget.moduleId),
+      (previous, next) {
+        if (next.isLoading || !next.hasValue) return;
+        final newStatus = next.valueOrNull;
+        if (newStatus != null) {
+          _handleDeviceStatusUpdate(newStatus);
+        }
+      },
+    );
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -568,195 +671,26 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 role: user?.role ?? 'technician',
                 showBack: true,
                 onBack: () => context.go('/modules'),
-                trailingAction: PopupMenuButton<String>(
-                        icon: const Icon(
-                          Icons.more_vert,
-                          color: AppColors.primary,
-                        ),
-                        tooltip: 'More actions',
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: const BorderSide(color: AppColors.border),
-                        ),
-                        onSelected: (val) {
-                          if (val == 'trigger_scan') {
-                            _triggerManualScan(mod.id);
-                          } else if (val == 'trigger_cleaning') {
-                            _promptAndTriggerManualCleaning(mod.id);
-                          } else if (val == 'verify_hardware') {
-                            context.push('/modules/${mod.id}/device-verification');
-                          } else if (val == 'state_logs') {
-                            Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ModuleStateLogsScreen(
-                                  moduleId: mod.id,
-                                  moduleName: mod.name,
-                                ),
-                              ),
-                            );
-                          } else if (val == 'reset_routine') {
-                            _confirmAndResetRoutine();
-                          } else if (val == 'delete') {
-                            _confirmAndDeleteModule(mod.name);
-                          }
-                        },
-                        itemBuilder: (ctx) => [
-                          PopupMenuItem<String>(
-                            value: 'state_logs',
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: const [
-                                Icon(
-                                  Icons.history_rounded,
-                                  size: 18,
-                                  color: AppColors.primary,
-                                ),
-                                SizedBox(width: 8),
-                                Expanded(
-                                  child: Text('State Logs'),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (!mod.isPendingConfiguration)
-                            PopupMenuItem<String>(
-                              value: 'trigger_scan',
-                              enabled: !_isTriggeringInspection,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.radar_rounded,
-                                    size: 18,
-                                    color: _isTriggeringInspection
-                                        ? AppColors.textSecondary
-                                        : AppColors.primary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      _isTriggeringInspection
-                                          ? 'Sending Scan Request...'
-                                          : 'Run Scan Now',
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: _isTriggeringInspection
-                                            ? AppColors.textSecondary
-                                            : AppColors.textPrimary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          if (!mod.isPendingConfiguration)
-                            PopupMenuItem<String>(
-                              value: 'trigger_cleaning',
-                              enabled: !_isTriggeringCleaning,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.cleaning_services_outlined,
-                                    size: 18,
-                                    color: _isTriggeringCleaning
-                                        ? AppColors.textSecondary
-                                        : AppColors.primary,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      _isTriggeringCleaning
-                                          ? 'Sending Cleaning Request...'
-                                          : 'Manual Cleaning',
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: _isTriggeringCleaning
-                                            ? AppColors.textSecondary
-                                            : AppColors.textPrimary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          const PopupMenuItem<String>(
-                            value: 'verify_hardware',
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.verified_outlined,
-                                  size: 18,
-                                  color: AppColors.primary,
-                                ),
-                                SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Robot Connection Check',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem<String>(
-                            value: 'reset_routine',
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.restart_alt_rounded,
-                                  size: 18,
-                                  color: AppColors.error,
-                                ),
-                                SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Abort & Reset Routine',
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: AppColors.error,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (perms.canDelete)
-                            const PopupMenuItem<String>(
-                              value: 'delete',
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.delete_forever_outlined,
-                                    size: 18,
-                                    color: AppColors.error,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Delete Module',
-                                    style: TextStyle(
-                                      color: AppColors.error,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                        ],
-                      ),
+                trailingAction: IconButton(
+                  key: const Key('module_more_actions_button'),
+                  icon: const Icon(
+                    Icons.more_vert,
+                    color: AppColors.primary,
+                  ),
+                  tooltip: 'More actions',
+                  onPressed: () => _showModuleActionsSheet(
+                    context,
+                    mod,
+                    perms,
+                    deviceStatus,
+                  ),
+                ),
               ),
               body: SafeArea(
                 child: Column(
                   children: [
+                    if (_awaitingLocalizedReading)
+                      _buildLocalizedReadingPendingBanner(),
                     Container(
                       width: double.infinity,
                       decoration: const BoxDecoration(
@@ -813,6 +747,497 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildLocalizedReadingPendingBanner() {
+    final targetX = _pendingLocalizedTargetXCm;
+    final message = targetX != null
+        ? 'Capturing localized thermal frame at ${targetX.toStringAsFixed(1)} cm...'
+        : 'Capturing localized thermal frame...';
+    return Container(
+      key: const Key('localized_reading_capturing_banner'),
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft.withValues(alpha: 0.75),
+        border: Border(
+          bottom: BorderSide(
+            color: AppColors.primary.withValues(alpha: 0.25),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.radar_rounded,
+            size: 16,
+            color: AppColors.primary,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: AppTypography.caption.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          InkWell(
+            key: const Key('dismiss_localized_reading_banner'),
+            borderRadius: BorderRadius.circular(12),
+            onTap: () {
+              _localizedReadingTimeoutTimer?.cancel();
+              _localizedReadingTimeoutTimer = null;
+              setState(() {
+                _awaitingLocalizedReading = false;
+                _pendingLocalizedTargetXCm = null;
+              });
+            },
+            child: const Padding(
+              padding: EdgeInsets.all(2),
+              child: Icon(
+                Icons.close_rounded,
+                size: 16,
+                color: AppColors.primary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showModuleActionsSheet(
+    BuildContext context,
+    PvModule mod,
+    ModulePermissions perms,
+    DeviceStatus? deviceStatus,
+  ) {
+    final lastLocalizedAt =
+        deviceStatus?.localizedReadingAt ?? mod.localizedReadingAt;
+    final lastLocalizedX =
+        deviceStatus?.localizedReadingXCm ?? mod.localizedReadingXCm;
+    final hasLastLocalized =
+        lastLocalizedAt != null && lastLocalizedAt.isNotEmpty;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetCtx) {
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(sheetCtx).size.height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 18),
+              child: Column(
+                key: const Key('module_actions_bottom_sheet'),
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppColors.border,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Module Actions',
+                              style: AppTypography.h3.copyWith(fontSize: 16),
+                            ),
+                            Text(
+                              mod.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded, size: 20),
+                        color: AppColors.textSecondary,
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(sheetCtx).pop(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+
+                  if (!mod.isPendingConfiguration) ...[
+                    _buildActionSheetSectionHeader('ROBOT CONTROLS'),
+                    const SizedBox(height: 6),
+                    _buildActionSheetItem(
+                      key: const Key('action_sheet_run_scan'),
+                      icon: Icons.radar_rounded,
+                      label: _isTriggeringInspection
+                          ? 'Sending Scan Request...'
+                          : 'Run Scan Now',
+                      subtitle: 'Start a full panel thermal inspection',
+                      enabled: !_isTriggeringInspection,
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        _triggerManualScan(mod.id);
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    _buildLocalizedReadingActionRow(
+                      sheetCtx: sheetCtx,
+                      mod: mod,
+                      deviceStatus: deviceStatus,
+                      hasLastLocalized: hasLastLocalized,
+                      lastLocalizedX: lastLocalizedX,
+                    ),
+                    const SizedBox(height: 6),
+                    _buildActionSheetItem(
+                      key: const Key('action_sheet_manual_cleaning'),
+                      icon: Icons.cleaning_services_outlined,
+                      label: _isTriggeringCleaning
+                          ? 'Sending Cleaning Request...'
+                          : 'Manual Cleaning',
+                      subtitle: 'Spot-wash a specific rail coordinate',
+                      enabled: !_isTriggeringCleaning,
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        _promptAndTriggerManualCleaning(mod);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  _buildActionSheetSectionHeader('DIAGNOSTICS'),
+                  const SizedBox(height: 6),
+                  _buildActionSheetItem(
+                    key: const Key('action_sheet_state_logs'),
+                    icon: Icons.history_rounded,
+                    label: 'State Logs',
+                    subtitle: 'Inspect firmware state history',
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => ModuleStateLogsScreen(
+                            moduleId: mod.id,
+                            moduleName: mod.name,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  _buildActionSheetItem(
+                    key: const Key('action_sheet_connection_check'),
+                    icon: Icons.verified_outlined,
+                    label: 'Robot Connection Check',
+                    subtitle: 'Verify setup, Wi-Fi, sensors & camera',
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      context.push('/modules/${mod.id}/device-verification');
+                    },
+                  ),
+
+                  const SizedBox(height: 12),
+                  const Divider(height: 1, color: AppColors.border),
+                  const SizedBox(height: 10),
+
+                  _buildActionSheetSectionHeader('DANGER ZONE', isDanger: true),
+                  const SizedBox(height: 6),
+                  _buildActionSheetItem(
+                    key: const Key('action_sheet_reset_routine'),
+                    icon: Icons.restart_alt_rounded,
+                    label: 'Abort & Reset Routine',
+                    subtitle: 'Stop active task and return robot to IDLE',
+                    isDanger: true,
+                    onTap: () {
+                      Navigator.of(sheetCtx).pop();
+                      _confirmAndResetRoutine();
+                    },
+                  ),
+                  if (perms.canDelete) ...[
+                    const SizedBox(height: 6),
+                    _buildActionSheetItem(
+                      key: const Key('action_sheet_delete_module'),
+                      icon: Icons.delete_forever_outlined,
+                      label: 'Delete Module',
+                      subtitle: 'Permanently delete module and telemetry',
+                      isDanger: true,
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        _confirmAndDeleteModule(mod.name);
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildActionSheetSectionHeader(String title, {bool isDanger = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Text(
+        title,
+        style: AppTypography.caption.copyWith(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.7,
+          color: isDanger ? AppColors.error : AppColors.textSecondary,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionSheetItem({
+    Key? key,
+    required IconData icon,
+    required String label,
+    required String subtitle,
+    required VoidCallback onTap,
+    bool enabled = true,
+    bool isDanger = false,
+  }) {
+    final fgColor = !enabled
+        ? AppColors.textSecondary
+        : (isDanger ? AppColors.error : AppColors.textPrimary);
+    final iconColor = !enabled
+        ? AppColors.textSecondary
+        : (isDanger ? AppColors.error : AppColors.primary);
+    final iconBg = isDanger
+        ? AppColors.errorBackground
+        : AppColors.primarySoft.withValues(alpha: 0.65);
+
+    return Material(
+      color: isDanger
+          ? AppColors.errorBackground.withValues(alpha: 0.35)
+          : AppColors.background,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: key,
+        borderRadius: BorderRadius.circular(12),
+        onTap: enabled ? onTap : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDanger ? AppColors.errorBorder : AppColors.border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, size: 18, color: iconColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: AppTypography.bodySmall.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: fgColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      subtitle,
+                      style: AppTypography.caption.copyWith(
+                        fontSize: 11,
+                        color: isDanger
+                            ? AppColors.error.withValues(alpha: 0.85)
+                            : AppColors.textSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: isDanger
+                    ? AppColors.error.withValues(alpha: 0.7)
+                    : AppColors.textSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLocalizedReadingActionRow({
+    required BuildContext sheetCtx,
+    required PvModule mod,
+    required DeviceStatus? deviceStatus,
+    required bool hasLastLocalized,
+    required double? lastLocalizedX,
+  }) {
+    final enabled = !_isTriggeringLocalizedReading;
+    final xLabel = lastLocalizedX != null
+        ? 'Last: ${lastLocalizedX == lastLocalizedX.roundToDouble() ? lastLocalizedX.toStringAsFixed(0) : lastLocalizedX.toStringAsFixed(1)} cm'
+        : 'View Last';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              key: const Key('action_sheet_localized_reading'),
+              borderRadius: BorderRadius.horizontal(
+                left: const Radius.circular(12),
+                right:
+                    hasLastLocalized ? Radius.zero : const Radius.circular(12),
+              ),
+              onTap: enabled
+                  ? () {
+                      Navigator.of(sheetCtx).pop();
+                      _promptAndTriggerLocalizedReading(mod, deviceStatus);
+                    }
+                  : null,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 9,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AppColors.primarySoft.withValues(alpha: 0.65),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(
+                        Icons.center_focus_strong_outlined,
+                        size: 18,
+                        color: enabled
+                            ? AppColors.primary
+                            : AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isTriggeringLocalizedReading
+                                ? 'Requesting Reading...'
+                                : 'Localized Reading',
+                            style: AppTypography.bodySmall.copyWith(
+                              fontWeight: FontWeight.w700,
+                              color: enabled
+                                  ? AppColors.textPrimary
+                                  : AppColors.textSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            'Capture a single 32×24 frame at X (cm)',
+                            style: AppTypography.caption.copyWith(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (hasLastLocalized)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: InkWell(
+                key: const Key('action_sheet_view_last_localized_reading'),
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  Navigator.of(sheetCtx).pop();
+                  _openStoredLocalizedReading(mod.id);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySoft,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppColors.primary.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.grid_on_rounded,
+                        size: 13,
+                        color: AppColors.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        xLabel,
+                        style: AppTypography.caption.copyWith(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -2915,6 +3340,140 @@ class _HeroMetricItem extends StatelessWidget {
             fontSize: 14,
             fontWeight: FontWeight.w700,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TargetXPositionDialog extends StatefulWidget {
+  const _TargetXPositionDialog({
+    required this.title,
+    this.description,
+    required this.confirmLabel,
+    required this.mod,
+    this.initialXCm,
+  });
+
+  final String title;
+  final String? description;
+  final String confirmLabel;
+  final PvModule mod;
+  final double? initialXCm;
+
+  @override
+  State<_TargetXPositionDialog> createState() => _TargetXPositionDialogState();
+}
+
+class _TargetXPositionDialogState extends State<_TargetXPositionDialog> {
+  late final TextEditingController _controller;
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: widget.initialXCm != null
+          ? widget.initialXCm!.toStringAsFixed(1)
+          : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final mod = widget.mod;
+    final hasConfiguredLength =
+        mod.panelLengthCm != null && mod.panelLengthCm! > 0;
+    final maxRailCm = hasConfiguredLength ? mod.calculatedTotalLengthCm : null;
+
+    final parsed = double.tryParse(
+      _controller.text.trim().replaceAll(',', '.'),
+    );
+    if (parsed == null || !parsed.isFinite || parsed < 0) {
+      setState(() {
+        _errorText = 'Enter a valid non-negative number';
+      });
+      return;
+    }
+    if (maxRailCm != null && parsed > maxRailCm) {
+      setState(() {
+        _errorText = 'Must be between 0 and ${maxRailCm.toStringAsFixed(1)} cm';
+      });
+      return;
+    }
+    if (hasConfiguredLength &&
+        mod.panelCount != null &&
+        mod.panelCount! > 1 &&
+        mod.resolvePanelPosition(parsed).inGap) {
+      setState(() {
+        _errorText = 'Target falls inside an inter-panel gap';
+      });
+      return;
+    }
+    Navigator.of(context).pop(parsed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mod = widget.mod;
+    final hasConfiguredLength =
+        mod.panelLengthCm != null && mod.panelLengthCm! > 0;
+    final maxRailCm = hasConfiguredLength ? mod.calculatedTotalLengthCm : null;
+
+    return AlertDialog(
+      title: Text(widget.title),
+      content: SingleChildScrollView(
+        child: SizedBox(
+          width: 340,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (widget.description != null) ...[
+                Text(
+                  widget.description!,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              TextField(
+                key: const Key('target_x_position_field'),
+                controller: _controller,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                autofocus: true,
+                decoration: InputDecoration(
+                  labelText: 'Target X Position (cm)',
+                  hintText: maxRailCm != null
+                      ? '0.0 – ${maxRailCm.toStringAsFixed(1)}'
+                      : 'e.g. 120.5',
+                  helperText: maxRailCm != null
+                      ? 'Valid rail range: 0.0 to ${maxRailCm.toStringAsFixed(1)} cm'
+                      : null,
+                  errorText: _errorText,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirm_target_x_button'),
+          onPressed: _submit,
+          child: Text(widget.confirmLabel),
         ),
       ],
     );

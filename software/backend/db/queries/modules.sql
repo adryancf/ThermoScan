@@ -140,6 +140,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -188,6 +192,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -238,6 +246,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -289,6 +301,10 @@ SELECT
     m.power_sensors,
     m.manual_cleaning_pending,
     m.manual_cleaning_target_x_cm,
+    m.manual_reading_pending,
+    m.manual_reading_target_x_cm,
+    m.localized_reading_at,
+    COALESCE((m.localized_reading_result->>'x_position_cm')::double precision, 0.0)::double precision AS localized_reading_x_cm,
     m.reset_pending,
     m.limits_check_passed,
     m.thermal_sensor_active,
@@ -750,8 +766,45 @@ UPDATE modules
 SET reset_pending = true,
     manual_cleaning_pending = false,
     manual_cleaning_target_x_cm = NULL,
+    manual_reading_pending = false,
+    manual_reading_target_x_cm = NULL,
     updated_at = now()
 WHERE id = $1;
+
+-- name: SetManualReadingPending :one
+UPDATE modules
+SET manual_reading_pending = true,
+    manual_reading_target_x_cm = $2,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING id, manual_reading_pending, manual_reading_target_x_cm;
+
+-- name: ClearManualReadingPending :exec
+UPDATE modules
+SET manual_reading_pending = false,
+    manual_reading_target_x_cm = NULL,
+    updated_at = NOW()
+WHERE id = $1;
+
+-- name: SaveLocalizedReading :one
+UPDATE modules
+SET localized_reading_result = $2,
+    localized_reading_at = NOW(),
+    manual_reading_pending = false,
+    manual_reading_target_x_cm = NULL,
+    updated_at = NOW()
+WHERE id = $1
+RETURNING localized_reading_at;
+
+-- name: GetLocalizedReading :one
+SELECT
+    id,
+    installer_technician_id,
+    localized_reading_at,
+    localized_reading_result
+FROM modules
+WHERE id = $1
+  AND company_id = $2;
 
 -- name: ClearResetPending :exec
 UPDATE modules

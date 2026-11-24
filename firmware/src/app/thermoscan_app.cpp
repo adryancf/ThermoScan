@@ -185,6 +185,8 @@ void ThermoscanApp::executeFullReset() {
     manual_cleaning_requested_ = false;
     manual_cleaning_active_ = false;
     manual_cleaning_target_x_ = 0.0f;
+    manual_reading_requested_ = false;
+    manual_reading_target_x_ = 0.0f;
     has_pinged_ = false;
     last_ping_ms_ = 0;
     has_reclaimed_ = false;
@@ -210,6 +212,7 @@ void ThermoscanApp::executeFullReset() {
     if (cloud_ != nullptr) {
         cloud_->clearManualInspectionPending();
         cloud_->clearManualCleaningPending();
+        cloud_->clearManualReadingPending();
         cloud_->clearResetPending();
         cloud_->setResetAckPending(true);
     }
@@ -263,6 +266,11 @@ void ThermoscanApp::triggerManualInspection() {
 void ThermoscanApp::triggerManualCleaning(float target_x_cm) {
     manual_cleaning_requested_ = true;
     manual_cleaning_target_x_ = target_x_cm;
+}
+
+void ThermoscanApp::triggerManualReading(float target_x_cm) {
+    manual_reading_requested_ = true;
+    manual_reading_target_x_ = target_x_cm;
 }
 
 static const char* appStateToString(AppState s) {

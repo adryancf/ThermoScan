@@ -1922,3 +1922,277 @@ func TestModuleDefinitiveDeletionRedesign(t *testing.T) {
 		t.Fatalf("expected 200 after rollback, got %d", rec.Code)
 	}
 }
+
+func TestLocalizedThermalReadingWorkflow(t *testing.T) {
+	ctx, conn, tx, _, router, techAuth, _ := setupTelemetryTestEnv(t)
+	defer conn.Close(ctx)
+	defer tx.Rollback(ctx)
+	techToken := techAuth.AccessToken
+
+	doJSON := func(method, path, bearer string, body any) *httptest.ResponseRecorder {
+		var buf bytes.Buffer
+		if body != nil {
+			_ = json.NewEncoder(&buf).Encode(body)
+		}
+		req := httptest.NewRequest(method, path, &buf)
+		req.Header.Set("Content-Type", "application/json")
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		}
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Create a 3-panel module: 100cm each, 5cm spacing -> panels at [0,100], [105,205], [210,310]
+	modMac := "02:ab:cd:77:88:99"
+	createModRec := doJSON(http.MethodPost, "/api/v1/modules", techToken, map[string]any{
+		"name":                          "Localized Reading Array",
+		"mac_address":                   modMac,
+		"panel_length_cm":               100.0,
+		"panel_width_cm":                50.0,
+		"panel_count":                   3,
+		"panel_spacing_cm":              5.0,
+		"latitude":                      -25.4284,
+		"longitude":                     -49.2733,
+		"elevation_m":                   934.0,
+		"azimuth_deg":                   15.0,
+		"tilt_deg":                      20.0,
+		"azimuth_source":                "manual",
+		"tilt_source":                   "manual",
+		"minimum_solar_angle_deg":       10.0,
+		"inspection_interval_days":      1,
+		"reservoir_nominal_capacity_ml": 5000.0,
+	})
+	if createModRec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 creating module, got %d: %s", createModRec.Code, createModRec.Body.String())
+	}
+
+	var modResp struct {
+		Module struct {
+			ID string `json:"id"`
+		} `json:"module"`
+	}
+	if err := json.Unmarshal(createModRec.Body.Bytes(), &modResp); err != nil {
+		t.Fatalf("unmarshal module: %v", err)
+	}
+	moduleID := modResp.Module.ID
+
+	// Claim device to obtain device token
+	claimRec := doJSON(http.MethodPost, "/api/v1/devices/claim", "", map[string]any{
+		"mac_address": modMac,
+	})
+	if claimRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 claiming device, got %d: %s", claimRec.Code, claimRec.Body.String())
+	}
+	var claimResp struct {
+		DeviceToken string `json:"device_token"`
+	}
+	if err := json.Unmarshal(claimRec.Body.Bytes(), &claimResp); err != nil {
+		t.Fatalf("unmarshal claim: %v", err)
+	}
+	deviceToken := claimResp.DeviceToken
+
+	// 1. GET /localized-reading before any reading exists -> 404
+	beforeRec := doJSON(http.MethodGet, "/api/v1/modules/"+moduleID+"/localized-reading", techToken, nil)
+	if beforeRec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 before any reading, got %d: %s", beforeRec.Code, beforeRec.Body.String())
+	}
+
+	// 2. Unauthenticated trigger-reading -> 401
+	unauthRec := doJSON(http.MethodPost, "/api/v1/modules/"+moduleID+"/trigger-reading", "", map[string]any{
+		"target_x_position_cm": 150.0,
+	})
+	if unauthRec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for unauthenticated trigger-reading, got %d", unauthRec.Code)
+	}
+
+	// 3. Gap & out-of-bounds validation -> 400
+	gapRec := doJSON(http.MethodPost, "/api/v1/modules/"+moduleID+"/trigger-reading", techToken, map[string]any{
+		"target_x_position_cm": 102.5,
+	})
+	if gapRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for gap coordinate, got %d: %s", gapRec.Code, gapRec.Body.String())
+	}
+	oobRec := doJSON(http.MethodPost, "/api/v1/modules/"+moduleID+"/trigger-reading", techToken, map[string]any{
+		"target_x_position_cm": 350.0,
+	})
+	if oobRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for out-of-bounds coordinate, got %d: %s", oobRec.Code, oobRec.Body.String())
+	}
+
+	// 4. Trigger reading at valid coordinate (panel 2: 150.0 cm) -> 200
+	trigRec := doJSON(http.MethodPost, "/api/v1/modules/"+moduleID+"/trigger-reading", techToken, map[string]any{
+		"target_x_position_cm": 150.0,
+	})
+	if trigRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for trigger-reading, got %d: %s", trigRec.Code, trigRec.Body.String())
+	}
+	var trigResp struct {
+		Success           bool    `json:"success"`
+		Message           string  `json:"message"`
+		TargetXPositionCm float64 `json:"target_x_position_cm"`
+		PanelIndex        int32   `json:"panel_index"`
+	}
+	if err := json.Unmarshal(trigRec.Body.Bytes(), &trigResp); err != nil {
+		t.Fatalf("unmarshal trigger-reading: %v", err)
+	}
+	if !trigResp.Success || trigResp.TargetXPositionCm != 150.0 || trigResp.PanelIndex != 2 {
+		t.Fatalf("unexpected trigger-reading response: %+v", trigResp)
+	}
+
+	// 5. Device ping sees manual_reading_pending=true & target_x=150.0
+	pingRec := doJSON(http.MethodPost, "/api/v1/devices/"+moduleID+"/ping", deviceToken, map[string]any{
+		"limits_check_passed":   true,
+		"thermal_sensor_active": true,
+	})
+	if pingRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on device ping, got %d: %s", pingRec.Code, pingRec.Body.String())
+	}
+	var pingResp struct {
+		DeviceStatus struct {
+			ManualReadingPending   bool     `json:"manual_reading_pending"`
+			ManualReadingTargetXCm *float64 `json:"manual_reading_target_x_cm"`
+			LocalizedReadingAt     *string  `json:"localized_reading_at"`
+			LocalizedReadingXCm    *float64 `json:"localized_reading_x_cm"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(pingRec.Body.Bytes(), &pingResp); err != nil {
+		t.Fatalf("unmarshal ping: %v", err)
+	}
+	if !pingResp.DeviceStatus.ManualReadingPending || pingResp.DeviceStatus.ManualReadingTargetXCm == nil || *pingResp.DeviceStatus.ManualReadingTargetXCm != 150.0 {
+		t.Fatalf("expected manual_reading_pending=true and target_x=150.0, got %+v", pingResp.DeviceStatus)
+	}
+	if pingResp.DeviceStatus.LocalizedReadingAt != nil || pingResp.DeviceStatus.LocalizedReadingXCm != nil {
+		t.Fatalf("expected nil localized_reading_at/x before submission, got %+v", pingResp.DeviceStatus)
+	}
+
+	// 6. Device ping with manual_reading_ack=true clears pending
+	pingAckRec := doJSON(http.MethodPost, "/api/v1/devices/"+moduleID+"/ping", deviceToken, map[string]any{
+		"manual_reading_ack": true,
+	})
+	if pingAckRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 on ping ack, got %d: %s", pingAckRec.Code, pingAckRec.Body.String())
+	}
+	var pingAckResp struct {
+		DeviceStatus struct {
+			ManualReadingPending   bool     `json:"manual_reading_pending"`
+			ManualReadingTargetXCm *float64 `json:"manual_reading_target_x_cm"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(pingAckRec.Body.Bytes(), &pingAckResp); err != nil {
+		t.Fatalf("unmarshal ping ack: %v", err)
+	}
+	if pingAckResp.DeviceStatus.ManualReadingPending || pingAckResp.DeviceStatus.ManualReadingTargetXCm != nil {
+		t.Fatalf("expected manual_reading_pending cleared on ack, got %+v", pingAckResp.DeviceStatus)
+	}
+
+	// Re-trigger reading to confirm POST /devices/localized-reading also clears pending
+	trigRec2 := doJSON(http.MethodPost, "/api/v1/modules/"+moduleID+"/trigger-reading", techToken, map[string]any{
+		"target_x_position_cm": 150.0,
+	})
+	if trigRec2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on re-trigger, got %d", trigRec2.Code)
+	}
+
+	// 7. Submitting invalid matrix length -> 400
+	badMatrixRec := doJSON(http.MethodPost, "/api/v1/devices/localized-reading", deviceToken, map[string]any{
+		"x_position_cm":     150.0,
+		"panel_index":       2,
+		"min_temperature_c": 24.5,
+		"max_temperature_c": 51.2,
+		"avg_temperature_c": 35.8,
+		"thermal_matrix":    []float64{25.0, 26.0, 27.0},
+	})
+	if badMatrixRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid thermal_matrix length, got %d: %s", badMatrixRec.Code, badMatrixRec.Body.String())
+	}
+
+	// 8. Device submits 768-float localized reading via POST /api/v1/devices/localized-reading
+	matrix := make([]float64, 768)
+	for i := range matrix {
+		matrix[i] = 25.0 + float64(i%32)*0.5
+	}
+	submitRec := doJSON(http.MethodPost, "/api/v1/devices/localized-reading", deviceToken, map[string]any{
+		"x_position_cm":     150.0,
+		"panel_index":       2,
+		"min_temperature_c": 25.0,
+		"max_temperature_c": 40.5,
+		"avg_temperature_c": 32.75,
+		"thermal_matrix":    matrix,
+	})
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 submitting localized reading, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+	var submitResp struct {
+		Success            bool   `json:"success"`
+		LocalizedReadingAt string `json:"localized_reading_at"`
+	}
+	if err := json.Unmarshal(submitRec.Body.Bytes(), &submitResp); err != nil {
+		t.Fatalf("unmarshal submit localized reading: %v", err)
+	}
+	if !submitResp.Success || submitResp.LocalizedReadingAt == "" {
+		t.Fatalf("unexpected submit response: %+v", submitResp)
+	}
+
+	// 9. GET /device-status reflects manual_reading_pending=false, localized_reading_at, localized_reading_x_cm
+	statusRec := doJSON(http.MethodGet, "/api/v1/modules/"+moduleID+"/device-status", techToken, nil)
+	if statusRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting device status, got %d: %s", statusRec.Code, statusRec.Body.String())
+	}
+	var statusResp struct {
+		DeviceStatus struct {
+			ManualReadingPending   bool     `json:"manual_reading_pending"`
+			ManualReadingTargetXCm *float64 `json:"manual_reading_target_x_cm"`
+			LocalizedReadingAt     *string  `json:"localized_reading_at"`
+			LocalizedReadingXCm    *float64 `json:"localized_reading_x_cm"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(statusRec.Body.Bytes(), &statusResp); err != nil {
+		t.Fatalf("unmarshal device status: %v", err)
+	}
+	if statusResp.DeviceStatus.ManualReadingPending || statusResp.DeviceStatus.ManualReadingTargetXCm != nil {
+		t.Fatalf("expected manual_reading_pending=false after reading saved, got %+v", statusResp.DeviceStatus)
+	}
+	if statusResp.DeviceStatus.LocalizedReadingAt == nil || *statusResp.DeviceStatus.LocalizedReadingAt == "" {
+		t.Fatalf("expected localized_reading_at to be populated, got %+v", statusResp.DeviceStatus)
+	}
+	if statusResp.DeviceStatus.LocalizedReadingXCm == nil || *statusResp.DeviceStatus.LocalizedReadingXCm != 150.0 {
+		t.Fatalf("expected localized_reading_x_cm=150.0, got %+v", statusResp.DeviceStatus)
+	}
+
+	// 10. GET /localized-reading returns all 768 floats and metadata
+	getRec := doJSON(http.MethodGet, "/api/v1/modules/"+moduleID+"/localized-reading", techToken, nil)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 getting localized reading, got %d: %s", getRec.Code, getRec.Body.String())
+	}
+	var readingResp struct {
+		ModuleID           string    `json:"module_id"`
+		XPositionCm        float64   `json:"x_position_cm"`
+		PanelIndex         int32     `json:"panel_index"`
+		MeasuredAt         string    `json:"measured_at"`
+		LocalizedReadingAt string    `json:"localized_reading_at"`
+		MinTemperatureC    float64   `json:"min_temperature_c"`
+		MaxTemperatureC    float64   `json:"max_temperature_c"`
+		AvgTemperatureC    float64   `json:"avg_temperature_c"`
+		ThermalMatrix      []float64 `json:"thermal_matrix"`
+	}
+	if err := json.Unmarshal(getRec.Body.Bytes(), &readingResp); err != nil {
+		t.Fatalf("unmarshal localized reading: %v", err)
+	}
+	if readingResp.ModuleID != moduleID || readingResp.XPositionCm != 150.0 || readingResp.PanelIndex != 2 {
+		t.Fatalf("unexpected reading metadata: %+v", readingResp)
+	}
+	if readingResp.MeasuredAt == "" || readingResp.LocalizedReadingAt == "" {
+		t.Fatalf("expected timestamps to be non-empty: %+v", readingResp)
+	}
+	if readingResp.MinTemperatureC != 25.0 || readingResp.MaxTemperatureC != 40.5 || readingResp.AvgTemperatureC != 32.75 {
+		t.Fatalf("unexpected temperatures: %+v", readingResp)
+	}
+	if len(readingResp.ThermalMatrix) != 768 {
+		t.Fatalf("expected 768 thermal values, got %d", len(readingResp.ThermalMatrix))
+	}
+	if readingResp.ThermalMatrix[0] != 25.0 || readingResp.ThermalMatrix[31] != 40.5 {
+		t.Fatalf("unexpected thermal matrix values: [0]=%v, [31]=%v", readingResp.ThermalMatrix[0], readingResp.ThermalMatrix[31])
+	}
+}

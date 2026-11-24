@@ -1784,7 +1784,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.text('Recorded Inspection Scans'),
+          find.text('Inspection History'),
           findsOneWidget,
         );
         expect(

@@ -90,36 +90,29 @@ class _ModuleMeasurementsScreenState
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Scan History',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.5,
-                        ),
+                        'Inspection History',
+                        style: AppTypography.h2,
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Inspection History & Readings',
-                        style: AppTypography.h2,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Recorded robotic scans, power output, and panel temperatures',
-                        style: AppTypography.bodySmall,
+                        'Robotic thermal scans & post-cleaning results',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
 
             latestInspectionAsync.when(
               loading: () => const Center(
@@ -346,94 +339,115 @@ class _ModuleMeasurementsScreenState
               ],
             ),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
         ],
 
-        // Section Title: Inspection History (Grouped by Inspection)
-        if (allMeasurements.isNotEmpty || sortedBundles.isNotEmpty) ...[
-          Row(
-            children: [
-              const Icon(
-                Icons.history_rounded,
-                color: AppColors.primary,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Recorded Inspection Scans',
-                  style: AppTypography.h3,
+        // Segmented Filter Control: All Scans | With Hotspots
+        if (sortedBundles.isNotEmpty) ...[
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    key: const Key('filter_all_scans'),
+                    borderRadius: BorderRadius.circular(9),
+                    onTap: () {
+                      setState(() {
+                        _onlyWithHotspots = false;
+                        _visibleBundlesCount = 8;
+                      });
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: !_onlyWithHotspots
+                            ? AppColors.primary
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.history_rounded,
+                            size: 14,
+                            color: !_onlyWithHotspots
+                                ? Colors.white
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'All Scans (${sortedBundles.length})',
+                            style: AppTypography.caption.copyWith(
+                              color: !_onlyWithHotspots
+                                  ? Colors.white
+                                  : AppColors.textSecondary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Consolidated routine scans with nested cleaning verification outcomes',
-            style: AppTypography.caption.copyWith(
-              color: AppColors.textSecondary,
+                const SizedBox(width: 4),
+                Expanded(
+                  child: InkWell(
+                    key: const Key('filter_hotspot_scans'),
+                    borderRadius: BorderRadius.circular(9),
+                    onTap: () {
+                      setState(() {
+                        _onlyWithHotspots = true;
+                        _visibleBundlesCount = 8;
+                      });
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      decoration: BoxDecoration(
+                        color: _onlyWithHotspots
+                            ? AppColors.primary
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.local_fire_department_rounded,
+                            size: 14,
+                            color: _onlyWithHotspots
+                                ? Colors.white
+                                : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'With Hotspots',
+                            style: AppTypography.caption.copyWith(
+                              color: _onlyWithHotspots
+                                  ? Colors.white
+                                  : AppColors.textSecondary,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 10),
-        ],
-
-        // Filter Chips: All Scans | With Hotspots
-        if (sortedBundles.isNotEmpty) ...[
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ChoiceChip(
-                key: const Key('filter_all_scans'),
-                label: const Text('All Scans'),
-                selected: !_onlyWithHotspots,
-                selectedColor: AppColors.primarySoft,
-                backgroundColor: AppColors.surface,
-                labelStyle: AppTypography.caption.copyWith(
-                  color: !_onlyWithHotspots
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-                side: BorderSide(
-                  color: !_onlyWithHotspots
-                      ? AppColors.primary
-                      : AppColors.border,
-                ),
-                onSelected: (_) {
-                  setState(() {
-                    _onlyWithHotspots = false;
-                    _visibleBundlesCount = 8;
-                  });
-                },
-              ),
-              ChoiceChip(
-                key: const Key('filter_hotspot_scans'),
-                label: const Text('With Hotspots'),
-                selected: _onlyWithHotspots,
-                selectedColor: AppColors.primarySoft,
-                backgroundColor: AppColors.surface,
-                labelStyle: AppTypography.caption.copyWith(
-                  color: _onlyWithHotspots
-                      ? AppColors.primary
-                      : AppColors.textSecondary,
-                  fontWeight: FontWeight.w700,
-                ),
-                side: BorderSide(
-                  color: _onlyWithHotspots
-                      ? AppColors.primary
-                      : AppColors.border,
-                ),
-                onSelected: (_) {
-                  setState(() {
-                    _onlyWithHotspots = true;
-                    _visibleBundlesCount = 8;
-                  });
-                },
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
         ],
 
         if (sortedBundles.isNotEmpty && visibleBundles.isEmpty)
@@ -544,6 +558,35 @@ class _ModuleMeasurementsScreenState
     );
   }
 
+  Widget _buildCompactMetricCell({
+    required String label,
+    required String value,
+    Color? valueColor,
+  }) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: AppTypography.caption.copyWith(
+            fontSize: 10,
+            color: AppColors.textSecondary,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: AppTypography.bodySmall.copyWith(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+            color: valueColor ?? AppColors.textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+
   bool _bundleHasHotspots(InspectionRoutineBundle b) {
     return b.confirmedAnomalies.isNotEmpty ||
         b.hotspotSummaries.isNotEmpty ||
@@ -591,7 +634,36 @@ class _ModuleMeasurementsScreenState
   }) _resolveHistoryOutcomeBadge({
     required InspectionRoutineBundle? bundle,
     required int totalHotspots,
+    required String statusStr,
   }) {
+    if (statusStr == 'CANCELLED') {
+      return (
+        label: 'Aborted',
+        bg: AppColors.warningBackground,
+        border: AppColors.warningBorder,
+        fg: AppColors.warning,
+        icon: Icons.cancel_outlined,
+      );
+    }
+    if (statusStr == 'FAILED') {
+      return (
+        label: 'Failed',
+        bg: AppColors.errorBackground,
+        border: AppColors.errorBorder,
+        fg: AppColors.error,
+        icon: Icons.error_outline_rounded,
+      );
+    }
+    if (statusStr == 'IN_PROGRESS') {
+      return (
+        label: 'In Progress',
+        bg: AppColors.primarySoft,
+        border: AppColors.primary.withValues(alpha: 0.3),
+        fg: AppColors.primary,
+        icon: Icons.sync_rounded,
+      );
+    }
+
     final summaries = bundle?.hotspotSummaries ?? const [];
     if (summaries.isNotEmpty) {
       final total = summaries.length;
@@ -855,19 +927,19 @@ class _ModuleMeasurementsScreenState
     final outcomeBadge = _resolveHistoryOutcomeBadge(
       bundle: bundle,
       totalHotspots: totalHotspots,
+      statusStr: statusStr,
     );
 
-    final peakStr = peakTemp != null
-        ? 'Peak ${peakTemp.toStringAsFixed(1)} °C'
-        : 'Peak N/A';
-    final deltaStr = deltaT != null
-        ? 'Max Δ ${deltaT >= 0 ? '+' : ''}${deltaT.toStringAsFixed(1)} °C'
-        : (baselineTemp != null
-            ? 'Baseline ${baselineTemp.toStringAsFixed(1)} °C'
-            : 'Normal');
-    final framesStr =
-        '$totalFramesCount ${totalFramesCount == 1 ? "frame" : "frames"}';
-    final summaryLine = '$peakStr · $deltaStr · $framesStr';
+    final deltaValueStr = deltaT != null
+        ? '${deltaT >= 0 ? '+' : ''}${deltaT.toStringAsFixed(1)} °C'
+        : 'N/A';
+    final peakValueStr =
+        peakTemp != null ? '${peakTemp.toStringAsFixed(1)} °C' : 'N/A';
+    final baselineValueStr = (baselineTemp != null && baselineTemp > 0)
+        ? '${baselineTemp.toStringAsFixed(1)} °C'
+        : 'N/A';
+    final isDeltaElevated =
+        deltaT != null && deltaT >= (mod?.hotspotThresholdDeltaC ?? 8.0);
 
     final showNestedPostCleaning = bundle != null &&
         (bundle.hasPostCleaning ||
@@ -880,95 +952,92 @@ class _ModuleMeasurementsScreenState
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: isLatest ? AppColors.primary : AppColors.border,
-          width: isLatest ? 1.5 : 1.0,
+          color: isLatest
+              ? AppColors.primary.withValues(alpha: 0.45)
+              : AppColors.border,
+          width: isLatest ? 1.25 : 1.0,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Clean Compact Header: Timestamp + Single Clear Outcome Badge
+          // Clean Header: Timestamp + Status Pill + Outcome Badge
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          dateLabel,
-                          style: AppTypography.bodySmall.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
-                        ),
-                        if (isLatest)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primarySoft,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              'LATEST',
-                              style: AppTypography.caption.copyWith(
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                        if (statusPillLabel != null)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: statusBadgeBg,
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              statusPillLabel,
-                              style: AppTypography.caption.copyWith(
-                                color: statusBadgeText,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 9,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
                     Text(
-                      summaryLine,
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.textSecondary,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w500,
+                      dateLabel,
+                      style: AppTypography.bodySmall.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                        fontSize: 13,
                       ),
                     ),
+                    if (isLatest)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primarySoft,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          'LATEST',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 9,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ),
+                    if (statusPillLabel != null)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: statusBadgeBg,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          statusPillLabel,
+                          style: AppTypography.caption.copyWith(
+                            color: statusBadgeText,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 9,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
               const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
+                  horizontal: 9,
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
                   color: outcomeBadge.bg,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(999),
                   border: Border.all(color: outcomeBadge.border),
                 ),
                 child: Row(
@@ -984,14 +1053,62 @@ class _ModuleMeasurementsScreenState
                       outcomeBadge.label,
                       style: AppTypography.caption.copyWith(
                         color: outcomeBadge.fg,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 10.5,
                       ),
                     ),
                   ],
                 ),
               ),
             ],
+          ),
+
+          // Compact 3-column Telemetry Metrics Strip
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.background,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppColors.border.withValues(alpha: 0.65),
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildCompactMetricCell(
+                    label: 'Peak',
+                    value: peakValueStr,
+                  ),
+                ),
+                Container(
+                  width: 1,
+                  height: 24,
+                  color: AppColors.border,
+                ),
+                Expanded(
+                  child: _buildCompactMetricCell(
+                    label: 'Max Δ',
+                    value: deltaValueStr,
+                    valueColor: isDeltaElevated
+                        ? AppColors.error
+                        : AppColors.textPrimary,
+                  ),
+                ),
+                Container(
+                  width: 1,
+                  height: 24,
+                  color: AppColors.border,
+                ),
+                Expanded(
+                  child: _buildCompactMetricCell(
+                    label: 'Baseline',
+                    value: baselineValueStr,
+                  ),
+                ),
+              ],
+            ),
           ),
 
           // Interrupted / Partial Telemetry Notice Banner
@@ -1032,60 +1149,52 @@ class _ModuleMeasurementsScreenState
             _buildNestedPostCleaningSection(bundle),
           ],
 
-          // Direct Action Row + Collapsed Raw Frames Accordion
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              OutlinedButton.icon(
-                key: Key('view_thermal_map_$inspectionId'),
-                onPressed: () {
-                  context.push(
-                    '/modules/${widget.moduleId}/thermal-inspection?inspectionId=$inspectionId',
-                  );
-                },
-                icon: const Icon(
-                  Icons.map_outlined,
-                  size: 15,
+          // Direct Action Row
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton.icon(
+              key: Key('view_thermal_map_$inspectionId'),
+              onPressed: () {
+                context.push(
+                  '/modules/${widget.moduleId}/thermal-inspection?inspectionId=$inspectionId',
+                );
+              },
+              icon: const Icon(
+                Icons.map_outlined,
+                size: 16,
+                color: AppColors.primary,
+              ),
+              label: Text(
+                'View Thermal Map',
+                style: AppTypography.caption.copyWith(
                   color: AppColors.primary,
-                ),
-                label: Text(
-                  'View Thermal Map',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  side: BorderSide(
-                    color: AppColors.primary.withValues(alpha: 0.4),
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12,
                 ),
               ),
-              if (baselineTemp != null && baselineTemp > 0) ...[
-                const SizedBox(width: 10),
-                Text(
-                  'Baseline: ${baselineTemp.toStringAsFixed(1)}°C',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
-                    fontSize: 10.5,
-                  ),
+              style: TextButton.styleFrom(
+                backgroundColor: AppColors.primarySoft.withValues(alpha: 0.65),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 9,
                 ),
-              ],
-            ],
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
           ),
 
-          // Level 2: Collapsed-by-default Raw Frames Expansion Tile
+          // Level 2: Collapsed-by-default Raw Frames Expansion Tile (compact)
           if (sortedPanels.isNotEmpty) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
+            Divider(
+              height: 1,
+              color: AppColors.border.withValues(alpha: 0.6),
+            ),
             Theme(
               data: Theme.of(context).copyWith(
                 dividerColor: Colors.transparent,
@@ -1095,8 +1204,10 @@ class _ModuleMeasurementsScreenState
                 child: ExpansionTile(
                   key: Key('show_frames_tile_$inspectionId'),
                   initiallyExpanded: false,
-                  tilePadding: EdgeInsets.zero,
-                  childrenPadding: const EdgeInsets.only(top: 6),
+                  dense: true,
+                  visualDensity: const VisualDensity(vertical: -3),
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 2),
+                  childrenPadding: const EdgeInsets.only(top: 6, bottom: 2),
                   title: Text(
                     'Show $totalFramesCount ${totalFramesCount == 1 ? "frame" : "frames"}',
                     style: AppTypography.caption.copyWith(

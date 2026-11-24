@@ -696,7 +696,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // Delta text is visible as informational in the 1-line summary
-      expect(find.textContaining('Max Δ +8.0 °C'), findsOneWidget);
+      expect(find.text('+8.0 °C'), findsOneWidget);
       expect(find.text('Healthy'), findsOneWidget);
       expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
       final checkIcon = tester.widget<Icon>(

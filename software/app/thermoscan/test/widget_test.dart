@@ -805,7 +805,7 @@ void main() {
     await tester.tap(find.text('Measurements'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Scan History'), findsOneWidget);
+    expect(find.text('Inspection History'), findsOneWidget);
     expect(find.byKey(const Key('history_group_insp-1')), findsOneWidget);
     expect(find.text('Healthy'), findsOneWidget);
 

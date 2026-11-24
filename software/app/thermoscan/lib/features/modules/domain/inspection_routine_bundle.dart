@@ -200,15 +200,19 @@ class InspectionRoutineBundle {
     );
   }
 
-  /// Returns the latest active or completed routine bundle, avoiding empty pending scheduled scans.
+  /// Returns the latest completed routine bundle, falling back to a bundle with
+  /// measurements only if no completed routine exists yet.
   static InspectionRoutineBundle? getLatestActiveBundle(
     List<InspectionRoutineBundle> bundles,
   ) {
     if (bundles.isEmpty) return null;
+    for (final b in bundles) {
+      if (b.routineInspection.status == 'completed') {
+        return b;
+      }
+    }
     return bundles.firstWhere(
-      (b) =>
-          b.routineInspection.status == 'completed' ||
-          b.routineMeasurements.isNotEmpty,
+      (b) => b.routineMeasurements.isNotEmpty,
       orElse: () => bundles.first,
     );
   }

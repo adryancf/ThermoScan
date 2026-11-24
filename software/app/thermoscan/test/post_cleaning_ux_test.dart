@@ -1153,10 +1153,8 @@ void main() {
         expect(find.text('1 Hotspot · Resolved'), findsOneWidget);
         expect(find.text('Cleared in Later Scan'), findsWidgets);
         expect(find.text('Healthy'), findsWidgets);
-        expect(
-          find.text('Peak 46.2 °C · Max Δ +12.2 °C · 1 frame'),
-          findsNWidgets(2),
-        );
+        expect(find.text('46.2 °C'), findsNWidgets(2));
+        expect(find.text('+12.2 °C'), findsNWidgets(2));
         expect(
           find.byKey(const Key('view_thermal_map_insp-r-1')),
           findsOneWidget,

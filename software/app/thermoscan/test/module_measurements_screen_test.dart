@@ -201,7 +201,7 @@ void main() {
       expect(find.byKey(const Key('history_group_insp-hist-12345678')), findsOneWidget);
 
       // Baseline temp is rendered
-      expect(find.textContaining('Baseline: 27.0°C'), findsWidgets);
+      expect(find.text('27.0 °C'), findsWidgets);
 
       // Compact outcome badge displays 1 Hotspot
       expect(find.text('1 Hotspot'), findsOneWidget);

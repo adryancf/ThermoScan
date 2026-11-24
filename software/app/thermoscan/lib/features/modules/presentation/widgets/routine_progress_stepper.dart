@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
 import 'package:thermoscan/core/theme/app_typography.dart';
@@ -5,16 +7,18 @@ import 'package:thermoscan/core/theme/app_typography.dart';
 /// Compact 4-step live routine tracker shown only while a scan/cleaning/verification
 /// cycle is active, waiting cooldown, resetting, or halted in ERROR_HALT.
 /// Collapses completely (`SizedBox.shrink`) when the robot is in IDLE.
-class RoutineProgressStepper extends StatelessWidget {
+class RoutineProgressStepper extends StatefulWidget {
   const RoutineProgressStepper({
     super.key,
     required this.firmwareState,
     this.firmwareStateDetail,
+    this.verificationReadyAt,
     this.resetPending = false,
   });
 
   final String? firmwareState;
   final String? firmwareStateDetail;
+  final String? verificationReadyAt;
   final bool resetPending;
 
   static bool isVisibleForState(String? state, {bool resetPending = false}) {
@@ -35,14 +39,105 @@ class RoutineProgressStepper extends StatelessWidget {
   }
 
   @override
+  State<RoutineProgressStepper> createState() => _RoutineProgressStepperState();
+}
+
+class _RoutineProgressStepperState extends State<RoutineProgressStepper> {
+  Timer? _countdownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _syncCountdownTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant RoutineProgressStepper oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.firmwareState != widget.firmwareState ||
+        oldWidget.firmwareStateDetail != widget.firmwareStateDetail ||
+        oldWidget.verificationReadyAt != widget.verificationReadyAt ||
+        oldWidget.resetPending != widget.resetPending) {
+      _syncCountdownTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    _countdownTimer = null;
+    super.dispose();
+  }
+
+  DateTime? _parseTargetUtc() {
+    if (widget.resetPending) return null;
+    final normState = (widget.firmwareState ?? '').trim().toUpperCase();
+    final normDetail = (widget.firmwareStateDetail ?? '').trim().toLowerCase();
+    if (normState != 'WAITING_VERIFICATION' ||
+        normDetail == 'solar_window_closed' ||
+        normDetail == 'insufficient_water' ||
+        normDetail == 'high_baseline_temp') {
+      return null;
+    }
+    final raw = widget.verificationReadyAt;
+    if (raw == null || raw.trim().isEmpty) return null;
+    return DateTime.tryParse(raw.trim())?.toUtc();
+  }
+
+  void _syncCountdownTimer() {
+    final target = _parseTargetUtc();
+    if (target == null) {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+      return;
+    }
+
+    if (target.difference(DateTime.now().toUtc()) <= Duration.zero) {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+      return;
+    }
+
+    _countdownTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final currentTarget = _parseTargetUtc();
+      if (currentTarget == null ||
+          currentTarget.difference(DateTime.now().toUtc()) <= Duration.zero) {
+        _countdownTimer?.cancel();
+        _countdownTimer = null;
+      }
+      setState(() {});
+    });
+  }
+
+  static String _formatRemaining(Duration remaining) {
+    final totalSeconds = remaining.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return '${hours}h ${minutes.toString().padLeft(2, '0')}m ${seconds.toString().padLeft(2, '0')}s';
+    }
+    if (minutes > 0) {
+      return '${minutes}m ${seconds.toString().padLeft(2, '0')}s';
+    }
+    return '${seconds}s';
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (!isVisibleForState(firmwareState, resetPending: resetPending)) {
+    if (!RoutineProgressStepper.isVisibleForState(
+      widget.firmwareState,
+      resetPending: widget.resetPending,
+    )) {
       return const SizedBox.shrink();
     }
 
-    final normState =
-        resetPending ? 'RESET_REQUESTED' : (firmwareState ?? '').trim().toUpperCase();
-    final normDetail = (firmwareStateDetail ?? '').trim().toLowerCase();
+    final normState = widget.resetPending
+        ? 'RESET_REQUESTED'
+        : (widget.firmwareState ?? '').trim().toUpperCase();
+    final normDetail = (widget.firmwareStateDetail ?? '').trim().toLowerCase();
 
     final _StepperStateMeta meta = _resolveMeta(normState, normDetail);
 
@@ -57,9 +152,7 @@ class RoutineProgressStepper extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: meta.isError
-            ? AppColors.errorBackground
-            : AppColors.surface,
+        color: meta.isError ? AppColors.errorBackground : AppColors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: meta.isError
@@ -239,15 +332,30 @@ class RoutineProgressStepper extends StatelessWidget {
           message: 'Step 3/4 • Actuating water spray cleaning...',
         );
       case 'WAITING_VERIFICATION':
-        final waitMsg = switch (normDetail) {
-          'solar_window_closed' =>
-            'Step 4/4 • Waiting for valid solar window to verify...',
-          'insufficient_water' =>
-            'Step 4/4 • Waiting water refill before verification...',
-          'high_baseline_temp' =>
-            'Step 4/4 • Waiting for panel temperature to drop...',
-          _ => 'Step 4/4 • Cooling down before final check...',
-        };
+        String waitMsg;
+        switch (normDetail) {
+          case 'solar_window_closed':
+            waitMsg =
+                'Step 4/4 • Waiting for valid solar window to verify...';
+          case 'insufficient_water':
+            waitMsg =
+                'Step 4/4 • Waiting water refill before verification...';
+          case 'high_baseline_temp':
+            waitMsg = 'Step 4/4 • Waiting for panel temperature to drop...';
+          default:
+            final target = _parseTargetUtc();
+            if (target != null) {
+              final remaining = target.difference(DateTime.now().toUtc());
+              if (remaining > Duration.zero) {
+                waitMsg =
+                    'Step 4/4 • Cooling down • ${_formatRemaining(remaining)} remaining';
+              } else {
+                waitMsg = 'Step 4/4 • Cooldown complete, preparing check...';
+              }
+            } else {
+              waitMsg = 'Step 4/4 • Cooling down before final check...';
+            }
+        }
         return _StepperStateMeta(
           activeIndex: 3,
           isWaiting: true,

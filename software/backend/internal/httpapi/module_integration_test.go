@@ -1049,6 +1049,51 @@ func TestModulePermissionsAndLifecycleIntegration(t *testing.T) {
 		t.Fatalf("expected positive ping and online window 3x ping, got %d / %d", devStatusCheck.DeviceStatus.PingIntervalSeconds, devStatusCheck.DeviceStatus.OnlineWindowSeconds)
 	}
 
+	// Test ping with verification_ready_at and clearing it when omitted
+	verifyReadyTime := time.Now().Add(10 * time.Minute).UTC().Truncate(time.Second)
+	verifyReadyStr := verifyReadyTime.Format(time.RFC3339)
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/ping", claimResp.DeviceToken, map[string]any{
+		"water_available":       true,
+		"limits_check_passed":   true,
+		"thermal_sensor_active": true,
+		"verification_ready_at": verifyReadyStr,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 pinging device with verification_ready_at, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var verifySetResp struct {
+		DeviceStatus struct {
+			VerificationReadyAt *string `json:"verification_ready_at"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &verifySetResp); err != nil {
+		t.Fatalf("failed to decode verification_ready_at ping response: %v", err)
+	}
+	if verifySetResp.DeviceStatus.VerificationReadyAt == nil || *verifySetResp.DeviceStatus.VerificationReadyAt != verifyReadyStr {
+		t.Fatalf("expected verification_ready_at %q, got %+v", verifyReadyStr, verifySetResp.DeviceStatus.VerificationReadyAt)
+	}
+
+	// Subsequent ping without verification_ready_at should clear it to nil
+	rec = doJSON(http.MethodPost, "/api/v1/devices/"+claimResp.ModuleID+"/ping", claimResp.DeviceToken, map[string]any{
+		"water_available":       true,
+		"limits_check_passed":   true,
+		"thermal_sensor_active": true,
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 pinging device without verification_ready_at, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var verifyClearResp struct {
+		DeviceStatus struct {
+			VerificationReadyAt *string `json:"verification_ready_at"`
+		} `json:"device_status"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &verifyClearResp); err != nil {
+		t.Fatalf("failed to decode verification_ready_at clear response: %v", err)
+	}
+	if verifyClearResp.DeviceStatus.VerificationReadyAt != nil {
+		t.Fatalf("expected verification_ready_at to be cleared (nil), got %q", *verifyClearResp.DeviceStatus.VerificationReadyAt)
+	}
+
 	// Update module configuration via PATCH -> increments config_version to initialVer+1 and resets state to pending
 	rec = doJSON(http.MethodPatch, "/api/v1/modules/"+claimResp.ModuleID+"/configuration", tech1Auth.AccessToken, map[string]any{
 		"panel_count": 14,

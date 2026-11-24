@@ -105,6 +105,11 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		n := row.NextInspectionAt.UTC().Format(time.RFC3339)
 		nextInspectionAtStr = &n
 	}
+	var verificationReadyAtStr *string
+	if row.VerificationReadyAt != nil {
+		v := row.VerificationReadyAt.UTC().Format(time.RFC3339)
+		verificationReadyAtStr = &v
+	}
 	isConfigured := row.ConfiguredAt != nil && row.MonitoringStatus != StatusPendingConfiguration
 
 	isOnline := false
@@ -146,6 +151,7 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		LimitsCheckPassed:   row.LimitsCheckPassed,
 		ThermalSensorActive: row.ThermalSensorActive,
 		NextInspectionAt:    nextInspectionAtStr,
+		VerificationReadyAt: verificationReadyAtStr,
 		ConfigurationSync:   syncDTO,
 		ManualCleaningPending:   row.ManualCleaningPending,
 		ManualCleaningTargetXCm: numericToFloatPtr(row.ManualCleaningTargetXCm),
@@ -249,6 +255,12 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 		ThermalSensorActive: thermalActive,
 		NextInspectionAt:    input.NextInspectionAt,
 	})
+	if err := qtx.UpdateModuleVerificationReadyAt(ctx, db.UpdateModuleVerificationReadyAtParams{
+		ID:                  moduleID,
+		VerificationReadyAt: input.VerificationReadyAt,
+	}); err != nil {
+		return nil, err
+	}
 
 	// Only record reservoir ping if water_available was explicitly provided
 	if input.WaterAvailable != nil {

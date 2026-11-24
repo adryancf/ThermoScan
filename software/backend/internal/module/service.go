@@ -358,6 +358,7 @@ func (s *Service) ListModules(ctx context.Context, principal auth.Principal, lim
 				PowerSensors:               r.PowerSensors,
 				ConfiguredAt:               r.ConfiguredAt,
 				NextInspectionAt:           r.NextInspectionAt,
+				VerificationReadyAt:        r.VerificationReadyAt,
 				CreatedAt:                  r.CreatedAt,
 				UpdatedAt:                  r.UpdatedAt,
 				ConfigVersion:              r.ConfigVersion,
@@ -1023,6 +1024,12 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		nextInspectionAtStr = &str
 	}
 
+	var verificationReadyAtStr *string
+	if r.VerificationReadyAt != nil {
+		str := r.VerificationReadyAt.UTC().Format(time.RFC3339)
+		verificationReadyAtStr = &str
+	}
+
 	var configApplyErr *string
 	if r.ConfigApplyError.Valid && strings.TrimSpace(r.ConfigApplyError.String) != "" {
 		errStr := r.ConfigApplyError.String
@@ -1102,6 +1109,7 @@ func (s *Service) mapGetModuleRowToDTO(r db.GetModuleByIDRow, rel string, operat
 		PowerSensors:               powerSensorsData,
 		ConfiguredAt:               configuredAtStr,
 		NextInspectionAt:           nextInspectionAtStr,
+		VerificationReadyAt:        verificationReadyAtStr,
 		CreatedAt:                  r.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:                  r.UpdatedAt.UTC().Format(time.RFC3339),
 		UserRelationship:           rel,

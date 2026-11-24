@@ -97,6 +97,7 @@ CREATE TABLE modules (
     firmware_state_updated_at timestamptz NULL,
     configured_at timestamptz,
     next_inspection_at timestamptz,
+    verification_ready_at timestamptz,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now(),
     UNIQUE (company_id, id),

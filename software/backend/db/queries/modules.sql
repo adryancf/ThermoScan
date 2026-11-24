@@ -146,6 +146,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -193,6 +194,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -242,6 +244,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -292,6 +295,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -339,6 +343,7 @@ SELECT
     m.power_sensors,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     mc.operational_email_enabled,
@@ -679,6 +684,12 @@ SET limits_check_passed = coalesce(sqlc.narg('limits_check_passed'), limits_chec
     updated_at = now()
 WHERE id = sqlc.arg('id')
 RETURNING id, mac_address, limits_check_passed, thermal_sensor_active, last_ping_at, next_inspection_at;
+
+-- name: UpdateModuleVerificationReadyAt :exec
+UPDATE modules
+SET verification_ready_at = sqlc.narg('verification_ready_at'),
+    updated_at = now()
+WHERE id = sqlc.arg('id');
 
 -- name: UpdateModuleConfigAck :exec
 UPDATE modules

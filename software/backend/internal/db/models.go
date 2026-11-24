@@ -165,6 +165,7 @@ type Module struct {
 	FirmwareStateUpdatedAt     *time.Time
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
+	VerificationReadyAt        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 }

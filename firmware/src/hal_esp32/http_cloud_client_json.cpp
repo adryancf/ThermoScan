@@ -36,7 +36,8 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
                                          const char* firmware_state_detail,
                                          const StateTransitionEntry* transitions,
                                          size_t transition_count,
-                                         bool reset_ack) {
+                                         bool reset_ack,
+                                         const std::string& verification_ready_at) {
     JsonDocument doc;
     doc["water_available"] = water_ok;
     doc["limits_check_passed"] = limits_ok;
@@ -44,6 +45,9 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
 
     if (!next_inspection_at.empty()) {
         doc["next_inspection_at"] = next_inspection_at.c_str();
+    }
+    if (!verification_ready_at.empty()) {
+        doc["verification_ready_at"] = verification_ready_at.c_str();
     }
     if (manual_cleaning_ack) {
         doc["manual_cleaning_ack"] = true;
@@ -93,6 +97,8 @@ std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, boo
     for (size_t i = 0; i < count; ++i) {
         ordered[i] = state_ring_[(state_ring_head_ + i) % STATE_RING_CAPACITY];
     }
+    const std::string verification_ready_at =
+        (verification_ready_at_epoch_ > 1700000000UL) ? formatEpochToRFC3339(verification_ready_at_epoch_) : "";
     return buildPingJson(water_ok,
                          limits_ok,
                          thermal_ok,
@@ -102,7 +108,8 @@ std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, boo
                          current_firmware_state_detail_,
                          ordered,
                          count,
-                         reset_ack);
+                         reset_ack,
+                         verification_ready_at);
 }
 
 bool HttpCloudClient::parsePingResponse(const std::string& response_json) {

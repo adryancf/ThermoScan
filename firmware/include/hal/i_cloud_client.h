@@ -161,6 +161,9 @@ public:
     virtual void clearResetPending() {}
     virtual void setResetAckPending(bool pending) { (void)pending; }
 
+    // Verification cooldown ready timestamp (0 = omit)
+    virtual void setVerificationReadyAt(uint32_t epoch_sec) { (void)epoch_sec; }
+
     // Firmware state tracking (zero-heap-allocation ring buffer in concrete client)
     virtual void setFirmwareState(const char* state, const char* detail = nullptr) {
         (void)state;

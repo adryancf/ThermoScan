@@ -54,6 +54,7 @@ type ModuleDTO struct {
 	PowerSensors               any                  `json:"power_sensors,omitempty"`
 	ConfiguredAt               *string              `json:"configured_at"`
 	NextInspectionAt           *string              `json:"next_inspection_at,omitempty"`
+	VerificationReadyAt        *string              `json:"verification_ready_at,omitempty"`
 	CreatedAt                  string               `json:"created_at"`
 	UpdatedAt                  string               `json:"updated_at"`
 	UserRelationship           string               `json:"user_relationship"`
@@ -330,6 +331,7 @@ type DeviceStatusDTO struct {
 	ThermalSensorActive bool                 `json:"thermal_sensor_active"`
 	LatestMeasurementAt    *string              `json:"latest_measurement_at,omitempty"`
 	NextInspectionAt       *string              `json:"next_inspection_at,omitempty"`
+	VerificationReadyAt    *string              `json:"verification_ready_at,omitempty"`
 	ConfigurationSync      ConfigurationSyncDTO `json:"configuration_sync"`
 	ManualInspectionPending bool                 `json:"manual_inspection_pending"`
 	ManualCleaningPending   bool                 `json:"manual_cleaning_pending"`
@@ -401,6 +403,7 @@ type RecordDevicePingInput struct {
 	LimitsCheckPassed   *bool                  `json:"limits_check_passed"`
 	ThermalSensorActive *bool                  `json:"thermal_sensor_active"`
 	NextInspectionAt    *time.Time             `json:"next_inspection_at,omitempty"`
+	VerificationReadyAt *time.Time             `json:"verification_ready_at,omitempty"`
 	ManualCleaningAck   *bool                  `json:"manual_cleaning_ack,omitempty"`
 	ResetAck            *bool                  `json:"reset_ack,omitempty"`
 	FirmwareState       *string                `json:"firmware_state,omitempty"`

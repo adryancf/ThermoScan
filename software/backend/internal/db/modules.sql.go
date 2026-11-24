@@ -587,7 +587,7 @@ func (q *Queries) DeleteModule(ctx context.Context, arg DeleteModuleParams) erro
 }
 
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -634,6 +634,7 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.FirmwareStateUpdatedAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
+		&i.VerificationReadyAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -675,6 +676,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -729,6 +731,7 @@ type GetModuleByIDRow struct {
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
+	VerificationReadyAt        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -777,6 +780,7 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.LastPingAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
+		&i.VerificationReadyAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ConfigVersion,
@@ -791,7 +795,7 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 }
 
 const getModuleByIDForDevice = `-- name: GetModuleByIDForDevice :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE id = $1
 `
 
@@ -838,6 +842,7 @@ func (q *Queries) GetModuleByIDForDevice(ctx context.Context, id pgtype.UUID) (M
 		&i.FirmwareStateUpdatedAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
+		&i.VerificationReadyAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -877,6 +882,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -929,6 +935,7 @@ type GetModuleByIDForUpdateRow struct {
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
+	VerificationReadyAt        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -975,6 +982,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 		&i.LastPingAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
+		&i.VerificationReadyAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.ConfigVersion,
@@ -989,7 +997,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -1036,6 +1044,7 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.FirmwareStateUpdatedAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
+		&i.VerificationReadyAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
@@ -1516,6 +1525,7 @@ SELECT
     m.power_sensors,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     mc.operational_email_enabled,
@@ -1570,6 +1580,7 @@ type ListModulesForClientRow struct {
 	PowerSensors               []byte
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
+	VerificationReadyAt        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	OperationalEmailEnabled    bool
@@ -1624,6 +1635,7 @@ func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForCl
 			&i.PowerSensors,
 			&i.ConfiguredAt,
 			&i.NextInspectionAt,
+			&i.VerificationReadyAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OperationalEmailEnabled,
@@ -1680,6 +1692,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -1736,6 +1749,7 @@ type ListModulesForManagerRow struct {
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
+	VerificationReadyAt        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -1790,6 +1804,7 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.LastPingAt,
 			&i.ConfiguredAt,
 			&i.NextInspectionAt,
+			&i.VerificationReadyAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ConfigVersion,
@@ -1845,6 +1860,7 @@ SELECT
     m.last_ping_at,
     m.configured_at,
     m.next_inspection_at,
+    m.verification_ready_at,
     m.created_at,
     m.updated_at,
     m.config_version,
@@ -1905,6 +1921,7 @@ type ListModulesForTechnicianRow struct {
 	LastPingAt                 *time.Time
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
+	VerificationReadyAt        *time.Time
 	CreatedAt                  time.Time
 	UpdatedAt                  time.Time
 	ConfigVersion              int32
@@ -1964,6 +1981,7 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.LastPingAt,
 			&i.ConfiguredAt,
 			&i.NextInspectionAt,
+			&i.VerificationReadyAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.ConfigVersion,
@@ -2464,6 +2482,23 @@ func (q *Queries) UpdateModuleFirmwareState(ctx context.Context, arg UpdateModul
 		arg.FirmwareStateDetail,
 		arg.FirmwareStateUpdatedAt,
 	)
+	return err
+}
+
+const updateModuleVerificationReadyAt = `-- name: UpdateModuleVerificationReadyAt :exec
+UPDATE modules
+SET verification_ready_at = $1,
+    updated_at = now()
+WHERE id = $2
+`
+
+type UpdateModuleVerificationReadyAtParams struct {
+	VerificationReadyAt *time.Time
+	ID                  pgtype.UUID
+}
+
+func (q *Queries) UpdateModuleVerificationReadyAt(ctx context.Context, arg UpdateModuleVerificationReadyAtParams) error {
+	_, err := q.db.Exec(ctx, updateModuleVerificationReadyAt, arg.VerificationReadyAt, arg.ID)
 	return err
 }
 

@@ -89,6 +89,13 @@ void ThermoscanApp::transitionTo(AppState new_state, const char* detail) {
     const char* state_name = getStateName();
     const uint32_t now = getCurrentTime();
     if (cloud_ != nullptr) {
+        if (new_state == AppState::WAITING_VERIFICATION) {
+            const uint32_t spray_end = cleaning_sm_.getSprayEndedTimestamp();
+            const uint32_t ready_epoch = (spray_end > 1700000000UL) ? (spray_end + POST_CLEANING_WAIT_SECONDS) : 0;
+            cloud_->setVerificationReadyAt(ready_epoch);
+        } else {
+            cloud_->setVerificationReadyAt(0);
+        }
         cloud_->setFirmwareState(state_name, detail);
         cloud_->recordStateTransition(state_name, detail, now);
         bool heap_ok = true;

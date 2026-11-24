@@ -61,6 +61,7 @@ public:
     bool isResetPending() const override { return reset_pending_; }
     void clearResetPending() override { reset_pending_ = false; }
     void setResetAckPending(bool pending) override { reset_ack_pending_ = pending; }
+    void setVerificationReadyAt(uint32_t epoch_sec) override { verification_ready_at_epoch_ = epoch_sec; }
 
     static constexpr size_t STATE_RING_CAPACITY = 16;
     void setFirmwareState(const char* state, const char* detail = nullptr) override;
@@ -87,7 +88,8 @@ public:
                                      const char* firmware_state_detail = nullptr,
                                      const StateTransitionEntry* transitions = nullptr,
                                      size_t transition_count = 0,
-                                     bool reset_ack = false);
+                                     bool reset_ack = false,
+                                     const std::string& verification_ready_at = "");
     std::string buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
                                  const std::string& next_inspection_at = "",
                                  bool manual_cleaning_ack = false,
@@ -126,6 +128,7 @@ private:
     bool manual_cleaning_ack_pending_{false};
     bool reset_pending_{false};
     bool reset_ack_pending_{false};
+    uint32_t verification_ready_at_epoch_{0};
 
     const char* current_firmware_state_{nullptr};
     const char* current_firmware_state_detail_{nullptr};

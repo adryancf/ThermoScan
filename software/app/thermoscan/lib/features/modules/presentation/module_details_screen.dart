@@ -944,6 +944,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                 firmwareState: deviceStatus?.firmwareState ?? mod.firmwareState,
                 firmwareStateDetail:
                     deviceStatus?.firmwareStateDetail ?? mod.firmwareStateDetail,
+                verificationReadyAt:
+                    deviceStatus?.verificationReadyAt ?? mod.verificationReadyAt,
                 resetPending: deviceStatus?.resetPending == true,
               ),
               const SizedBox(height: 16),

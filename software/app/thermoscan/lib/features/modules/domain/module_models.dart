@@ -104,6 +104,7 @@ class PvModule {
     this.firmwareState,
     this.firmwareStateDetail,
     this.firmwareStateUpdatedAt,
+    this.verificationReadyAt,
   }) : _explicitIsOnline = isOnline;
 
   final String id;
@@ -147,6 +148,7 @@ class PvModule {
   final String? firmwareState;
   final String? firmwareStateDetail;
   final String? firmwareStateUpdatedAt;
+  final String? verificationReadyAt;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -332,6 +334,7 @@ class PvModule {
       firmwareState: (json['firmware_state'] ?? json['firmwareState']) as String?,
       firmwareStateDetail: (json['firmware_state_detail'] ?? json['firmwareStateDetail']) as String?,
       firmwareStateUpdatedAt: (json['firmware_state_updated_at'] ?? json['firmwareStateUpdatedAt']) as String?,
+      verificationReadyAt: (json['verification_ready_at'] ?? json['verificationReadyAt']) as String?,
     );
   }
 
@@ -1157,6 +1160,7 @@ class DeviceStatus {
     this.firmwareState,
     this.firmwareStateDetail,
     this.firmwareStateUpdatedAt,
+    this.verificationReadyAt,
   }) : _explicitIsOnline = isOnline;
 
   final String moduleId;
@@ -1181,6 +1185,7 @@ class DeviceStatus {
   final String? firmwareState;
   final String? firmwareStateDetail;
   final String? firmwareStateUpdatedAt;
+  final String? verificationReadyAt;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -1259,6 +1264,7 @@ class DeviceStatus {
       firmwareState: (json['firmware_state'] ?? json['firmwareState']) as String?,
       firmwareStateDetail: (json['firmware_state_detail'] ?? json['firmwareStateDetail']) as String?,
       firmwareStateUpdatedAt: (json['firmware_state_updated_at'] ?? json['firmwareStateUpdatedAt']) as String?,
+      verificationReadyAt: (json['verification_ready_at'] ?? json['verificationReadyAt']) as String?,
     );
   }
 
@@ -1291,6 +1297,8 @@ class DeviceStatus {
         'firmware_state_detail': firmwareStateDetail,
       if (firmwareStateUpdatedAt != null)
         'firmware_state_updated_at': firmwareStateUpdatedAt,
+      if (verificationReadyAt != null)
+        'verification_ready_at': verificationReadyAt,
       'reset_pending': resetPending,
     };
   }

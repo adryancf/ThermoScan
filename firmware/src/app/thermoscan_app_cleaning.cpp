@@ -308,6 +308,9 @@ void ThermoscanApp::handleWaitingVerification() {
     const bool due_for_ping = (!has_pinged_ && now_ms > 0) ||
                               (has_pinged_ && (now_ms - last_ping_ms_) >= ping_interval_ms);
     if (cloud_ != nullptr && due_for_ping) {
+        const uint32_t spray_end = cleaning_sm_.getSprayEndedTimestamp();
+        const uint32_t ready_epoch = (spray_end > 1700000000UL) ? (spray_end + POST_CLEANING_WAIT_SECONDS) : 0;
+        cloud_->setVerificationReadyAt(ready_epoch);
         cloud_->sendPing();
         last_ping_ms_ = now_ms;
         has_pinged_ = true;

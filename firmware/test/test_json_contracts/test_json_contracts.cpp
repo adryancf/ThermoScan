@@ -567,6 +567,39 @@ void test_ping_reset_ack_cleared_only_on_http_200() {
     TEST_ASSERT_TRUE(captured_bodies[2].find("\"reset_ack\"") == std::string::npos);
 }
 
+void test_ping_verification_ready_at_serialization() {
+    HttpCloudClient client("http://localhost:8080");
+
+    // 1. Default (0) omits verification_ready_at
+    std::string json_omitted = client.buildPingPayload(true, true, true);
+    JsonDocument doc1;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc1, json_omitted).code());
+    TEST_ASSERT_TRUE(doc1["verification_ready_at"].isNull());
+
+    // 2. Epoch <= 1700000000 also omits verification_ready_at
+    client.setVerificationReadyAt(1700000000);
+    std::string json_invalid = client.buildPingPayload(true, true, true);
+    JsonDocument doc2;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc2, json_invalid).code());
+    TEST_ASSERT_TRUE(doc2["verification_ready_at"].isNull());
+
+    // 3. Valid epoch > 1700000000 serializes as RFC3339 UTC
+    client.setVerificationReadyAt(1730721600);
+    std::string json_valid = client.buildPingPayload(true, true, true);
+    JsonDocument doc3;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc3, json_valid).code());
+    TEST_ASSERT_FALSE(doc3["verification_ready_at"].isNull());
+    TEST_ASSERT_TRUE(isValidRFC3339(doc3["verification_ready_at"].as<std::string>()));
+    TEST_ASSERT_EQUAL_STRING("2024-11-04T12:00:00Z", doc3["verification_ready_at"].as<const char*>());
+
+    // 4. Clearing back to 0 omits verification_ready_at again
+    client.setVerificationReadyAt(0);
+    std::string json_cleared = client.buildPingPayload(true, true, true);
+    JsonDocument doc4;
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc4, json_cleared).code());
+    TEST_ASSERT_TRUE(doc4["verification_ready_at"].isNull());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
@@ -580,5 +613,6 @@ int main(int argc, char** argv) {
     RUN_TEST(test_ping_state_ring_buffer_cleared_only_on_http_200);
     RUN_TEST(test_ping_reset_pending_and_ack_json_contract);
     RUN_TEST(test_ping_reset_ack_cleared_only_on_http_200);
+    RUN_TEST(test_ping_verification_ready_at_serialization);
     return UNITY_END();
 }

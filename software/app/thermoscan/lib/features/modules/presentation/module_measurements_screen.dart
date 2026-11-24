@@ -9,6 +9,7 @@ import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dar
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/module_sub_nav_bar.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
 /// SCR-11: Module Details — Inspection History & Telemetry (Unified Timeline)
 class ModuleMeasurementsScreen extends ConsumerStatefulWidget {
@@ -579,9 +580,18 @@ class _ModuleMeasurementsScreenState
     final peakTemp = measurements.isNotEmpty
         ? measurements.map((m) => m.maxTemperatureC).reduce(math.max)
         : null;
-    final deltaT = (peakTemp != null && baselineTemp != null)
-        ? (peakTemp - baselineTemp)
-        : null;
+    final panelBaselines = isLatest
+        ? buildPanelBaselineMap(latestInspection?.panelResults)
+        : const <int, double>{};
+    final deltaT = computeMaxPerPanelDelta(
+          measurements: measurements,
+          panelBaselines: panelBaselines,
+          fallbackBaseline: baselineTemp,
+          module: mod,
+        ) ??
+        ((peakTemp != null && baselineTemp != null)
+            ? (peakTemp - baselineTemp)
+            : null);
 
     final validPowers =
         measurements.map((m) => m.powerW).whereType<double>().toList();

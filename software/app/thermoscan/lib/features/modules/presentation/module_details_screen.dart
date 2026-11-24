@@ -1493,6 +1493,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         ? latestInspection!.inspection.baselineTemperatureC
         : (fallbackBaselineTempC ??
             latestInspection?.inspection.baselineTemperatureC);
+    final panelBaselines = !isInspScheduled
+        ? buildPanelBaselineMap(latestInspection?.panelResults)
+        : const <int, double>{};
     double? peakTemp;
     if (measurements.isNotEmpty) {
       peakTemp = measurements
@@ -1502,9 +1505,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       peakTemp = latestMeasurement.maxTemperatureC;
     }
 
-    final double? delta = (peakTemp != null && baseline != null)
-        ? (peakTemp - baseline)
-        : null;
+    final double? delta = computeMaxPerPanelDelta(
+      measurements: measurements,
+      panelBaselines: panelBaselines,
+      fallbackBaseline: baseline,
+      module: mod,
+      fallbackMeasurement: latestMeasurement,
+    );
 
     final String title;
     final String subtitle;
@@ -2015,8 +2022,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     final confirmedAnomalies = latestInspection?.confirmedAnomalies ?? const [];
     final hasConfirmedHotspots = confirmedAnomalies.isNotEmpty;
 
+    final isInspScheduled = latestInspection?.inspection.status == 'scheduled';
     final double? baselineTemp =
         latestInspection?.inspection.baselineTemperatureC;
+    final panelBaselines = !isInspScheduled
+        ? buildPanelBaselineMap(latestInspection?.panelResults)
+        : const <int, double>{};
     double? peakTemp;
     if (measurements.isNotEmpty) {
       peakTemp = measurements
@@ -2026,9 +2037,13 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       peakTemp = latestMeasurement.maxTemperatureC;
     }
 
-    final double? delta = (peakTemp != null && baselineTemp != null)
-        ? (peakTemp - baselineTemp)
-        : null;
+    final double? delta = computeMaxPerPanelDelta(
+      measurements: measurements,
+      panelBaselines: panelBaselines,
+      fallbackBaseline: baselineTemp,
+      module: mod,
+      fallbackMeasurement: latestMeasurement,
+    );
 
     final voltage = latestMeasurement?.voltageV;
     final current = latestMeasurement?.currentA;

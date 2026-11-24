@@ -378,6 +378,135 @@ class _CoveringFrameCandidate {
   final double distanceToCenterCm;
 }
 
+/// Builds a `panelIndex -> baselineTemperatureC` lookup map from inspection
+/// per-panel results, ignoring invalid or non-positive entries.
+Map<int, double> buildPanelBaselineMap(
+  List<InspectionPanelResult>? panelResults,
+) {
+  if (panelResults == null || panelResults.isEmpty) return const {};
+  final map = <int, double>{};
+  for (final pr in panelResults) {
+    if (pr.panelIndex > 0 &&
+        pr.baselineTemperatureC.isFinite &&
+        pr.baselineTemperatureC > 0) {
+      map[pr.panelIndex] = pr.baselineTemperatureC;
+    }
+  }
+  return map;
+}
+
+/// Resolves the normal/baseline temperature for [frame] using [panelBaselines]
+/// when available, falling back to [fallbackBaseline].
+///
+/// Panel resolution order:
+/// 1. Explicit positive [ModuleMeasurement.panelIndex]
+/// 2. [module.resolvePanelPosition] when [module] is provided
+/// 3. [panelBounds] coordinate lookup when [panelBounds] is provided
+double? resolveFrameBaseline(
+  ModuleMeasurement frame,
+  Map<int, double> panelBaselines,
+  double? fallbackBaseline,
+  PvModule? module, {
+  List<PanelBound> panelBounds = const [],
+}) {
+  if (panelBaselines.isNotEmpty) {
+    int? panelIdx =
+        (frame.panelIndex != null && frame.panelIndex! > 0)
+            ? frame.panelIndex
+            : null;
+    if (panelIdx == null && module != null) {
+      final resolved = module.resolvePanelPosition(frame.xPositionCm);
+      if (!resolved.inGap && resolved.panelIndex > 0) {
+        panelIdx = resolved.panelIndex;
+      }
+    } else if (panelIdx == null && panelBounds.isNotEmpty) {
+      final xCm = frame.xPositionCm;
+      if (xCm < panelBounds.first.startXCm) {
+        panelIdx = panelBounds.first.panelIndex;
+      } else if (xCm > panelBounds.last.endXCm) {
+        panelIdx = panelBounds.last.panelIndex;
+      } else {
+        for (final b in panelBounds) {
+          if (xCm >= b.startXCm - 1e-3 && xCm <= b.endXCm + 1e-3) {
+            panelIdx = b.panelIndex;
+            break;
+          }
+        }
+      }
+    }
+    if (panelIdx != null) {
+      final panelBaseline = panelBaselines[panelIdx];
+      if (panelBaseline != null &&
+          panelBaseline.isFinite &&
+          panelBaseline > 0) {
+        return panelBaseline;
+      }
+    }
+  }
+  return fallbackBaseline;
+}
+
+/// Computes the maximum temperature elevation (`frame.maxTemperatureC - frameBaseline`)
+/// across [measurements] (or [fallbackMeasurement] when [measurements] is empty),
+/// comparing each frame against its own panel baseline when available.
+double? computeMaxPerPanelDelta({
+  required List<ModuleMeasurement> measurements,
+  required Map<int, double> panelBaselines,
+  required double? fallbackBaseline,
+  PvModule? module,
+  ModuleMeasurement? fallbackMeasurement,
+  List<PanelBound> panelBounds = const [],
+}) {
+  final frames = measurements.isNotEmpty
+      ? measurements
+      : (fallbackMeasurement != null
+          ? [fallbackMeasurement]
+          : const <ModuleMeasurement>[]);
+  if (frames.isEmpty) return null;
+
+  double? maxDelta;
+  for (final frame in frames) {
+    final frameBaseline = resolveFrameBaseline(
+      frame,
+      panelBaselines,
+      fallbackBaseline,
+      module,
+      panelBounds: panelBounds,
+    );
+    if (frameBaseline == null || !frameBaseline.isFinite || frameBaseline <= 0) {
+      continue;
+    }
+    final d = frame.maxTemperatureC - frameBaseline;
+    if (maxDelta == null || d > maxDelta) {
+      maxDelta = d;
+    }
+  }
+  return maxDelta;
+}
+
+/// Returns true when [frame.maxTemperatureC] meets or exceeds its resolved panel
+/// baseline plus [hotspotDeltaThresholdC].
+bool isMeasurementElevated(
+  ModuleMeasurement frame, {
+  required Map<int, double> panelBaselines,
+  double? fallbackBaseline,
+  PvModule? module,
+  List<PanelBound> panelBounds = const [],
+  double hotspotDeltaThresholdC = 8.0,
+}) {
+  final base = resolveFrameBaseline(
+    frame,
+    panelBaselines,
+    fallbackBaseline,
+    module,
+    panelBounds: panelBounds,
+  );
+  if (base == null || !base.isFinite || base <= 0) return false;
+  final threshold =
+      hotspotDeltaThresholdC > 0 ? hotspotDeltaThresholdC : 8.0;
+  return (frame.maxTemperatureC - base) >= threshold;
+}
+
 /// Holds the spatially sorted measurements, resolved 2D thermal panorama grid,
 /// calibrated temperature range, and diagnostic counters.
 class ThermalPanoramaData {
@@ -404,8 +533,11 @@ class ThermalPanoramaData {
     required this.panelSpacingCm,
     required this.totalRailLengthCm,
     this.baselineTempC,
+    Map<int, double> panelBaselines = const {},
+    List<double?> frameBaselines = const [],
     this.hotspotDeltaThresholdC = 8.0,
-  });
+  }) : panelBaselines = Map<int, double>.unmodifiable(panelBaselines),
+       _frameBaselines = List<double?>.unmodifiable(frameBaselines);
 
   factory ThermalPanoramaData.fromMeasurements({
     required List<ModuleMeasurement> measurements,
@@ -416,6 +548,7 @@ class ThermalPanoramaData {
     int? focusedPanelIndex,
     int? totalInspectionMeasurements,
     double? baselineTempC,
+    Map<int, double>? panelBaselines,
     double hotspotDeltaThresholdC = 8.0,
     bool fitToScannedRange = false,
     bool deduplicateSpatially = true,
@@ -567,6 +700,31 @@ class ThermalPanoramaData {
       sorted,
     );
 
+    final sanitizedPanelBaselines = <int, double>{};
+    if (panelBaselines != null) {
+      for (final entry in panelBaselines.entries) {
+        if (entry.key > 0 && entry.value.isFinite && entry.value > 0) {
+          sanitizedPanelBaselines[entry.key] = entry.value;
+        }
+      }
+    }
+
+    final effectiveBaselineTempC =
+        (focusedPanelIndex != null ? sanitizedPanelBaselines[focusedPanelIndex] : null) ??
+            baselineTempC;
+
+    final frameBaselines = sorted
+        .map(
+          (f) => resolveFrameBaseline(
+            f,
+            sanitizedPanelBaselines,
+            effectiveBaselineTempC,
+            null,
+            panelBounds: bounds,
+          ),
+        )
+        .toList(growable: false);
+
     return ThermalPanoramaData._(
       sortedMeasurements: sorted,
       confirmedAnomalies: confirmedAnomalies,
@@ -589,7 +747,9 @@ class ThermalPanoramaData {
       panelCount: effectiveCount,
       panelSpacingCm: effectiveSpacing,
       totalRailLengthCm: totalRail,
-      baselineTempC: baselineTempC,
+      baselineTempC: effectiveBaselineTempC,
+      panelBaselines: sanitizedPanelBaselines,
+      frameBaselines: frameBaselines,
       hotspotDeltaThresholdC: hotspotDeltaThresholdC,
     );
   }
@@ -598,6 +758,8 @@ class ThermalPanoramaData {
   final List<ConfirmedAnomaly> confirmedAnomalies;
   final ThermalCoverageInfo coverageInfo;
   final double? baselineTempC;
+  final Map<int, double> panelBaselines;
+  final List<double?> _frameBaselines;
   final double hotspotDeltaThresholdC;
   final double minDomainX;
   final double maxDomainX;
@@ -757,9 +919,67 @@ class ThermalPanoramaData {
     );
   }
 
+  /// Resolves the baseline temperature for [frame] from [panelBaselines]
+  /// (falling back to [baselineTempC]).
+  double? baselineForFrame(ModuleMeasurement frame) {
+    return resolveFrameBaseline(
+      frame,
+      panelBaselines,
+      baselineTempC,
+      null,
+      panelBounds: panelBounds,
+    );
+  }
+
+  /// Resolves the baseline temperature for [panelIndex] from [panelBaselines]
+  /// (falling back to [baselineTempC]).
+  double? baselineForPanel(int? panelIndex) {
+    if (panelIndex != null && panelIndex > 0) {
+      final pBase = panelBaselines[panelIndex];
+      if (pBase != null && pBase.isFinite && pBase > 0) {
+        return pBase;
+      }
+    }
+    return baselineTempC;
+  }
+
+  /// Returns a single-frame temperature-to-color mapper calibrated to [frame]'s
+  /// own panel baseline when available.
+  Color Function(double tempC) colorMapperForFrame(ModuleMeasurement frame) {
+    final frameBase = baselineForFrame(frame);
+    return (double tempC) =>
+        colorForTemperature(tempC, baselineOverrideC: frameBase);
+  }
+
+  /// Maps a resolved [ThermalCellResolution] cell at [xCm] using its source
+  /// frame's panel baseline when available.
+  Color colorForCell(ThermalCellResolution cell, {double? xCm}) {
+    if (!cell.hasValidTemperature) {
+      return ThermalPanoramaPainter.unresolvedInvalidColor;
+    }
+    double? cellBaseline;
+    final srcIdx = cell.sourceFrameIndex;
+    if (srcIdx != null && srcIdx >= 0 && srcIdx < _frameBaselines.length) {
+      cellBaseline = _frameBaselines[srcIdx];
+    } else if (xCm != null && panelBaselines.isNotEmpty && panelBounds.isNotEmpty) {
+      for (final b in panelBounds) {
+        if (b.contains(xCm)) {
+          cellBaseline = panelBaselines[b.panelIndex];
+          break;
+        }
+      }
+    }
+    return colorForTemperature(
+      cell.temperatureC!,
+      baselineOverrideC: cellBaseline,
+    );
+  }
+
   /// Generates a calibrated gradient reflecting the isotherm color ramp for scale bars.
   List<Color> get scaleGradientColors {
-    if (baselineTempC != null && baselineTempC! > 0) {
+    final hasAnyBaseline = (baselineTempC != null && baselineTempC! > 0) ||
+        panelBaselines.values.any((v) => v.isFinite && v > 0);
+    if (hasAnyBaseline) {
       return const [
         AppColors.thermalCold, // Deep blue
         AppColors.thermalCool, // Cyan (at normal elevation)
@@ -773,18 +993,25 @@ class ThermalPanoramaData {
   }
 
   /// Maps a valid temperature [tempC] to an isotherm-enhanced radiometric color.
-  /// When a [baselineTempC] is available:
+  /// When a baseline ([baselineOverrideC], [panelBaselines] for [panelIndex], or [baselineTempC]) is available:
   /// - Temperatures <= (baseline + 0.4 * delta): Deep cold blues to cyan.
   /// - Temperatures between (baseline + 0.4 * delta) and (baseline + delta): Warm transition (cyan to golden amber).
   /// - Temperatures >= (baseline + delta) (ISOTHERM ZONE): Immediate bright thermal alarm (hot orange -> vivid red -> incandescent white).
   /// Falls back to linear interpolation along [AppColors.thermalSpectrum] when baseline is not available.
-  Color colorForTemperature(double tempC) {
+  Color colorForTemperature(
+    double tempC, {
+    int? panelIndex,
+    double? baselineOverrideC,
+  }) {
     if (!isValidPixelValue(tempC) || !hasValidTemperatures) {
       return ThermalPanoramaPainter.unresolvedInvalidColor;
     }
 
-    if (baselineTempC != null && baselineTempC! > 0) {
-      final base = baselineTempC!;
+    final effectiveBaseline =
+        baselineOverrideC ?? baselineForPanel(panelIndex);
+
+    if (effectiveBaseline != null && effectiveBaseline > 0) {
+      final base = effectiveBaseline;
       final delta = hotspotDeltaThresholdC > 0 ? hotspotDeltaThresholdC : 8.0;
       final alarmT = base + delta;
       final midT = base + (delta * 0.4);
@@ -911,7 +1138,7 @@ class ThermalPanoramaPainter extends CustomPainter {
           if (cell.isUnresolvedInvalid) {
             cellPaint.color = unresolvedInvalidColor;
           } else if (cell.hasValidTemperature) {
-            cellPaint.color = panorama.colorForTemperature(cell.temperatureC!);
+            cellPaint.color = panorama.colorForCell(cell, xCm: xCm);
           } else {
             continue;
           }
@@ -1083,6 +1310,7 @@ class SingleFrameMatrixPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant SingleFrameMatrixPainter oldDelegate) {
-    return oldDelegate.thermalFrame != thermalFrame;
+    return oldDelegate.thermalFrame != thermalFrame ||
+        oldDelegate.colorForTemperature != colorForTemperature;
   }
 }

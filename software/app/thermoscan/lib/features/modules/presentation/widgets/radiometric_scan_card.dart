@@ -107,6 +107,43 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     return closestIdx;
   }
 
+  ({ModuleMeasurement? measurement, double? peak, double? delta})
+      _resolveAnomalyMetrics({
+    required ConfirmedAnomaly anomaly,
+    required List<ModuleMeasurement> displayedMeasurements,
+    required Map<int, double> panelBaselines,
+    required double? fallbackBaseline,
+    required double? fallbackDelta,
+  }) {
+    ModuleMeasurement? anomMeas;
+    for (final fm in displayedMeasurements) {
+      if (isFrameAssociatedWithAnomaly(fm, anomaly)) {
+        anomMeas = fm;
+        break;
+      }
+    }
+    final anomPeak = anomMeas?.maxTemperatureC;
+    final double? anomBaseline;
+    if (anomMeas != null) {
+      anomBaseline = resolveFrameBaseline(
+        anomMeas,
+        panelBaselines,
+        fallbackBaseline,
+        widget.module,
+      );
+    } else {
+      final pIdx = (anomaly.panelIndex != null && anomaly.panelIndex! > 0)
+          ? anomaly.panelIndex!
+          : widget.module.resolvePanelPosition(anomaly.xPositionCm).panelIndex;
+      anomBaseline = (pIdx > 0 ? panelBaselines[pIdx] : null) ?? fallbackBaseline;
+    }
+    final anomDelta =
+        (anomPeak != null && anomBaseline != null && anomBaseline > 0)
+            ? (anomPeak - anomBaseline)
+            : fallbackDelta;
+    return (measurement: anomMeas, peak: anomPeak, delta: anomDelta);
+  }
+
   void _toggleTimelinePlayback(List<ModuleMeasurement> sortedFrames) {
     if (sortedFrames.isEmpty) return;
     if (_isPlaying) {
@@ -248,22 +285,19 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             return true;
           }).toList();
 
-    InspectionPanelResult? focusedPanelResult;
-    final pResults = insp?.panelResults;
-    if (_focusedPanelIndex != null && pResults != null) {
-      for (final pr in pResults) {
-        if (pr.panelIndex == _focusedPanelIndex) {
-          focusedPanelResult = pr;
-          break;
-        }
-      }
-    }
-    final baselineTemp = focusedPanelResult?.baselineTemperatureC ??
+    final panelBaselines = !isInspScheduled
+        ? buildPanelBaselineMap(insp?.panelResults)
+        : const <int, double>{};
+    final globalBaselineTemp =
         ((!isInspScheduled && insp?.inspection.baselineTemperatureC != null)
             ? insp!.inspection.baselineTemperatureC
             : null) ??
         widget.fallbackBaselineTempC ??
         insp?.inspection.baselineTemperatureC;
+    final baselineTemp = (_focusedPanelIndex != null
+            ? panelBaselines[_focusedPanelIndex!]
+            : null) ??
+        globalBaselineTemp;
 
     final panorama = ThermalPanoramaData.fromMeasurements(
       measurements: filteredInputMeasurements,
@@ -276,6 +310,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           ? insp?.totalMeasurements
           : null,
       baselineTempC: baselineTemp,
+      panelBaselines: panelBaselines,
       hotspotDeltaThresholdC: widget.module.hotspotThresholdDeltaC,
       fitToScannedRange: _fitToScan,
       deduplicateSpatially: widget.deduplicateSpatially,
@@ -349,10 +384,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             ? displayedMeasurements.first.xPositionCm
             : (m?.xPositionCm ?? 0.0));
 
-    // Relative delta above baseline (strictly relative, never fixed threshold)
-    final delta = (peakTemp > 0 && baselineTemp != null && baselineTemp > 0)
-        ? (peakTemp - baselineTemp)
-        : null;
+    // Relative delta above each frame's own panel baseline (never global average when per-panel baselines exist)
+    final delta = computeMaxPerPanelDelta(
+      measurements: displayedMeasurements,
+      panelBaselines: panelBaselines,
+      fallbackBaseline: baselineTemp,
+      module: widget.module,
+      fallbackMeasurement: _focusedPanelIndex == null ? m : null,
+      panelBounds: panorama.panelBounds,
+    );
 
     final String deltaText;
     final bool isErrorBadge = (hasPostCleaning && !_showRestoredView && rawAnomalies.isNotEmpty) ||
@@ -959,6 +999,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                                   panorama: panorama,
                                                   confirmedAnomalies:
                                                       visibleAnomalies,
+                                                  panelBaselines: panelBaselines,
                                                 );
                                               },
                                               child: AnimatedContainer(
@@ -1071,19 +1112,14 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                               anomaly.xPositionCm,
                             ).clamp(14.0, math.max(14.0, w - 30.0)).toDouble();
 
-                            ModuleMeasurement? anomMeas;
-                            for (final fm in displayedMeasurements) {
-                              if (isFrameAssociatedWithAnomaly(fm, anomaly)) {
-                                anomMeas = fm;
-                                break;
-                              }
-                            }
-                            final anomPeak = anomMeas?.maxTemperatureC;
-                            final anomDelta = (anomPeak != null &&
-                                    baselineTemp != null &&
-                                    baselineTemp > 0)
-                                ? (anomPeak - baselineTemp)
-                                : delta;
+                            final anomMetrics = _resolveAnomalyMetrics(
+                              anomaly: anomaly,
+                              displayedMeasurements: displayedMeasurements,
+                              panelBaselines: panelBaselines,
+                              fallbackBaseline: baselineTemp,
+                              fallbackDelta: delta,
+                            );
+                            final anomDelta = anomMetrics.delta;
 
                             final deltaStr = anomDelta != null
                                 ? '+${anomDelta.toStringAsFixed(1)}°C'
@@ -1210,19 +1246,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                     (globalIdx >= 0 ? globalIdx : _selectedHotspotIndex!) +
                                         1;
 
-                                ModuleMeasurement? anomMeas;
-                                for (final fm in displayedMeasurements) {
-                                  if (isFrameAssociatedWithAnomaly(fm, anomaly)) {
-                                    anomMeas = fm;
-                                    break;
-                                  }
-                                }
-                                final anomPeak = anomMeas?.maxTemperatureC;
-                                final anomDelta = (anomPeak != null &&
-                                        baselineTemp != null &&
-                                        baselineTemp > 0)
-                                    ? (anomPeak - baselineTemp)
-                                    : delta;
+                                final anomMetrics = _resolveAnomalyMetrics(
+                                  anomaly: anomaly,
+                                  displayedMeasurements: displayedMeasurements,
+                                  panelBaselines: panelBaselines,
+                                  fallbackBaseline: baselineTemp,
+                                  fallbackDelta: delta,
+                                );
+                                final anomPeak = anomMetrics.peak;
+                                final anomDelta = anomMetrics.delta;
 
                                 return Positioned(
                                   key: Key(
@@ -1421,6 +1453,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               baselineTemp: baselineTemp,
               panorama: panorama,
               confirmedAnomalies: visibleAnomalies,
+              panelBaselines: panelBaselines,
             ),
           ],
 
@@ -1450,6 +1483,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
               panorama: panorama,
               peakTemp: peakTemp,
               baselineTemp: baselineTemp,
+              panelBaselines: panelBaselines,
             ),
           ],
 
@@ -1459,6 +1493,9 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             _buildThermalProfileCurveAccordion(
               sortedFrames: displayedMeasurements,
               baselineTemp: baselineTemp,
+              panelBaselines: panelBaselines,
+              panelBounds: panorama.panelBounds,
+              hotspotDeltaThresholdC: widget.module.hotspotThresholdDeltaC,
             ),
           ],
 
@@ -1545,6 +1582,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     required ThermalPanoramaData panorama,
     required double peakTemp,
     required double? baselineTemp,
+    Map<int, double> panelBaselines = const {},
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1719,6 +1757,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                                     baselineTemp,
                                     panorama: panorama,
                                     confirmedAnomalies: visibleAnomalies,
+                                    panelBaselines: panelBaselines,
                                   );
                                 },
                                 child: Container(
@@ -2277,6 +2316,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     required double? baselineTemp,
     required ThermalPanoramaData panorama,
     required List<ConfirmedAnomaly> confirmedAnomalies,
+    Map<int, double> panelBaselines = const {},
   }) {
     final total = sortedFrames.length;
     final activeIndex = _timelineFrameIndex.clamp(0, total - 1);
@@ -2311,6 +2351,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                     maxTemp: maxTemp,
                     baselineTemp: baselineTemp,
                     panorama: panorama,
+                    panelBaselines: panelBaselines,
                   );
                 },
                 child: Container(
@@ -2423,6 +2464,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                     baselineTemp,
                     panorama: panorama,
                     confirmedAnomalies: confirmedAnomalies,
+                    panelBaselines: panelBaselines,
                   );
                 },
                 child: Container(
@@ -2643,8 +2685,39 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
   Widget _buildThermalProfileCurveAccordion({
     required List<ModuleMeasurement> sortedFrames,
     required double? baselineTemp,
+    Map<int, double> panelBaselines = const {},
+    List<PanelBound> panelBounds = const [],
+    double hotspotDeltaThresholdC = 8.0,
   }) {
     final activeIndex = _timelineFrameIndex.clamp(0, sortedFrames.length - 1);
+    final threshold =
+        hotspotDeltaThresholdC > 0 ? hotspotDeltaThresholdC : 8.0;
+    final distinctBaselines = <double>{};
+    for (final f in sortedFrames) {
+      final b = resolveFrameBaseline(
+        f,
+        panelBaselines,
+        baselineTemp,
+        widget.module,
+        panelBounds: panelBounds,
+      );
+      if (b != null && b > 0) {
+        distinctBaselines.add(double.parse(b.toStringAsFixed(2)));
+      }
+    }
+    final String? curveSubtitle;
+    if (distinctBaselines.length > 1) {
+      curveSubtitle =
+          'Per-panel Normal • Alert: +${threshold.toStringAsFixed(1)}°C';
+    } else {
+      final singleBase = distinctBaselines.length == 1
+          ? distinctBaselines.first
+          : baselineTemp;
+      curveSubtitle = (singleBase != null && singleBase > 0)
+          ? 'Normal: ${singleBase.toStringAsFixed(1)}°C • Alert Level: ${(singleBase + threshold).toStringAsFixed(1)}°C'
+          : null;
+    }
+
     return Container(
       decoration: BoxDecoration(
         color: AppColors.background,
@@ -2704,22 +2777,26 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Highest Temperature by Position along the Track',
-                        style: AppTypography.caption.copyWith(
-                          fontSize: 10,
-                          color: AppColors.textSecondary,
-                          fontWeight: FontWeight.w600,
+                      Flexible(
+                        child: Text(
+                          'Highest Temperature by Position along the Track',
+                          style: AppTypography.caption.copyWith(
+                            fontSize: 10,
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
-                      if (baselineTemp != null && baselineTemp > 0)
+                      if (curveSubtitle != null) ...[
+                        const SizedBox(width: 8),
                         Text(
-                          'Normal: ${baselineTemp.toStringAsFixed(1)}°C • Alert Level: ${(baselineTemp + 10.0).toStringAsFixed(1)}°C',
+                          curveSubtitle,
                           style: AppTypography.caption.copyWith(
                             fontSize: 9.5,
                             color: AppColors.textSecondary,
                           ),
                         ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -2731,6 +2808,9 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                         sortedFrames: sortedFrames,
                         activeFrameIndex: activeIndex,
                         baselineTempC: baselineTemp,
+                        panelBaselines: panelBaselines,
+                        panelBounds: panelBounds,
+                        hotspotDeltaThresholdC: threshold,
                       ),
                     ),
                   ),
@@ -2753,6 +2833,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     required double maxTemp,
     required double? baselineTemp,
     required ThermalPanoramaData panorama,
+    Map<int, double> panelBaselines = const {},
   }) {
     showModalBottomSheet<void>(
       context: context,
@@ -2926,6 +3007,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       baselineTemp,
                       panorama: panorama,
                       confirmedAnomalies: confirmedAnomalies,
+                      panelBaselines: panelBaselines,
                     );
                   },
                   icon: const Icon(Icons.grid_on_rounded, size: 14),
@@ -2958,9 +3040,12 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
     double? baselineTemp, {
     required ThermalPanoramaData panorama,
     required List<ConfirmedAnomaly> confirmedAnomalies,
+    Map<int, double> panelBaselines = const {},
   }) {
     if (sortedFrames.isEmpty) return;
     var currentFrameIndex = initialFrameIndex.clamp(0, sortedFrames.length - 1);
+    final effectivePanelBaselines =
+        panelBaselines.isNotEmpty ? panelBaselines : panorama.panelBaselines;
 
     showModalBottomSheet<void>(
       context: context,
@@ -2971,6 +3056,17 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
           builder: (modalContext, setModalState) {
             final measurement = sortedFrames[currentFrameIndex];
             final tf = measurement.thermalFrame;
+            final activeFrameBaseline = resolveFrameBaseline(
+              measurement,
+              effectivePanelBaselines,
+              baselineTemp,
+              widget.module,
+              panelBounds: panorama.panelBounds,
+            );
+            final frameDelta =
+                (activeFrameBaseline != null && activeFrameBaseline > 0)
+                    ? (measurement.maxTemperatureC - activeFrameBaseline)
+                    : null;
             final anomalyLabels = getFrameAnomalyLabels(
               measurement,
               confirmedAnomalies,
@@ -3177,9 +3273,15 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       // Shared Interactive 32x24 Thermal Matrix View with Pixel Crosshair
                       InteractiveThermalMatrixView(
                         thermalFrame: tf ?? const <double?>[],
-                        colorForTemperature: panorama.colorForTemperature,
+                        colorForTemperature: (tempC) =>
+                            panorama.colorForTemperature(
+                          tempC,
+                          baselineOverrideC: activeFrameBaseline,
+                        ),
                         fallbackPeakTemp: measurement.maxTemperatureC,
-                        baselineTemp: baselineTemp,
+                        baselineTemp: activeFrameBaseline,
+                        hotspotDeltaThresholdC:
+                            widget.module.hotspotThresholdDeltaC,
                         scaleColors: panorama.scaleGradientColors,
                         showStatsRow: true,
                         showColorScale: true,
@@ -3188,36 +3290,44 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
                       ),
                       const SizedBox(height: 8),
 
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            'Span: ${(measurement.xPositionCm - 2.5).toStringAsFixed(1)} - ${(measurement.xPositionCm + 2.5).toStringAsFixed(1)} cm',
-                            style: AppTypography.caption.copyWith(
-                              fontSize: 10,
-                              color: AppColors.textSecondary,
-                            ),
-                          ),
-                          Text(
-                            'Peak: ${measurement.maxTemperatureC.toStringAsFixed(1)}°C',
-                            style: AppTypography.caption.copyWith(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: isConfirmed
-                                  ? AppColors.error
-                                  : AppColors.textPrimary,
-                            ),
-                          ),
-                          if ((measurement.voltageV ?? 0.0) > 0.05)
+                      SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
                             Text(
-                              '${measurement.voltageV!.toStringAsFixed(2)}V • ${measurement.currentA != null ? "${(measurement.currentA! * 1000).toStringAsFixed(1)}mA" : "0.0mA"}',
+                              'Span: ${(measurement.xPositionCm - 2.5).toStringAsFixed(1)} - ${(measurement.xPositionCm + 2.5).toStringAsFixed(1)} cm',
                               style: AppTypography.caption.copyWith(
                                 fontSize: 10,
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
                               ),
                             ),
-                        ],
+                            Text(
+                              frameDelta != null
+                                  ? 'Peak: ${measurement.maxTemperatureC.toStringAsFixed(1)}°C (${frameDelta >= 0 ? '+' : ''}${frameDelta.toStringAsFixed(1)} °C)'
+                                  : 'Peak: ${measurement.maxTemperatureC.toStringAsFixed(1)}°C',
+                              style: AppTypography.caption.copyWith(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: isConfirmed
+                                    ? AppColors.error
+                                    : AppColors.textPrimary,
+                              ),
+                            ),
+                            if ((measurement.voltageV ?? 0.0) > 0.05)
+                              Text(
+                                '${measurement.voltageV!.toStringAsFixed(2)}V • ${measurement.currentA != null ? "${(measurement.currentA! * 1000).toStringAsFixed(1)}mA" : "0.0mA"}',
+                                style: AppTypography.caption.copyWith(
+                                  fontSize: 10,
+                                  color: AppColors.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -3500,11 +3610,17 @@ class _ThermalProfileCurvePainter extends CustomPainter {
     required this.sortedFrames,
     required this.activeFrameIndex,
     this.baselineTempC,
+    this.panelBaselines = const {},
+    this.panelBounds = const [],
+    this.hotspotDeltaThresholdC = 8.0,
   });
 
   final List<ModuleMeasurement> sortedFrames;
   final int activeFrameIndex;
   final double? baselineTempC;
+  final Map<int, double> panelBaselines;
+  final List<PanelBound> panelBounds;
+  final double hotspotDeltaThresholdC;
 
   void _drawDashedHorizontalLine(
     Canvas canvas,
@@ -3550,10 +3666,24 @@ class _ThermalProfileCurvePainter extends CustomPainter {
       if (f.maxTemperatureC > maxTemp) maxTemp = f.maxTemperatureC;
     }
 
-    final hasBaseline = baselineTempC != null && baselineTempC! > 0;
-    if (hasBaseline) {
-      minTemp = math.min(minTemp, baselineTempC!);
-      maxTemp = math.max(maxTemp, baselineTempC! + 10.0);
+    final threshold =
+        hotspotDeltaThresholdC > 0 ? hotspotDeltaThresholdC : 8.0;
+    final resolvedBaselines = <double?>[
+      for (final f in sortedFrames)
+        resolveFrameBaseline(
+          f,
+          panelBaselines,
+          baselineTempC,
+          null,
+          panelBounds: panelBounds,
+        ),
+    ];
+
+    for (final base in resolvedBaselines) {
+      if (base != null && base > 0) {
+        minTemp = math.min(minTemp, base);
+        maxTemp = math.max(maxTemp, base + threshold);
+      }
     }
 
     final minY = minTemp - 2.0;
@@ -3604,32 +3734,45 @@ class _ThermalProfileCurvePainter extends CustomPainter {
       tp.paint(canvas, Offset(4, y - tp.height / 2));
     }
 
-    // Dashed Baseline & +10°C Threshold lines
-    if (hasBaseline) {
-      final baseY = tempToY(baselineTempC!);
-      final basePaint = Paint()
-        ..color = AppColors.secondary
-        ..strokeWidth = 1.2;
-      _drawDashedHorizontalLine(
-        canvas,
-        baseY,
-        padLeft,
-        padLeft + plotW,
-        basePaint,
-      );
+    // Dashed per-panel Baseline & Threshold lines
+    final basePaint = Paint()
+      ..color = AppColors.secondary
+      ..strokeWidth = 1.2;
+    final threshPaint = Paint()
+      ..color = AppColors.error
+      ..strokeWidth = 1.2;
 
-      final threshTemp = baselineTempC! + 10.0;
-      final threshY = tempToY(threshTemp);
-      final threshPaint = Paint()
-        ..color = AppColors.error
-        ..strokeWidth = 1.2;
-      _drawDashedHorizontalLine(
-        canvas,
-        threshY,
-        padLeft,
-        padLeft + plotW,
-        threshPaint,
-      );
+    var segStart = 0;
+    while (segStart < sortedFrames.length) {
+      final segBase = resolvedBaselines[segStart];
+      var segEnd = segStart;
+      while (segEnd + 1 < sortedFrames.length &&
+          resolvedBaselines[segEnd + 1] == segBase) {
+        segEnd++;
+      }
+      if (segBase != null && segBase > 0) {
+        final leftX = segStart == 0
+            ? padLeft
+            : (indexToX(segStart - 1) + indexToX(segStart)) / 2.0;
+        final rightX = segEnd == sortedFrames.length - 1
+            ? padLeft + plotW
+            : (indexToX(segEnd) + indexToX(segEnd + 1)) / 2.0;
+        _drawDashedHorizontalLine(
+          canvas,
+          tempToY(segBase),
+          leftX,
+          rightX,
+          basePaint,
+        );
+        _drawDashedHorizontalLine(
+          canvas,
+          tempToY(segBase + threshold),
+          leftX,
+          rightX,
+          threshPaint,
+        );
+      }
+      segStart = segEnd + 1;
     }
 
     // Plot curve and points
@@ -3673,8 +3816,14 @@ class _ThermalProfileCurvePainter extends CustomPainter {
 
     for (var i = 0; i < points.length; i++) {
       final pt = points[i];
-      final temp = sortedFrames[i].maxTemperatureC;
-      final isElevated = hasBaseline && (temp - baselineTempC!) >= 10.0;
+      final frame = sortedFrames[i];
+      final isElevated = isMeasurementElevated(
+        frame,
+        panelBaselines: panelBaselines,
+        fallbackBaseline: baselineTempC,
+        panelBounds: panelBounds,
+        hotspotDeltaThresholdC: threshold,
+      );
       final isActive = i == activeFrameIndex;
 
       if (isActive) {
@@ -3723,6 +3872,9 @@ class _ThermalProfileCurvePainter extends CustomPainter {
   bool shouldRepaint(covariant _ThermalProfileCurvePainter oldDelegate) {
     return oldDelegate.sortedFrames != sortedFrames ||
         oldDelegate.activeFrameIndex != activeFrameIndex ||
-        oldDelegate.baselineTempC != baselineTempC;
+        oldDelegate.baselineTempC != baselineTempC ||
+        oldDelegate.panelBaselines != panelBaselines ||
+        oldDelegate.panelBounds != panelBounds ||
+        oldDelegate.hotspotDeltaThresholdC != hotspotDeltaThresholdC;
   }
 }

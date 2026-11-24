@@ -105,6 +105,9 @@ class CleanThermalPreviewCard extends StatelessWidget {
     final double? baselineTemp = (!isInspScheduled && insp != null && insp.inspection.baselineTemperatureC != null)
         ? insp.inspection.baselineTemperatureC
         : (fallbackBaselineTempC ?? insp?.inspection.baselineTemperatureC);
+    final panelBaselines = !isInspScheduled
+        ? buildPanelBaselineMap(insp?.panelResults)
+        : const <int, double>{};
     double? peakTemp;
     if (effectiveMeasurements.isNotEmpty) {
       peakTemp = effectiveMeasurements
@@ -114,9 +117,13 @@ class CleanThermalPreviewCard extends StatelessWidget {
       peakTemp = m.maxTemperatureC;
     }
 
-    final double? delta = (peakTemp != null && baselineTemp != null)
-        ? (peakTemp - baselineTemp)
-        : null;
+    final double? delta = computeMaxPerPanelDelta(
+      measurements: effectiveMeasurements,
+      panelBaselines: panelBaselines,
+      fallbackBaseline: baselineTemp,
+      module: module,
+      fallbackMeasurement: m,
+    );
 
     final timestampIso = m?.measuredAt ?? insp?.inspection.createdAt;
     final formattedTime = _formatReadingTimestamp(timestampIso);
@@ -129,6 +136,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
       panelCount: module.panelCount,
       panelSpacingCm: module.panelSpacingCm,
       baselineTempC: baselineTemp,
+      panelBaselines: panelBaselines,
       hotspotDeltaThresholdC: module.hotspotThresholdDeltaC,
       fitToScannedRange: false,
     );

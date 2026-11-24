@@ -199,6 +199,7 @@ class InteractiveThermalMatrixView extends StatefulWidget {
     required this.colorForTemperature,
     this.fallbackPeakTemp,
     this.baselineTemp,
+    this.hotspotDeltaThresholdC = 8.0,
     this.minTemp,
     this.avgTemp,
     this.maxTemp,
@@ -215,6 +216,7 @@ class InteractiveThermalMatrixView extends StatefulWidget {
   final Color Function(double tempC) colorForTemperature;
   final double? fallbackPeakTemp;
   final double? baselineTemp;
+  final double hotspotDeltaThresholdC;
   final double? minTemp;
   final double? avgTemp;
   final double? maxTemp;
@@ -478,7 +480,10 @@ class _InteractiveThermalMatrixViewState
                   style: AppTypography.caption.copyWith(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: pixelDelta >= 10.0
+                    color: pixelDelta >=
+                            (widget.hotspotDeltaThresholdC > 0
+                                ? widget.hotspotDeltaThresholdC
+                                : 8.0)
                         ? AppColors.error
                         : AppColors.textSecondary,
                   ),

@@ -178,6 +178,9 @@ bool NvsStorage::saveCleaningQueue(const std::vector<QueuedHotspot>& queue) {
     JsonDocument doc;
     JsonArray arr = doc.to<JsonArray>();
     for (const auto& item : queue) {
+        if (item.verification_status != "pending" && item.verification_status != "cleaned") {
+            continue;
+        }
         JsonObject obj = arr.add<JsonObject>();
         obj["p"] = item.panel_index;
         obj["x"] = item.target_x_cm;
@@ -188,16 +191,31 @@ bool NvsStorage::saveCleaningQueue(const std::vector<QueuedHotspot>& queue) {
         obj["b"] = item.baseline_temp_c;
         obj["int"] = item.spray_interrupted;
     }
+    if (arr.size() == 0) {
+        return clearCleaningQueue();
+    }
     String output;
     serializeJson(doc, output);
-    return preferences_.putString(KEY_CLEAN_QUEUE, output) > 0;
+    if (preferences_.isKey(KEY_CLEAN_QUEUE) && preferences_.getType(KEY_CLEAN_QUEUE) != PT_BLOB) {
+        preferences_.remove(KEY_CLEAN_QUEUE);
+    }
+    return preferences_.putBytes(KEY_CLEAN_QUEUE, output.c_str(), output.length()) == output.length();
 }
 
 bool NvsStorage::getCleaningQueue(std::vector<QueuedHotspot>& out) {
     out.clear();
     if (!initialized_ && !init()) return false;
     if (!preferences_.isKey(KEY_CLEAN_QUEUE)) return false;
-    String raw = preferences_.getString(KEY_CLEAN_QUEUE, "");
+    String raw;
+    if (preferences_.getType(KEY_CLEAN_QUEUE) == PT_BLOB) {
+        const size_t len = preferences_.getBytesLength(KEY_CLEAN_QUEUE);
+        if (len == 0) return false;
+        std::vector<char> buf(len + 1, '\0');
+        if (preferences_.getBytes(KEY_CLEAN_QUEUE, buf.data(), len) != len) return false;
+        raw = buf.data();
+    } else {
+        raw = preferences_.getString(KEY_CLEAN_QUEUE, "");
+    }
     if (raw.isEmpty()) return false;
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, raw);
@@ -220,6 +238,7 @@ bool NvsStorage::getCleaningQueue(std::vector<QueuedHotspot>& out) {
 
 bool NvsStorage::clearCleaningQueue() {
     if (!initialized_ && !init()) return false;
+    if (!preferences_.isKey(KEY_CLEAN_QUEUE)) return true;
     return preferences_.remove(KEY_CLEAN_QUEUE);
 }
 

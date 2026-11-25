@@ -50,6 +50,7 @@ void ThermoscanApp::handleCleaning() {
                           manual_cleaning_target_x_, NOZZLE_DEFAULT_ANGLE);
             if (motion_ != nullptr) {
                 motion_->moveToXCm(manual_cleaning_target_x_);
+                motion_->disableMotor();
             }
             if (spray_ != nullptr) {
                 spray_->setNozzleAngle(NOZZLE_DEFAULT_ANGLE);
@@ -86,7 +87,7 @@ void ThermoscanApp::handleCleaning() {
             if (pos.within_bounds && !pos.in_gap && water_ok && temp_ok) {
                 cloud_->recordStateTransition("MANUAL_CLEANING", "completed", getCurrentTime());
             }
-            cloud_->setManualCleaningAckPending(true);
+            cloud_->clearManualCleaningPending();
             cloud_->sendPing();
         }
         saveCurrentStateToNvs();
@@ -182,9 +183,10 @@ void ThermoscanApp::handleCleaning() {
 
         Serial.printf("[CLEANING] Moving to X = %.1f cm and aligning nozzle to %.1f deg...\n", qh.target_x_cm, NOZZLE_DEFAULT_ANGLE);
 
-        // Position carriage at target X and align nozzle
+        // Position carriage at target X, disable stepper to reduce peak current draw during spray, and align nozzle
         if (motion_ != nullptr) {
             motion_->moveToXCm(qh.target_x_cm);
+            motion_->disableMotor();
         }
         if (spray_ != nullptr) {
             spray_->setNozzleAngle(NOZZLE_DEFAULT_ANGLE);
@@ -270,6 +272,14 @@ void ThermoscanApp::handleCleaning() {
     // Return carriage to home
     if (motion_ != nullptr) {
         motion_->moveToXCm(0.0f);
+    }
+
+    // Cleaning pass finished without crashing: clear any crash-retry counter
+    if (inspection_crash_retries_ > 0) {
+        inspection_crash_retries_ = 0;
+        if (storage_ != nullptr && inspection_source_event_id_.empty()) {
+            storage_->clearInspectionProgress();
+        }
     }
 
     if (any_sprayed) {

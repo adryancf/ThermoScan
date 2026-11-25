@@ -29,7 +29,24 @@ std::string getBackendUrl() {
     if (env_url != nullptr && env_url[0] != '\0') {
         return std::string(env_url);
     }
-    return "http://localhost:8080";
+    return "http://127.0.0.1:18080";
+}
+
+std::string getDbContainerName() {
+    const char* env_db = std::getenv("THERMOSCAN_E2E_DB_CONTAINER");
+    if (env_db != nullptr && env_db[0] != '\0') {
+        return std::string(env_db);
+    }
+    return "thermoscan-e2e-db";
+}
+
+bool shouldManageEphemeralStack() {
+    const char* env_url = std::getenv("THERMOSCAN_BACKEND_URL");
+    return (env_url == nullptr || env_url[0] == '\0');
+}
+
+std::string getComposeBaseCmd() {
+    return "docker compose -p thermoscan-e2e -f ../docker-compose.e2e.yml";
 }
 
 std::string execCommand(const std::string& cmd) {
@@ -48,8 +65,36 @@ std::string execCommand(const std::string& cmd) {
     return result;
 }
 
+bool startEphemeralStack() {
+    std::string up_cmd = getComposeBaseCmd() + " up -d --build >/dev/null 2>&1";
+    if (std::system(up_cmd.c_str()) != 0) {
+        std::cerr << "[E2E] Failed to start ephemeral stack via: " << up_cmd << std::endl;
+        return false;
+    }
+    // Wait for ephemeral API /health to respond HTTP 200 (up to 30 seconds)
+    const std::string health_cmd = "curl -sf http://127.0.0.1:18080/health >/dev/null 2>&1";
+    for (int i = 0; i < 60; ++i) {
+        if (std::system(health_cmd.c_str()) == 0) {
+            return true;
+        }
+        std::system("sleep 0.5");
+    }
+    std::cerr << "[E2E] Timed out waiting for http://127.0.0.1:18080/health" << std::endl;
+    return false;
+}
+
+void stopEphemeralStack() {
+    std::string down_cmd = getComposeBaseCmd() + " down -v --remove-orphans >/dev/null 2>&1";
+    std::system(down_cmd.c_str());
+}
+
 std::string queryDB(const std::string& sql) {
-    std::string cmd = "docker exec thermoscan-db psql -U thermoscan -d thermoscan -t -A -c \"" + sql + "\"";
+    const std::string db_container = getDbContainerName();
+    if (db_container == "thermoscan-db") {
+        std::cerr << "[E2E] Refusing to execute destructive SQL against local dev container 'thermoscan-db'!" << std::endl;
+        return "";
+    }
+    std::string cmd = "docker exec " + db_container + " psql -U thermoscan -d thermoscan -t -A -c \"" + sql + "\"";
     return execCommand(cmd);
 }
 
@@ -520,6 +565,12 @@ void test_e2e_interrupted_cleaning_and_retry_pending() {
 }
 
 int main(int argc, char** argv) {
+    const bool managed = shouldManageEphemeralStack();
+    if (managed && !startEphemeralStack()) {
+        stopEphemeralStack();
+        return 1;
+    }
+
     ensureTestSeedDataExists();
 
     UNITY_BEGIN();
@@ -529,6 +580,10 @@ int main(int argc, char** argv) {
     RUN_TEST(test_e2e_interrupted_cleaning_and_retry_pending);
     int status = UNITY_END();
 
-    cleanAllTestData();
+    if (managed) {
+        stopEphemeralStack();
+    } else {
+        cleanAllTestData();
+    }
     return status;
 }

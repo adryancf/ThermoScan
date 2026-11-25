@@ -1270,8 +1270,13 @@ void test_manual_cleaning_from_device_status_and_ack(void) {
     // Simplified manual cleaning does NOT post a fake anomaly to /cleanings or enter 30-min verification
     TEST_ASSERT_EQUAL(0, cloud.cleaning_reports_ingested);
 
-    // Verify manual_cleaning_ack was sent via ping
+    // Verify manual_cleaning_ack was sent via ping BEFORE motor/pump actuation
     TEST_ASSERT_EQUAL(1, cloud.manual_cleaning_acks_sent);
+
+    // Subsequent IDLE ticks must NOT re-trigger manual cleaning in a loop
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    TEST_ASSERT_EQUAL(2, motion.visited_x.size());
 }
 
 void test_sd_backup_normal_scan_commit_and_sync_cleanup(void) {
@@ -2048,6 +2053,41 @@ void test_permanent_refusal_clears_queue_and_advances_next_inspection_time(void)
     TEST_ASSERT_GREATER_THAN_UINT32(time.epoch, app.getNextInspectionTime());
 }
 
+void test_cleaning_boot_recovery_crash_loop_enters_error_halt(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    QueuedHotspot pending;
+    pending.panel_index = 1;
+    pending.target_x_cm = 10.0f;
+    pending.anomaly_event_id = "anom-crash";
+    pending.attempts = 0;
+    pending.baseline_temp_c = 35.0f;
+    pending.verification_status = "pending";
+    storage.saved_queue.push_back(pending);
+
+    // Simulate 3 consecutive boots crashing in CLEANING
+    for (int boot = 0; boot < 3; ++boot) {
+        ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+        app.init();
+        TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+    }
+
+    // 4th boot (after 3 failed retries) MUST trip crash-loop guard -> ERROR_HALT ("cleaning_crash_loop")
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+    TEST_ASSERT_EQUAL(AppState::ERROR_HALT, app.getState());
+    TEST_ASSERT_EQUAL(0, static_cast<int>(app.getCleaningQueue().size()));
+    TEST_ASSERT_FALSE(spray.isPumpActive());
+    TEST_ASSERT_EQUAL_STRING("cleaning_crash_loop", cloud.last_firmware_detail.c_str());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -2086,6 +2126,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_execute_full_reset_from_waiting_verification);
     RUN_TEST(test_insufficient_water_refusal_keeps_pending_and_blocks_scheduled_scan_loop);
     RUN_TEST(test_permanent_refusal_clears_queue_and_advances_next_inspection_time);
+    RUN_TEST(test_cleaning_boot_recovery_crash_loop_enters_error_halt);
     RUN_TEST(test_execute_full_reset_from_error_halt_recovers_to_idle);
     RUN_TEST(test_uptime_ping_works_without_ntp_sync);
     RUN_TEST(test_nvs_restores_full_config_including_solar_interval_location_and_threshold);

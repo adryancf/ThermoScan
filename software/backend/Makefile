@@ -23,7 +23,7 @@ DATABASE_URL ?= postgres://$(POSTGRES_USER):thermoscan@localhost:5432/$(POSTGRES
 API_PORT ?= 8080
 JWT_SECRET ?= dev-thermoscan-jwt-secret-9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c
 
-.PHONY: help build run dev test clean docker-up docker-down docker-logs local-up local-down local-logs db-up db-clean db-seed db-reset reset-admin
+.PHONY: help build run dev test clean docker-up docker-down docker-logs local-up local-down local-logs db-up db-clean db-clean-history db-seed db-reset reset-admin
 
 help: ## Exibe a lista de comandos disponíveis
 	@echo "=================================================="
@@ -61,6 +61,36 @@ db-clean: ## Limpa todos os dados operacionais e empresas do banco, preservando 
 		exit 1; \
 	fi
 	@echo "==> Banco limpo com sucesso! Apenas a conta de System Admin foi mantida."
+
+MODULE ?= Demo Thermoscan
+db-clean-history: ## Limpa leituras, limpezas, anomalias e logs de um painel (padrão: MODULE="Demo Thermoscan")
+	@echo "==> Limpando histórico operacional do painel: $(MODULE)..."
+	@SQL="BEGIN; \
+		DELETE FROM notifications WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM inspection_panel_results WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM measurements WHERE inspection_id IN (SELECT id FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)') AND cleaning_operation_id IS NOT NULL); \
+		DELETE FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)') AND cleaning_operation_id IS NOT NULL; \
+		DELETE FROM cleaning_operations WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM anomaly_events WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM measurements WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM module_state_logs WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM reservoir_readings WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM interval_change_logs WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		UPDATE modules SET firmware_state = 'IDLE', firmware_state_detail = NULL, verification_ready_at = NULL, \
+			manual_cleaning_pending = false, manual_cleaning_target_x_cm = NULL, \
+			manual_reading_pending = false, manual_reading_target_x_cm = NULL, reset_pending = false \
+		WHERE name = '$(MODULE)'; \
+		COMMIT;"; \
+	if docker ps --format '{{.Names}}' | grep -q '^thermoscan-db$$'; then \
+		docker exec -i thermoscan-db psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -v ON_ERROR_STOP=1 -c "$$SQL"; \
+	elif command -v psql >/dev/null 2>&1; then \
+		psql "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -c "$$SQL"; \
+	else \
+		echo "Erro: Contêiner thermoscan-db não está rodando e psql local não foi encontrado."; \
+		exit 1; \
+	fi
+	@echo "==> Histórico do painel '$(MODULE)' limpo com sucesso!"
 
 db-seed: ## Popula o banco com empresa e usuários de teste (manager/tech/client@test.local, senha teste123)
 	@echo "==> Populando banco com usuários de teste..."

@@ -3,7 +3,7 @@
 
 SHELL := /bin/bash
 
-.PHONY: help backend-build backend-run backend-dev backend-db backend-docker mobile-apk mobile-apk-debug mobile-serve mobile-all clean
+.PHONY: help backend-build backend-run backend-dev backend-db backend-clean-db backend-clean-history backend-docker backend-down backend-logs mobile-apk mobile-apk-debug mobile-serve mobile-all clean
 
 help: ## Exibe a lista de comandos disponíveis
 	@echo "=================================================="
@@ -29,6 +29,9 @@ backend-db: ## Sobe apenas o banco de dados PostgreSQL
 
 backend-clean-db: ## Limpa todas as empresas e registros operacionais, mantendo apenas o System Admin
 	@$(MAKE) -C backend db-clean
+
+backend-clean-history: ## Limpa leituras/limpezas/logs de um painel (padrão: MODULE="Demo Thermoscan")
+	@$(MAKE) -C backend db-clean-history $(if $(MODULE),MODULE="$(MODULE)",)
 
 backend-docker: ## Sobe toda a stack backend (Postgres + API) no Docker
 	@$(MAKE) -C backend docker-up

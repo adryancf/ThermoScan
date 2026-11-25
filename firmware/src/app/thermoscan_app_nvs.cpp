@@ -142,6 +142,21 @@ void ThermoscanApp::restoreStateFromNvs() {
                                           s.spray_ended_timestamp);
                 transitionTo(AppState::WAITING_VERIFICATION, "cooldown_wait");
             } else if (has_pending) {
+                constexpr uint8_t MAX_CLEANING_CRASH_RETRIES = 3;
+                if (inspection_crash_retries_ >= MAX_CLEANING_CRASH_RETRIES) {
+                    Serial.printf("[ERR] Cleaning crash-loop detected (%u consecutive resets). Halting in ERROR_HALT.\n",
+                                  static_cast<unsigned>(inspection_crash_retries_));
+                    cleaning_queue_.clear();
+                    inspection_crash_retries_ = 0;
+                    storage_->clearCleaningQueue();
+                    if (inspection_source_event_id_.empty()) {
+                        storage_->clearInspectionProgress();
+                    }
+                    executeEmergencyStop("cleaning_crash_loop");
+                    return;
+                }
+                inspection_crash_retries_++;
+                storage_->saveInspectionProgress(inspection_source_event_id_, last_completed_panel_, inspection_crash_retries_);
                 for (const auto& qh : cleaning_queue_) {
                     if (qh.verification_status == "pending") {
                         active_hotspot_.panel_index = qh.panel_index;

@@ -1,0 +1,45 @@
+# Isolated ephemeral stack for firmware E2E integration tests (`pio test -e native_e2e`).
+# Uses tmpfs for PostgreSQL and dedicated ports/names so it NEVER touches the local `thermoscan-db` or `thermoscan-api`.
+services:
+  e2e-db:
+    image: postgres:16-alpine
+    container_name: thermoscan-e2e-db
+    environment:
+      POSTGRES_USER: thermoscan
+      POSTGRES_PASSWORD: thermoscan
+      POSTGRES_DB: thermoscan
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./software/backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    networks:
+      - e2e-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U thermoscan -d thermoscan"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+
+  e2e-api:
+    build:
+      context: ./software/backend
+      dockerfile: Dockerfile
+    container_name: thermoscan-e2e-api
+    environment:
+      DATABASE_URL: postgres://thermoscan:thermoscan@e2e-db:5432/thermoscan?sslmode=disable
+      JWT_SECRET: e2e-thermoscan-jwt-secret-0123456789abcdef0123456789abcdef
+      API_PORT: "8080"
+      BOOTSTRAP_ADMIN_NAME: E2E Admin
+      BOOTSTRAP_ADMIN_EMAIL: e2e-admin@thermoscan.local
+      DEVICE_PING_INTERVAL_SECONDS: "5"
+    ports:
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      e2e-db:
+        condition: service_healthy
+    networks:
+      - e2e-net
+
+networks:
+  e2e-net:
+    driver: bridge

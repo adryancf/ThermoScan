@@ -164,7 +164,11 @@ void ThermoscanApp::handleCleaning() {
                 std::string out_id;
                 cloud_->ingestCleaningReport(cr, out_id);
             }
-            qh.verification_status = "refused";
+            const bool is_recoverable_water_refusal =
+                (cleaning_sm_.getReason() == "insufficient_water");
+            if (!is_recoverable_water_refusal) {
+                qh.verification_status = "refused";
+            }
             if (storage_ != nullptr) {
                 storage_->saveCleaningQueue(cleaning_queue_);
             }
@@ -275,6 +279,28 @@ void ThermoscanApp::handleCleaning() {
         saveCurrentStateToNvs();
         transitionTo(AppState::WAITING_VERIFICATION, "cooldown_wait");
     } else {
+        bool has_pending = false;
+        for (const auto& qh : cleaning_queue_) {
+            if (qh.verification_status == "pending" &&
+                qh.attempts < MAX_CLEANING_ATTEMPTS &&
+                qh.baseline_temp_c <= MAX_BASE_TEMP_C) {
+                has_pending = true;
+                break;
+            }
+        }
+        if (!has_pending) {
+            cleaning_queue_.clear();
+            if (storage_ != nullptr) {
+                storage_->clearCleaningQueue();
+            }
+            const uint32_t now = getCurrentTime();
+            if (now > 0 && next_inspection_time_ <= now) {
+                next_inspection_time_ = now + static_cast<uint32_t>(config_.interval_days * 86400);
+                if (storage_ != nullptr) {
+                    storage_->saveNextInspectionTimestamp(next_inspection_time_);
+                }
+            }
+        }
         saveCurrentStateToNvs();
         transitionTo(AppState::SYNCING);
     }

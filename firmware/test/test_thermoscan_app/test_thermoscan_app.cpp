@@ -1952,6 +1952,102 @@ void test_idle_resumes_pending_cleaning_queue_when_water_refilled(void) {
     TEST_ASSERT_EQUAL_STRING("completed", cloud.last_cleaning_report.status.c_str());
 }
 
+void test_insufficient_water_refusal_keeps_pending_and_blocks_scheduled_scan_loop(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    motion.camera = &cam;
+    storage.panel_len = 20.0f;
+    cam.hotspots.push_back({10.0f, 5});
+    water.available = false;
+    time.epoch = 1710514800; // Valid solar window
+    storage.state.next_inspection_timestamp = time.epoch - 60; // Already due
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Due scheduled scan starts automatically
+    app.tick(); // IDLE -> SCANNING
+    TEST_ASSERT_EQUAL(AppState::SCANNING, app.getState());
+    app.tick(); // SCANNING -> ANALYZING
+    app.tick(); // ANALYZING -> CLEANING
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+
+    // Refused due to insufficient_water -> item MUST stay "pending"
+    app.tick(); // CLEANING -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_EQUAL_STRING("refused", cloud.last_cleaning_report.status.c_str());
+    TEST_ASSERT_EQUAL_STRING("insufficient_water", cloud.last_cleaning_report.failure_reason.c_str());
+    TEST_ASSERT_EQUAL(1, static_cast<int>(app.getCleaningQueue().size()));
+    TEST_ASSERT_EQUAL_STRING("pending", app.getCleaningQueue()[0].verification_status.c_str());
+
+    app.tick(); // SYNCING -> IDLE
+    TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+
+    // Even though next_inspection_time_ is due, IDLE must NOT start a scan loop while water is empty
+    const int reports_before = cloud.cleaning_reports_ingested;
+    for (int i = 0; i < 5; ++i) {
+        app.tick();
+        TEST_ASSERT_EQUAL(AppState::IDLE, app.getState());
+    }
+    TEST_ASSERT_EQUAL(reports_before, cloud.cleaning_reports_ingested);
+
+    // Refill water -> IDLE automatically resumes CLEANING without re-scanning
+    water.available = true;
+    app.tick();
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+
+    app.tick(); // Executes wash -> WAITING_VERIFICATION
+    TEST_ASSERT_EQUAL(AppState::WAITING_VERIFICATION, app.getState());
+    TEST_ASSERT_EQUAL_STRING("completed", cloud.last_cleaning_report.status.c_str());
+}
+
+void test_permanent_refusal_clears_queue_and_advances_next_inspection_time(void) {
+    MockThermalCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    motion.camera = &cam;
+    storage.panel_len = 20.0f;
+    cam.hotspots.push_back({10.0f, 5});
+    water.available = true;
+    time.epoch = 1710514800;
+    storage.state.next_inspection_timestamp = time.epoch - 60;
+
+    // Preload a queue item that already exhausted MAX_CLEANING_ATTEMPTS
+    QueuedHotspot exhausted;
+    exhausted.panel_index = 1;
+    exhausted.target_x_cm = 10.0f;
+    exhausted.anomaly_event_id = "anom-exhausted";
+    exhausted.attempts = MAX_CLEANING_ATTEMPTS;
+    exhausted.baseline_temp_c = 35.0f;
+    exhausted.verification_status = "pending";
+    storage.saved_queue.push_back(exhausted);
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    // Boot recovery enters CLEANING with the preloaded exhausted item
+    TEST_ASSERT_EQUAL(AppState::CLEANING, app.getState());
+    app.tick(); // CLEANING -> refuses max_attempts_exceeded -> clears queue -> advances schedule -> SYNCING
+    TEST_ASSERT_EQUAL(AppState::SYNCING, app.getState());
+    TEST_ASSERT_EQUAL_STRING("refused", cloud.last_cleaning_report.status.c_str());
+    TEST_ASSERT_EQUAL_STRING("max_attempts_exceeded", cloud.last_cleaning_report.failure_reason.c_str());
+    TEST_ASSERT_EQUAL(0, static_cast<int>(app.getCleaningQueue().size()));
+    TEST_ASSERT_GREATER_THAN_UINT32(time.epoch, app.getNextInspectionTime());
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -1988,6 +2084,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_execute_full_reset_from_scanning_preserves_nvs_credentials);
     RUN_TEST(test_execute_full_reset_from_cleaning_halts_pump_and_clears_queue);
     RUN_TEST(test_execute_full_reset_from_waiting_verification);
+    RUN_TEST(test_insufficient_water_refusal_keeps_pending_and_blocks_scheduled_scan_loop);
+    RUN_TEST(test_permanent_refusal_clears_queue_and_advances_next_inspection_time);
     RUN_TEST(test_execute_full_reset_from_error_halt_recovers_to_idle);
     RUN_TEST(test_uptime_ping_works_without_ntp_sync);
     RUN_TEST(test_nvs_restores_full_config_including_solar_interval_location_and_threshold);

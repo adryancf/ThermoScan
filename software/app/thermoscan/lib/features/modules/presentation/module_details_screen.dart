@@ -1848,7 +1848,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     final isWaterLow = deviceStatus?.waterAvailable == false ||
         deviceStatus?.waterStatus == 'low' ||
         deviceStatus?.waterStatus == 'insufficient' ||
-        (hasHotspot && mostRecent?.failureReason == 'insufficient_water');
+        (hasHotspot &&
+            (mostRecent?.failureReason == 'insufficient_water' ||
+                mostRecent?.failureReason == 'water_depleted_during_cleaning'));
 
     final isCleaningInProgress =
         cleanings.any((c) => c.status == 'in_progress');

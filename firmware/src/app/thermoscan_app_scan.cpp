@@ -429,6 +429,7 @@ void ThermoscanApp::handleScanning() {
         std::vector<PowerSnapshot> batch_power_data;
         std::vector<std::string> failed_meas_ids;
         bool panel_cam_fail_logged = false;
+        int consecutive_camera_failures = 0;
         const size_t BATCH_CHUNK_SIZE = thermoscan_config::TELEMETRY_BATCH_CHUNK_SIZE;
         batch_frames_data.reserve(BATCH_CHUNK_SIZE);
         batch_power_data.reserve(BATCH_CHUNK_SIZE);
@@ -479,6 +480,7 @@ void ThermoscanApp::handleScanning() {
             float max_temp = -999.0f;
             bool has_valid_pixel = false;
             if (frame_ok) {
+                consecutive_camera_failures = 0;
                 for (size_t i = 0; i < ThermalFrame::PIXEL_COUNT; ++i) {
                     const float t = frame.pixels[i];
                     if (domain::ThermalAnalyzer::isValidPixel(t)) {
@@ -540,10 +542,44 @@ void ThermoscanApp::handleScanning() {
                     }
                 }
             } else {
-                Serial.printf("[SCAN] Warning: Failed to capture thermal frame at X = %.1f cm (skipped)\n", current_x);
+                consecutive_camera_failures++;
+                Serial.printf("[SCAN] Warning: Failed to capture thermal frame at X = %.1f cm (skipped, consecutive=%d)\n",
+                              current_x, consecutive_camera_failures);
                 if (!panel_cam_fail_logged && cloud_ != nullptr) {
                     cloud_->recordStateTransition("CAMERA_FAIL", "frame_capture_failed", getCurrentTime());
                     panel_cam_fail_logged = true;
+                }
+                if (consecutive_camera_failures >= 3) {
+                    Serial.println(F("[ERR] Camera failed 3 consecutive scan positions even after I2C recovery. Halting in ERROR_HALT."));
+                    if (cloud_ != nullptr && !inspection_source_event_id_.empty()) {
+                        if (!cloud_->abortInspection(inspection_source_event_id_, "camera_recovery_failed")) {
+                            pending_abort_insp_id_ = inspection_source_event_id_;
+                            pending_abort_reason_ = "camera_recovery_failed";
+                            if (storage_ != nullptr) {
+                                storage_->savePendingAbort(pending_abort_insp_id_, pending_abort_reason_);
+                            }
+                        }
+                    }
+                    if (backup_storage_ != nullptr && backup_storage_->isAvailable() && !inspection_source_event_id_.empty()) {
+                        backup_storage_->removeScanBackup(inspection_source_event_id_);
+                    }
+                    inspection_source_event_id_.clear();
+                    last_completed_panel_ = 0;
+                    inspection_crash_retries_ = 0;
+                    if (storage_ != nullptr) {
+                        storage_->clearInspectionProgress();
+                    }
+                    quantized_frames_.clear();
+                    quantized_frames_.shrink_to_fit();
+                    current_batch_.clear();
+                    current_batch_.shrink_to_fit();
+                    if (motion_ != nullptr) {
+                        motion_->moveToXCm(0.0f);
+                    }
+                    utils::HeapTracker::stop();
+                    saveCurrentStateToNvs();
+                    executeEmergencyStop("camera_recovery_failed");
+                    return;
                 }
             }
 

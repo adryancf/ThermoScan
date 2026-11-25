@@ -31,6 +31,8 @@ public:
     float getTiltAngle() const override;
 
 private:
+    bool recoverI2cBus();
+
     uint8_t sda_pin_;
     uint8_t scl_pin_;
     uint8_t i2c_addr_;

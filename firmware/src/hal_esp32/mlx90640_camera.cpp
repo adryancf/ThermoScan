@@ -16,14 +16,51 @@ Mlx90640Camera::~Mlx90640Camera() {
 
 bool Mlx90640Camera::init() {
     Wire.begin(sda_pin_, scl_pin_);
-    Wire.setClock(400000); // 400kHz fast I2C mode
+    Wire.setClock(200000); // 200kHz I2C mode: ample margin for 4Hz MLX90640 with higher EMI immunity
 
     // Initialize Camera Tilt Servo to default configured angle
-    if (servo_pin_ != 255) {
+    if (servo_pin_ != 255 && !servo_.attached()) {
         servo_.setPeriodHertz(50);
         servo_.attach(servo_pin_, 500, 2500);
         setTiltAngle(CAMERA_DEFAULT_ANGLE);
     }
+
+    if (!mlx_.begin(i2c_addr_, &Wire)) {
+        initialized_ = false;
+        return false;
+    }
+
+    mlx_.setMode(MLX90640_CHESS);
+    mlx_.setRefreshRate(MLX90640_4_HZ);
+    initialized_ = true;
+    return true;
+}
+
+bool Mlx90640Camera::recoverI2cBus() {
+    Wire.end();
+    delay(5);
+
+    // Clock out 9 SCL pulses to release any slave holding SDA LOW, then generate a STOP condition
+    pinMode(sda_pin_, INPUT_PULLUP);
+    pinMode(scl_pin_, OUTPUT);
+    for (int i = 0; i < 9; ++i) {
+        digitalWrite(scl_pin_, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(scl_pin_, LOW);
+        delayMicroseconds(10);
+    }
+    // STOP condition: SDA LOW -> SCL HIGH -> SDA HIGH
+    pinMode(sda_pin_, OUTPUT);
+    digitalWrite(sda_pin_, LOW);
+    delayMicroseconds(10);
+    digitalWrite(scl_pin_, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(sda_pin_, HIGH);
+    delayMicroseconds(10);
+
+    Wire.begin(sda_pin_, scl_pin_);
+    Wire.setClock(200000);
+    delay(10);
 
     if (!mlx_.begin(i2c_addr_, &Wire)) {
         initialized_ = false;
@@ -53,15 +90,18 @@ float Mlx90640Camera::getTiltAngle() const {
 }
 
 bool Mlx90640Camera::captureFrame(ThermalFrame& out) {
-    if (!initialized_ && !init()) {
+    if (!initialized_ && !recoverI2cBus()) {
         out.valid = false;
         return false;
     }
 
-    // mlx.getFrame returns 0 on success
+    // mlx.getFrame returns 0 on success; attempt automatic I2C bus recovery once on failure
     if (mlx_.getFrame(out.pixels) != 0) {
-        out.valid = false;
-        return false;
+        if (!recoverI2cBus() || mlx_.getFrame(out.pixels) != 0) {
+            initialized_ = false;
+            out.valid = false;
+            return false;
+        }
     }
 
     // Sanity validation of raw thermal frame

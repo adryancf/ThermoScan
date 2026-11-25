@@ -2088,6 +2088,40 @@ void test_cleaning_boot_recovery_crash_loop_enters_error_halt(void) {
     TEST_ASSERT_EQUAL_STRING("cleaning_crash_loop", cloud.last_firmware_detail.c_str());
 }
 
+void test_scan_consecutive_camera_failures_enter_error_halt(void) {
+    class AlwaysFailCamera : public MockThermalCamera {
+    public:
+        bool captureFrame(ThermalFrame& out) override {
+            out.valid = false;
+            return false;
+        }
+    };
+
+    AlwaysFailCamera cam;
+    MockPowerMeter power;
+    MockMotionController motion;
+    MockSprayActuator spray;
+    MockWaterSensor water;
+    MockStorage storage;
+    MockCloudClient cloud;
+    MockTimeProvider time;
+
+    motion.camera = &cam;
+    storage.panel_len = 20.0f;
+
+    ThermoscanApp app(&cam, &power, &motion, &spray, &water, &storage, &cloud, &time);
+    app.init();
+
+    app.triggerManualInspection();
+    app.tick(); // IDLE -> SCANNING
+    TEST_ASSERT_EQUAL(AppState::SCANNING, app.getState());
+
+    app.tick(); // SCANNING hits 3 consecutive camera failures -> aborts inspection & enters ERROR_HALT
+    TEST_ASSERT_EQUAL(AppState::ERROR_HALT, app.getState());
+    TEST_ASSERT_EQUAL_STRING("camera_recovery_failed", cloud.last_firmware_detail.c_str());
+    TEST_ASSERT_EQUAL(1, cloud.inspections_aborted);
+}
+
 int main(int argc, char **argv) {
     UNITY_BEGIN();
     RUN_TEST(test_safe_boot_forces_pump_off);
@@ -2127,6 +2161,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_insufficient_water_refusal_keeps_pending_and_blocks_scheduled_scan_loop);
     RUN_TEST(test_permanent_refusal_clears_queue_and_advances_next_inspection_time);
     RUN_TEST(test_cleaning_boot_recovery_crash_loop_enters_error_halt);
+    RUN_TEST(test_scan_consecutive_camera_failures_enter_error_halt);
     RUN_TEST(test_execute_full_reset_from_error_halt_recovers_to_idle);
     RUN_TEST(test_uptime_ping_works_without_ntp_sync);
     RUN_TEST(test_nvs_restores_full_config_including_solar_interval_location_and_threshold);

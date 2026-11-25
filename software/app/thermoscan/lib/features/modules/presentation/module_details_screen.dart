@@ -21,6 +21,7 @@ import 'package:thermoscan/features/modules/presentation/module_state_logs_scree
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/modules_home_screen.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/clean_thermal_preview_card.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/export_pdf_report_sheet.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/firmware_state_badge.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/routine_progress_stepper.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_matrix_inspector_modal.dart';
@@ -1004,6 +1005,22 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                       onTap: () {
                         Navigator.of(sheetCtx).pop();
                         _promptAndTriggerManualCleaning(mod);
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _buildActionSheetSectionHeader('REPORTS'),
+                    const SizedBox(height: 6),
+                    _buildActionSheetItem(
+                      key: const Key('action_sheet_export_pdf'),
+                      icon: Icons.picture_as_pdf_rounded,
+                      label: 'Export PDF Report',
+                      subtitle: 'Select one or multiple inspections to export',
+                      onTap: () {
+                        Navigator.of(sheetCtx).pop();
+                        showExportPdfReportSheet(
+                          context: context,
+                          module: mod,
+                        );
                       },
                     ),
                     const SizedBox(height: 12),

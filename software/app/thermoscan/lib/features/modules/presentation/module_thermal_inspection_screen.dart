@@ -11,6 +11,7 @@ import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/export_pdf_report_sheet.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/radiometric_scan_card.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
@@ -206,6 +207,21 @@ class _ModuleThermalInspectionScreenState
         trailingAction: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (detailsAsync.valueOrNull != null)
+              IconButton(
+                key: const Key('studio_export_pdf_button'),
+                tooltip: 'Export PDF Report',
+                icon: const Icon(
+                  Icons.picture_as_pdf_rounded,
+                  color: AppColors.primary,
+                ),
+                onPressed: () => showExportPdfReportSheet(
+                  context: context,
+                  module: detailsAsync.valueOrNull!.module,
+                  preselectedInspectionId:
+                      selectedHistorical?.id ?? latestRoutineIdEarly,
+                ),
+              ),
             IconButton(
               key: const Key('studio_help_button'),
               tooltip: 'How to Read This Thermal Map',

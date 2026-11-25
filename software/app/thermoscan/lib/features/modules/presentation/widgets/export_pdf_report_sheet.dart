@@ -146,7 +146,10 @@ class _ExportPdfReportSheetState extends ConsumerState<ExportPdfReportSheet> {
         final inspId = bundle.routineInspection.id;
 
         var routineMeas = bundle.routineMeasurements;
-        if (routineMeas.isEmpty && inspId.isNotEmpty) {
+        final hasValidMatrices =
+            routineMeas.any(ThermalPanoramaData.hasValidThermalMatrix);
+        if ((!hasValidMatrices || routineMeas.length < 4) &&
+            inspId.isNotEmpty) {
           if (mounted) {
             setState(() {
               _statusMessage =
@@ -154,9 +157,12 @@ class _ExportPdfReportSheetState extends ConsumerState<ExportPdfReportSheet> {
             });
           }
           try {
-            routineMeas = await _fetchAllFramesForInspection(repo, inspId);
+            final fetched = await _fetchAllFramesForInspection(repo, inspId);
+            if (fetched.isNotEmpty) {
+              routineMeas = fetched;
+            }
           } catch (_) {
-            // Keep existing empty list if backend page fetch fails
+            // Keep existing list if backend page fetch fails
           }
         }
 

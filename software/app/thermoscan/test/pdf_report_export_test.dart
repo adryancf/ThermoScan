@@ -274,10 +274,10 @@ void main() {
         ],
         generatedByName: 'Tech 1',
         generatedByRole: 'technician',
-        includeThermalImages: false,
+        includeThermalImages: true,
       );
 
-      expect(bytes.length, greaterThan(1500));
+      expect(bytes.length, greaterThan(2500));
       expect(utf8.decode(bytes.sublist(0, 5)), equals('%PDF-'));
     });
 
@@ -301,10 +301,10 @@ void main() {
           ],
           generatedByName: 'Tech 1',
           generatedByRole: 'technician',
-          includeThermalImages: false,
+          includeThermalImages: true,
         );
 
-        expect(bytes.length, greaterThan(2500));
+        expect(bytes.length, greaterThan(4000));
         expect(utf8.decode(bytes.sublist(0, 5)), equals('%PDF-'));
       },
     );

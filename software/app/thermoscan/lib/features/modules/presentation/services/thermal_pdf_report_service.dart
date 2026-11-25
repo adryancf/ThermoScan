@@ -1,8 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' show Color;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -137,171 +136,298 @@ class ThermalPdfReportService {
     PdfColor.fromHex('#E5322D'),
   ];
 
-  /// Renders the high-resolution thermal panorama bitmap offscreen using the
-  /// exact same [ThermalPanoramaPainter] used in the live Flutter UI.
-  static Future<Uint8List?> renderPanoramaPng({
-    required ThermalPanoramaData panorama,
-    List<ConfirmedAnomaly> markers = const [],
-    double width = 1120,
-    double height = 280,
-  }) async {
-    if (!panorama.hasAnyThermalMatrix || panorama.gridColumns <= 0) {
-      return null;
-    }
+  static PdfColor _toPdfColor(Color c) => PdfColor(c.r, c.g, c.b);
 
-    try {
-      final recorder = ui.PictureRecorder();
-      final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, width, height));
+  /// Renders the 2D thermal panorama directly as crisp vector graphics on the
+  /// PDF canvas ([pw.CustomPaint] / [PdfGraphics]), with zero GPU/Impeller
+  /// offscreen dependencies.
+  static pw.Widget _buildVectorThermalPanoramaWidget({
+    required _InspectionMetrics metrics,
+    required List<ConfirmedAnomaly> markers,
+    required bool isDeltaElevated,
+  }) {
+    final panorama = metrics.panorama;
+    final hasMatrix =
+        panorama.hasAnyThermalMatrix && panorama.gridColumns > 0;
+    final domainSpan = panorama.domainSpanCm;
 
-      // Dark radiometric studio backdrop
-      final bgPaint = Paint()..color = const Color(0xFF0B1220);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(0, 0, width, height),
-          const Radius.circular(14),
-        ),
-        bgPaint,
-      );
+    // Panel header labels for the top strip
+    final visibleBounds = panorama.panelBounds
+        .where(
+          (b) =>
+              panorama.focusedPanelIndex == null ||
+              panorama.focusedPanelIndex == b.panelIndex,
+        )
+        .toList();
 
-      const topPadding = 34.0;
-      const bottomPadding = 26.0;
-      const sidePadding = 18.0;
-      final mapRect = Rect.fromLTWH(
-        sidePadding,
-        topPadding,
-        width - sidePadding * 2,
-        height - topPadding - bottomPadding,
-      );
-
-      // Top panel header pills
-      final domainSpan = panorama.domainSpanCm;
-      if (domainSpan > 0 && panorama.panelBounds.isNotEmpty) {
-        final pxPerCm = mapRect.width / domainSpan;
-        for (final bound in panorama.panelBounds) {
-          if (panorama.focusedPanelIndex != null &&
-              panorama.focusedPanelIndex != bound.panelIndex) {
-            continue;
-          }
-          final left =
-              mapRect.left + (bound.startXCm - panorama.minDomainX) * pxPerCm;
-          final right =
-              mapRect.left + (bound.endXCm - panorama.minDomainX) * pxPerCm;
-          final centerX = (left + right) / 2;
-          final label =
-              'PANEL ${bound.panelIndex} (${bound.startXCm.toStringAsFixed(0)}-${bound.endXCm.toStringAsFixed(0)} cm)';
-          final tp = TextPainter(
-            text: TextSpan(
-              text: label,
-              style: const TextStyle(
-                color: Color(0xFFE2E8F0),
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-              ),
+    return pw.Container(
+      width: double.infinity,
+      padding: const pw.EdgeInsets.all(8),
+      decoration: pw.BoxDecoration(
+        color: _white,
+        borderRadius: pw.BorderRadius.circular(8),
+        border: pw.Border.all(color: _border),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          // Dark radiometric studio frame containing the 2D vector heatmap
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.fromLTRB(10, 8, 10, 8),
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#0B1220'),
+              borderRadius: pw.BorderRadius.circular(6),
             ),
-            textDirection: TextDirection.ltr,
-          )..layout();
-          final pillRect = RRect.fromRectAndRadius(
-            Rect.fromCenter(
-              center: Offset(centerX, 17),
-              width: tp.width + 18,
-              height: 22,
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                if (visibleBounds.isNotEmpty) ...[
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceEvenly,
+                    children: [
+                      for (final b in visibleBounds)
+                        pw.Container(
+                          padding: const pw.EdgeInsets.symmetric(
+                            horizontal: 7,
+                            vertical: 2,
+                          ),
+                          decoration: pw.BoxDecoration(
+                            color: PdfColor.fromHex('#1E3A5F'),
+                            borderRadius: pw.BorderRadius.circular(8),
+                          ),
+                          child: pw.Text(
+                            'PANEL ${b.panelIndex} (${b.startXCm.toStringAsFixed(0)}-${b.endXCm.toStringAsFixed(0)} cm)',
+                            style: pw.TextStyle(
+                              fontSize: 6.8,
+                              fontWeight: pw.FontWeight.bold,
+                              color: PdfColor.fromHex('#E2E8F0'),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  pw.SizedBox(height: 6),
+                ],
+                if (hasMatrix)
+                  pw.SizedBox(
+                    width: double.infinity,
+                    height: 118,
+                    child: pw.CustomPaint(
+                      size: const PdfPoint(500, 118),
+                      painter: (PdfGraphics canvas, PdfPoint size) {
+                        // Uncovered rail backdrop
+                        canvas
+                          ..setFillColor(PdfColor.fromHex('#0F172A'))
+                          ..drawRect(0, 0, size.x, size.y)
+                          ..fillPath();
+
+                        final rows = panorama.gridCells.length;
+                        final cols = panorama.gridColumns;
+                        final cellW = size.x / cols;
+                        final cellH = size.y / rows;
+                        final colStepCm = domainSpan / cols;
+                        final pxPerCm = size.x / domainSpan;
+
+                        for (var r = 0; r < rows; r++) {
+                          final rowCells = panorama.gridCells[r];
+                          // PDF y=0 is bottom; r=0 is top
+                          final yBottom = size.y - (r + 1) * cellH;
+                          for (var c = 0; c < cols; c++) {
+                            final xCm =
+                                panorama.minDomainX + (c + 0.5) * colStepCm;
+                            if (panorama.gapIntervals
+                                .any((g) => g.contains(xCm))) {
+                              continue;
+                            }
+                            if (panorama.panelBounds.isNotEmpty) {
+                              if (panorama.focusedPanelIndex != null &&
+                                  panorama.focusedPanelIndex! >= 1 &&
+                                  panorama.focusedPanelIndex! <=
+                                      panorama.panelBounds.length) {
+                                if (!panorama
+                                    .panelBounds[
+                                        panorama.focusedPanelIndex! - 1]
+                                    .contains(xCm)) {
+                                  continue;
+                                }
+                              } else if (!panorama.panelBounds
+                                  .any((b) => b.contains(xCm))) {
+                                continue;
+                              }
+                            }
+
+                            final cell = rowCells[c];
+                            if (cell.isUncovered) continue;
+
+                            final PdfColor fillColor;
+                            if (cell.isUnresolvedInvalid) {
+                              fillColor = _toPdfColor(
+                                ThermalPanoramaPainter.unresolvedInvalidColor,
+                              );
+                            } else if (cell.hasValidTemperature) {
+                              fillColor = _toPdfColor(
+                                panorama.colorForCell(cell, xCm: xCm),
+                              );
+                            } else {
+                              continue;
+                            }
+
+                            canvas
+                              ..setFillColor(fillColor)
+                              ..drawRect(
+                                c * cellW,
+                                yBottom,
+                                cellW + 0.35,
+                                cellH + 0.35,
+                              )
+                              ..fillPath();
+                          }
+                        }
+
+                        // Panel borders
+                        canvas
+                          ..setStrokeColor(PdfColor.fromHex('#334155'))
+                          ..setLineWidth(1.0);
+                        for (final b in visibleBounds) {
+                          final left =
+                              (b.startXCm - panorama.minDomainX) * pxPerCm;
+                          final right =
+                              (b.endXCm - panorama.minDomainX) * pxPerCm;
+                          final clampedL = left.clamp(0.0, size.x);
+                          final clampedR = right.clamp(0.0, size.x);
+                          if (clampedR - clampedL > 1.0) {
+                            canvas
+                              ..drawRect(
+                                clampedL,
+                                0,
+                                clampedR - clampedL,
+                                size.y,
+                              )
+                              ..strokePath();
+                          }
+                        }
+
+                        // Inter-panel gap spacers
+                        for (final g in panorama.gapIntervals) {
+                          final left =
+                              (g.startXCm - panorama.minDomainX) * pxPerCm;
+                          final right =
+                              (g.endXCm - panorama.minDomainX) * pxPerCm;
+                          final clampedL = left.clamp(0.0, size.x);
+                          final clampedR = right.clamp(0.0, size.x);
+                          if (clampedR - clampedL > 0.5) {
+                            canvas
+                              ..setFillColor(PdfColor.fromHex('#0F172A'))
+                              ..drawRect(
+                                clampedL,
+                                0,
+                                clampedR - clampedL,
+                                size.y,
+                              )
+                              ..fillPath()
+                              ..setStrokeColor(PdfColor.fromHex('#475569'))
+                              ..setLineWidth(0.8)
+                              ..drawRect(
+                                clampedL,
+                                0,
+                                clampedR - clampedL,
+                                size.y,
+                              )
+                              ..strokePath();
+                          }
+                        }
+
+                        // Hotspot target markers along X
+                        if (markers.isNotEmpty && domainSpan > 0) {
+                          final markerY = size.y * 0.78;
+                          for (final anom in markers) {
+                            final mx =
+                                (anom.xPositionCm - panorama.minDomainX) *
+                                    pxPerCm;
+                            if (mx < 0 || mx > size.x) continue;
+                            canvas
+                              ..setFillColor(PdfColor.fromHex('#DC2626'))
+                              ..drawEllipse(mx, markerY, 4.2, 4.2)
+                              ..fillPath()
+                              ..setStrokeColor(_white)
+                              ..setLineWidth(1.0)
+                              ..drawEllipse(mx, markerY, 4.2, 4.2)
+                              ..strokePath();
+                          }
+                        }
+                      },
+                    ),
+                  )
+                else
+                  pw.Container(
+                    width: double.infinity,
+                    height: 54,
+                    alignment: pw.Alignment.center,
+                    child: pw.Text(
+                      'No 24x32 thermal matrix frames available for this inspection.',
+                      style: pw.TextStyle(
+                        fontSize: 8,
+                        color: PdfColor.fromHex('#94A3B8'),
+                      ),
+                    ),
+                  ),
+                pw.SizedBox(height: 5),
+                pw.Text(
+                  'Range: ${panorama.minDomainX.toStringAsFixed(1)} to ${panorama.maxDomainX.toStringAsFixed(1)} cm  |  Step: 2.0 cm  |  Optical Rail FOV: ${ThermalCoverageInfo.stitchFovCm.toStringAsFixed(1)} cm (24x32 IR)',
+                  style: pw.TextStyle(
+                    fontSize: 6.6,
+                    color: PdfColor.fromHex('#94A3B8'),
+                  ),
+                ),
+              ],
             ),
-            const Radius.circular(11),
-          );
-          canvas.drawRRect(
-            pillRect,
-            Paint()..color = const Color(0xFF1E3A5F),
-          );
-          tp.paint(
-            canvas,
-            Offset(centerX - tp.width / 2, 17 - tp.height / 2),
-          );
-        }
-      }
-
-      // Paint the exact thermal panorama matrix
-      canvas.save();
-      canvas.translate(mapRect.left, mapRect.top);
-      canvas.clipRRect(
-        RRect.fromRectAndRadius(
-          Offset.zero & mapRect.size,
-          const Radius.circular(6),
-        ),
-      );
-      ThermalPanoramaPainter(panorama: panorama).paint(canvas, mapRect.size);
-
-      // Draw active hotspot markers along X
-      if (markers.isNotEmpty && domainSpan > 0) {
-        final pxPerCm = mapRect.width / domainSpan;
-        for (var i = 0; i < markers.length; i++) {
-          final anom = markers[i];
-          final mx = (anom.xPositionCm - panorama.minDomainX) * pxPerCm;
-          if (mx < 0 || mx > mapRect.width) continue;
-          final center = Offset(mx, mapRect.height * 0.24);
-          canvas.drawCircle(
-            center,
-            13,
-            Paint()..color = const Color(0xFFDC2626),
-          );
-          canvas.drawCircle(
-            center,
-            13,
-            Paint()
-              ..color = Colors.white
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 2.2,
-          );
-          final tp = TextPainter(
-            text: TextSpan(
-              text: 'H${i + 1}',
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            textDirection: TextDirection.ltr,
-          )..layout();
-          tp.paint(
-            canvas,
-            Offset(center.dx - tp.width / 2, center.dy - tp.height / 2),
-          );
-        }
-      }
-      canvas.restore();
-
-      // Bottom axis caption
-      final axisCaption = TextPainter(
-        text: TextSpan(
-          text:
-              'Range: ${panorama.minDomainX.toStringAsFixed(1)} to ${panorama.maxDomainX.toStringAsFixed(1)} cm  |  Step: 2.0 cm  |  Optical Rail FOV: ${ThermalCoverageInfo.stitchFovCm.toStringAsFixed(1)} cm (24x32 IR)',
-          style: const TextStyle(
-            color: Color(0xFF94A3B8),
-            fontSize: 11.5,
-            fontWeight: FontWeight.w600,
           ),
-        ),
-        textDirection: TextDirection.ltr,
-      )..layout();
-      axisCaption.paint(
-        canvas,
-        Offset(sidePadding, height - bottomPadding + 6),
-      );
-
-      final picture = recorder.endRecording();
-      final image = await picture.toImage(width.round(), height.round());
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      image.dispose();
-      return byteData?.buffer.asUint8List();
-    } catch (_) {
-      return null;
-    }
+          pw.SizedBox(height: 6),
+          // Calibrated Radiometric Spectrum Bar
+          pw.Row(
+            children: [
+              for (final color in _spectrumColors)
+                pw.Expanded(
+                  child: pw.Container(height: 5, color: color),
+                ),
+            ],
+          ),
+          pw.SizedBox(height: 3),
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            children: [
+              pw.Text(
+                'Min: ${metrics.minC != null ? '${metrics.minC!.toStringAsFixed(1)} \u00B0C' : 'N/A'}',
+                style: pw.TextStyle(fontSize: 7.3, color: _muted),
+              ),
+              pw.Text(
+                'Normal (Baseline): ${metrics.baselineC != null ? '${metrics.baselineC!.toStringAsFixed(1)} \u00B0C' : 'N/A'}',
+                style: pw.TextStyle(
+                  fontSize: 7.3,
+                  fontWeight: pw.FontWeight.bold,
+                  color: _dark,
+                ),
+              ),
+              pw.Text(
+                'Max: ${metrics.peakC != null ? '${metrics.peakC!.toStringAsFixed(1)} \u00B0C' : 'N/A'}',
+                style: pw.TextStyle(
+                  fontSize: 7.3,
+                  fontWeight: pw.FontWeight.bold,
+                  color: isDeltaElevated ? _errorFg : _dark,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   /// Builds the complete A4 PDF document bytes for [module] and [entries].
   ///
-  /// When [includeThermalImages] is true, offscreen high-resolution panorama
-  /// PNGs are rendered for every inspection with valid thermal matrices.
+  /// When [includeThermalImages] is true, crisp vector 2D thermal panoramas
+  /// are drawn directly on the PDF canvas for every inspection.
   static Future<Uint8List> buildReportBytes({
     required PvModule module,
     required List<PdfInspectionEntry> entries,
@@ -319,22 +445,8 @@ class ThermalPdfReportService {
     );
 
     final computedList = <_InspectionMetrics>[];
-    final panoramaImages = <Uint8List?>[];
-
     for (final entry in entries) {
-      final metrics = _computeInspectionMetrics(module, entry);
-      computedList.add(metrics);
-
-      if (includeThermalImages && metrics.panorama.hasAnyThermalMatrix) {
-        final activeMarkers = _resolveActiveMarkers(entry);
-        final png = await renderPanoramaPng(
-          panorama: metrics.panorama,
-          markers: activeMarkers,
-        );
-        panoramaImages.add(png);
-      } else {
-        panoramaImages.add(null);
-      }
+      computedList.add(_computeInspectionMetrics(module, entry));
     }
 
     final doc = pw.Document(
@@ -388,7 +500,7 @@ class ThermalPdfReportService {
                 module: module,
                 entry: entries.first,
                 metrics: computedList.first,
-                panoramaPng: panoramaImages.first,
+                includeThermalMap: includeThermalImages,
                 inspectionOrdinal: 1,
                 totalInspections: 1,
               ),
@@ -440,7 +552,7 @@ class ThermalPdfReportService {
               module: module,
               entry: entries[i],
               metrics: computedList[i],
-              panoramaPng: panoramaImages[i],
+              includeThermalMap: includeThermalImages,
               inspectionOrdinal: i + 1,
               totalInspections: entries.length,
             ),
@@ -1131,7 +1243,7 @@ class ThermalPdfReportService {
     required PvModule module,
     required PdfInspectionEntry entry,
     required _InspectionMetrics metrics,
-    required Uint8List? panoramaPng,
+    required bool includeThermalMap,
     required int inspectionOrdinal,
     required int totalInspections,
   }) {
@@ -1191,67 +1303,12 @@ class ThermalPdfReportService {
       ),
       pw.SizedBox(height: 10),
 
-      // High-Res Thermal Panorama Image + Radiometric Color Scale
-      if (panoramaPng != null) ...[
-        pw.Container(
-          width: double.infinity,
-          padding: const pw.EdgeInsets.all(6),
-          decoration: pw.BoxDecoration(
-            color: _white,
-            borderRadius: pw.BorderRadius.circular(8),
-            border: pw.Border.all(color: _border),
-          ),
-          child: pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.ClipRRect(
-                horizontalRadius: 5,
-                verticalRadius: 5,
-                child: pw.Image(
-                  pw.MemoryImage(panoramaPng),
-                  width: double.infinity,
-                  height: 138,
-                  fit: pw.BoxFit.fill,
-                ),
-              ),
-              pw.SizedBox(height: 6),
-              // Calibrated Radiometric Spectrum Bar
-              pw.Row(
-                children: [
-                  for (final color in _spectrumColors)
-                    pw.Expanded(
-                      child: pw.Container(height: 5, color: color),
-                    ),
-                ],
-              ),
-              pw.SizedBox(height: 3),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'Min: ${metrics.minC != null ? '${metrics.minC!.toStringAsFixed(1)} \u00B0C' : 'N/A'}',
-                    style: pw.TextStyle(fontSize: 7.3, color: _muted),
-                  ),
-                  pw.Text(
-                    'Normal (Baseline): ${metrics.baselineC != null ? '${metrics.baselineC!.toStringAsFixed(1)} \u00B0C' : 'N/A'}',
-                    style: pw.TextStyle(
-                      fontSize: 7.3,
-                      fontWeight: pw.FontWeight.bold,
-                      color: _dark,
-                    ),
-                  ),
-                  pw.Text(
-                    'Max: ${metrics.peakC != null ? '${metrics.peakC!.toStringAsFixed(1)} \u00B0C' : 'N/A'}',
-                    style: pw.TextStyle(
-                      fontSize: 7.3,
-                      fontWeight: pw.FontWeight.bold,
-                      color: isDeltaElevated ? _errorFg : _dark,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+      // Vector 2D Thermal Panorama + Radiometric Color Scale
+      if (includeThermalMap) ...[
+        _buildVectorThermalPanoramaWidget(
+          metrics: metrics,
+          markers: _resolveActiveMarkers(entry),
+          isDeltaElevated: isDeltaElevated,
         ),
         pw.SizedBox(height: 10),
       ],

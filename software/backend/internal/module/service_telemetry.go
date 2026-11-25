@@ -935,6 +935,24 @@ func (s *Service) FinalizeInspection(
 			return nil, err
 		}
 
+		if targetStatus == "failed" {
+			reason := "No valid thermal reading produced"
+			if failReasonPg.Valid && failReasonPg.String != "" {
+				reason = failReasonPg.String
+			}
+			s.notifyClientsOperationalAlert(
+				principal.CompanyID,
+				moduleID,
+				row.Name,
+				fmt.Sprintf("[ThermoScan] Inspection Failed - %s", row.Name),
+				fmt.Sprintf(
+					"A thermal inspection on module \"%s\" failed to produce a valid reading.\nReason: %s\nPlease inspect the robot and sensor connectivity.",
+					row.Name,
+					reason,
+				),
+			)
+		}
+
 		return s.GetLatestInspection(ctx, principal, moduleID)
 	}
 
@@ -1474,6 +1492,19 @@ func (s *Service) FinalizeInspection(
 		return nil, err
 	}
 
+	if verifResultPg.Valid && verifResultPg.String == "unresolved" {
+		s.notifyClientsOperationalAlert(
+			principal.CompanyID,
+			moduleID,
+			row.Name,
+			fmt.Sprintf("[ThermoScan] Unresolved Hotspot Alert - %s", row.Name),
+			fmt.Sprintf(
+				"Post-cleaning verification detected that a confirmed thermal hotspot on module \"%s\" remains unresolved after washing.\nOn-site technical inspection is recommended to check for shading, persistent soiling, or electrical faults.",
+				row.Name,
+			),
+		)
+	}
+
 	return s.GetLatestInspection(ctx, principal, moduleID)
 }
 
@@ -1558,7 +1589,23 @@ func (s *Service) AbortInspection(
 		ID: moduleID,
 	})
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+
+	s.notifyClientsOperationalAlert(
+		principal.CompanyID,
+		moduleID,
+		row.Name,
+		fmt.Sprintf("[ThermoScan] Inspection Failed - %s", row.Name),
+		fmt.Sprintf(
+			"A thermal inspection on module \"%s\" was aborted by the device.\nReason: %s\nPlease check the robot status in the ThermoScan app.",
+			row.Name,
+			failReason,
+		),
+	)
+
+	return nil
 }
 
 func (s *Service) RecordPanelThermalResult(

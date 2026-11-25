@@ -17,6 +17,7 @@ import (
 	"backend/internal/config"
 	"backend/internal/db"
 	"backend/internal/httpapi"
+	"backend/internal/mailer"
 	"backend/internal/module"
 	"backend/internal/user"
 
@@ -86,7 +87,16 @@ func main() {
 	userService := user.NewService(pool)
 	userHandler := user.NewHandler(userService, queries, tokens)
 
+	emailSender := mailer.NewSMTPSender(mailer.SMTPConfig{
+		Host: cfg.SMTPHost,
+		Port: cfg.SMTPPort,
+		User: cfg.SMTPUser,
+		Pass: cfg.SMTPPass,
+		From: cfg.SMTPFrom,
+	}, logger)
+
 	moduleService := module.NewService(pool)
+	moduleService.SetMailer(emailSender)
 	moduleHandler := module.NewHandler(moduleService, queries, tokens)
 
 	router := httpapi.NewRouter(httpapi.Dependencies{

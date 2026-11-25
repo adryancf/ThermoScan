@@ -14,6 +14,11 @@ type Config struct {
 	APIPort             string
 	BootstrapAdminName  string
 	BootstrapAdminEmail string
+	SMTPHost            string
+	SMTPPort            string
+	SMTPUser            string
+	SMTPPass            string
+	SMTPFrom            string
 }
 
 // Load reads configuration from environment variables, falling back to .env or ../.env
@@ -27,6 +32,11 @@ func Load() (Config, error) {
 		APIPort:             strings.TrimSpace(os.Getenv("API_PORT")),
 		BootstrapAdminName:  strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_NAME")),
 		BootstrapAdminEmail: strings.ToLower(strings.TrimSpace(os.Getenv("BOOTSTRAP_ADMIN_EMAIL"))),
+		SMTPHost:            strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		SMTPPort:            strings.TrimSpace(os.Getenv("SMTP_PORT")),
+		SMTPUser:            strings.TrimSpace(os.Getenv("SMTP_USER")),
+		SMTPPass:            os.Getenv("SMTP_PASS"),
+		SMTPFrom:            strings.TrimSpace(os.Getenv("SMTP_FROM")),
 	}
 
 	if cfg.APIPort == "" {

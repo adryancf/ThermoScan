@@ -9,6 +9,7 @@ import (
 
 	"backend/internal/auth"
 	"backend/internal/db"
+	"backend/internal/mailer"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -49,6 +50,7 @@ type Service struct {
 	database            auth.DB
 	queries             *db.Queries
 	pingIntervalSeconds int
+	mailer              mailer.Sender
 }
 
 func NewService(database auth.DB) *Service {
@@ -57,6 +59,10 @@ func NewService(database auth.DB) *Service {
 		queries:             db.New(database),
 		pingIntervalSeconds: getDevicePingIntervalSeconds(),
 	}
+}
+
+func (s *Service) SetMailer(sender mailer.Sender) {
+	s.mailer = sender
 }
 
 func (s *Service) CreateModule(ctx context.Context, in CreateModuleInput) (ModuleDetailsDTO, error) {
@@ -798,6 +804,17 @@ func (s *Service) UpdateConfiguration(ctx context.Context, principal auth.Princi
 
 	if err := tx.Commit(ctx); err != nil {
 		return ModuleDetailsDTO{}, err
+	}
+
+	if intervalDays != current.InspectionIntervalDays {
+		s.notifyClientsIntervalChanged(
+			principal.CompanyID,
+			moduleID,
+			current.Name,
+			current.InspectionIntervalDays,
+			intervalDays,
+			principal.Email,
+		)
 	}
 
 	return s.GetModuleDetails(ctx, principal, moduleID)

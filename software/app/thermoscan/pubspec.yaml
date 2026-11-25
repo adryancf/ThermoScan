@@ -43,6 +43,7 @@ dependencies:
   geocoding: ^5.0.1
   pdf: ^3.11.3
   printing: ^5.14.2
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
   flutter_test:

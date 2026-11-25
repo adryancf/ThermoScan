@@ -265,7 +265,6 @@ void main() {
       );
       expect(find.text('3/3 Resolved'), findsOneWidget);
       expect(find.text('3 washes'), findsOneWidget);
-      expect(find.text('370 mL'), findsOneWidget);
       expect(find.text('30.0 s'), findsOneWidget);
 
       // Collapsed by default for 3+ washes

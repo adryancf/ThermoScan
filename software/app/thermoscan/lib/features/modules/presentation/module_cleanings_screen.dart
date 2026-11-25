@@ -481,16 +481,10 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
       cleanings: cleanings,
     );
 
-    double totalWaterMl = 0;
-    bool hasWater = false;
     double totalDurationSec = 0;
     bool hasDuration = false;
 
     for (final c in cleanings) {
-      if (c.estimatedWaterVolumeMl != null) {
-        totalWaterMl += c.estimatedWaterVolumeMl!;
-        hasWater = true;
-      }
       if (c.durationSeconds != null) {
         totalDurationSec += c.durationSeconds!;
         hasDuration = true;
@@ -499,8 +493,6 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
 
     final washCountLabel =
         '${cleanings.length} ${cleanings.length == 1 ? 'wash' : 'washes'}';
-    final totalWaterLabel =
-        hasWater ? '${totalWaterMl.toStringAsFixed(0)} mL' : 'N/A';
     final totalDurationLabel =
         hasDuration ? _formatDurationAggregate(totalDurationSec) : 'N/A';
 
@@ -615,16 +607,9 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                 Container(width: 1, height: 24, color: AppColors.border),
                 Expanded(
                   child: _buildCompactMetricCell(
-                    label: 'Total Water',
-                    value: totalWaterLabel,
-                    valueColor: AppColors.primary,
-                  ),
-                ),
-                Container(width: 1, height: 24, color: AppColors.border),
-                Expanded(
-                  child: _buildCompactMetricCell(
                     label: 'Total Duration',
                     value: totalDurationLabel,
+                    valueColor: AppColors.primary,
                   ),
                 ),
               ],
@@ -760,9 +745,6 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
 
     final duration = c.durationSeconds != null
         ? '${c.durationSeconds!.toStringAsFixed(1)} sec'
-        : 'N/A';
-    final fluid = c.estimatedWaterVolumeMl != null
-        ? '${c.estimatedWaterVolumeMl!.toStringAsFixed(0)} mL'
         : 'N/A';
 
     final panelPrefix = c.panelIndex != null ? 'Panel ${c.panelIndex} • ' : '';
@@ -918,6 +900,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
           Row(
             children: [
               Expanded(
+                flex: 2,
                 child: _buildMetricCol(
                   'Position',
                   c.panelIndex != null
@@ -930,13 +913,6 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                 child: _buildMetricCol(
                   'Duration',
                   duration,
-                  AppColors.textPrimary,
-                ),
-              ),
-              Expanded(
-                child: _buildMetricCol(
-                  'Water Used',
-                  fluid,
                   AppColors.primary,
                 ),
               ),

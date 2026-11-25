@@ -82,7 +82,7 @@ class _InspectionMetrics {
     required this.hotspotCleared,
     required this.hotspotUnresolved,
     required this.washCount,
-    required this.totalWaterMl,
+    required this.totalWashDurationSec,
     required this.isPostCleaningView,
     required this.panorama,
   });
@@ -103,7 +103,7 @@ class _InspectionMetrics {
   final int hotspotCleared;
   final int hotspotUnresolved;
   final int washCount;
-  final double totalWaterMl;
+  final double totalWashDurationSec;
   final bool isPostCleaningView;
   final ThermalPanoramaData panorama;
 }
@@ -683,9 +683,9 @@ class ThermalPdfReportService {
       statusTone = 'success';
     }
 
-    double totalWaterMl = 0;
+    double totalDurationSec = 0;
     for (final c in entry.bundle.cleanings) {
-      totalWaterMl += c.estimatedWaterVolumeMl ?? 0.0;
+      totalDurationSec += c.durationSeconds ?? 0.0;
     }
 
     return _InspectionMetrics(
@@ -705,7 +705,7 @@ class ThermalPdfReportService {
       hotspotCleared: cleared,
       hotspotUnresolved: unresolved,
       washCount: entry.bundle.cleanings.length,
-      totalWaterMl: totalWaterMl,
+      totalWashDurationSec: totalDurationSec,
       isPostCleaningView: entry.usePostCleaningView && entry.hasPostCleaning,
       panorama: panorama,
     );
@@ -1000,8 +1000,8 @@ class ThermalPdfReportService {
         metricsList.fold<int>(0, (sum, m) => sum + m.hotspotCleared);
     final totalWashes =
         metricsList.fold<int>(0, (sum, m) => sum + m.washCount);
-    final totalWaterMl =
-        metricsList.fold<double>(0.0, (sum, m) => sum + m.totalWaterMl);
+    final totalDurationSec =
+        metricsList.fold<double>(0.0, (sum, m) => sum + m.totalWashDurationSec);
     final threshold = module.hotspotThresholdDeltaC;
 
     return [
@@ -1068,9 +1068,9 @@ class ThermalPdfReportService {
             child: _buildKpiBox(
               label: 'WASHING CYCLES',
               value: '$totalWashes wash${totalWashes == 1 ? '' : 'es'}',
-              sublabel: totalWaterMl > 0
-                  ? 'Est. ${totalWaterMl.toStringAsFixed(0)} mL water'
-                  : 'No water actuated',
+              sublabel: totalDurationSec > 0
+                  ? 'Total duration: ${totalDurationSec.toStringAsFixed(1)} s'
+                  : 'No wash actuated',
               accentColor: _primary,
             ),
           ),
@@ -1403,7 +1403,7 @@ class ThermalPdfReportService {
             'Before',
             'After',
             'Change',
-            'Wash / Water',
+            'Wash / Duration',
             'Verdict',
           ],
           data: [
@@ -1485,7 +1485,7 @@ class ThermalPdfReportService {
         ? '${s.deltaChangeC! >= 0 ? '+' : ''}${s.deltaChangeC!.toStringAsFixed(1)} \u00B0C'
         : '-';
     final washStr = s.cleaning != null
-        ? '#${s.cleaning!.attemptNumber ?? 1} / ${s.cleaning!.estimatedWaterVolumeMl != null ? '${s.cleaning!.estimatedWaterVolumeMl!.toStringAsFixed(0)} mL' : 'N/A'}'
+        ? '#${s.cleaning!.attemptNumber ?? 1} / ${s.cleaning!.durationSeconds != null ? '${s.cleaning!.durationSeconds!.toStringAsFixed(1)} s' : 'N/A'}'
         : 'None';
 
     return [

@@ -81,6 +81,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         if (isActive || justFinished) {
           ref.invalidate(latestInspectionProvider(widget.moduleId));
         }
+        if (justFinished) {
+          ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+          ref.invalidate(moduleInspectionsProvider(widget.moduleId));
+          ref.invalidate(moduleCleaningsProvider(widget.moduleId));
+          ref.invalidate(alertsSummaryProvider);
+        }
         _lastObservedFirmwareState = curState;
       },
     );
@@ -1490,6 +1496,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         ref.invalidate(moduleDetailsProvider(widget.moduleId));
         ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
         ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+        ref.invalidate(moduleInspectionsProvider(widget.moduleId));
         ref.invalidate(latestInspectionProvider(widget.moduleId));
         ref.invalidate(moduleCleaningsProvider(widget.moduleId));
         ref.invalidate(alertsSummaryProvider);

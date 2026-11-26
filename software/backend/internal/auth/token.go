@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	AccessTokenTTL  = 15 * time.Minute
+	AccessTokenTTL  = 2 * time.Hour
 	RefreshTokenTTL = 30 * 24 * time.Hour
 
 	RoleSystemAdmin = "system_admin"

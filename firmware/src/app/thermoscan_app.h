@@ -159,6 +159,7 @@ private:
     uint32_t last_reclaim_ms_{0};
     bool has_reclaimed_{false};
     uint32_t next_inspection_time_{0};
+    uint32_t spray_ended_uptime_ms_{0};
     bool manual_inspection_requested_{false};
     bool manual_cleaning_requested_{false};
     bool manual_cleaning_active_{false};

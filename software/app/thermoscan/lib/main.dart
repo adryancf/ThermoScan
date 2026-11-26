@@ -1,14 +1,17 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:thermoscan/core/config/app_config.dart';
+import 'package:thermoscan/core/notifications/local_notification_service.dart';
 import 'package:thermoscan/core/router/app_router.dart';
 import 'package:thermoscan/core/theme/app_theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppConfig.init();
+  unawaited(LocalNotificationService.instance.ensureInitialized());
   runApp(
     const ProviderScope(
       child: ThermoScanApp(),

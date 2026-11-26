@@ -1,6 +1,7 @@
 #include "thermoscan_app.h"
 #include <cmath>
 #include <algorithm>
+#include <memory>
 #include <ArduinoJson.h>
 
 #if defined(ARDUINO) || defined(ESP32)
@@ -286,6 +287,7 @@ void ThermoscanApp::handleCleaning() {
         if (last_spray_end > 0) {
             cleaning_sm_.setSprayEndedTimestamp(last_spray_end);
         }
+        spray_ended_uptime_ms_ = getUptimeMs();
         saveCurrentStateToNvs();
         transitionTo(AppState::WAITING_VERIFICATION, "cooldown_wait");
     } else {
@@ -324,14 +326,24 @@ void ThermoscanApp::handleWaitingVerification() {
 
     const uint32_t now = getCurrentTime();
     const bool solar_ok = checkSolarWindow();
+    const uint32_t spray_end_epoch = cleaning_sm_.getSprayEndedTimestamp();
+    const bool use_epoch_cooldown = (now > 0 && spray_end_epoch > 0);
+    bool cooldown_ready = false;
+    if (use_epoch_cooldown) {
+        cooldown_ready = cleaning_sm_.canStartVerification(now, true);
+    } else if (spray_ended_uptime_ms_ > 0) {
+        const uint32_t elapsed_ms = getUptimeMs() - spray_ended_uptime_ms_;
+        cooldown_ready = (elapsed_ms >= static_cast<uint32_t>(POST_CLEANING_WAIT_SECONDS) * 1000UL);
+    }
 
-    // Strict 1800-second cooldown AND valid solar elevation window
-    if (cleaning_sm_.canStartVerification(now, solar_ok)) {
+    // Strict cooldown AND valid solar elevation window
+    if (cooldown_ready && solar_ok) {
+        spray_ended_uptime_ms_ = 0;
         transitionTo(AppState::VERIFYING);
         return;
     }
 
-    const char* wait_detail = cleaning_sm_.canStartVerification(now, true)
+    const char* wait_detail = cooldown_ready
                                   ? "solar_window_closed"
                                   : "cooldown_wait";
     if (last_state_detail_ != wait_detail) {
@@ -423,17 +435,17 @@ void ThermoscanApp::handleVerifying() {
             return found;
         };
 
-        // Measurement 1
+        // Measurement 1 (heap-allocated to avoid loopTask stack overflow)
         if (motion_ != nullptr) motion_->moveToXCm(x1);
-        ThermalFrame frame1{};
-        bool valid1 = (camera_ != nullptr) ? camera_->captureFrame(frame1) : false;
+        std::unique_ptr<ThermalFrame> frame1(new ThermalFrame());
+        bool valid1 = (camera_ != nullptr) ? camera_->captureFrame(*frame1) : false;
         PowerSnapshot power1{};
         if (power_meter_ != nullptr) power_meter_->readSnapshotForPanel(qh.panel_index, power1);
 
         float max_t1 = -999.0f;
         int row1 = 0;
         if (valid1) {
-            valid1 = findPeakInFrame(frame1, max_t1, row1);
+            valid1 = findPeakInFrame(*frame1, max_t1, row1);
         }
 
         TelemetryMeasurementItem item1;
@@ -452,22 +464,22 @@ void ThermoscanApp::handleVerifying() {
                 item1.current_a = nullptr;
                 item1.power_w = nullptr;
             }
-            item1.thermal_frame = frame1.pixels;
+            item1.thermal_frame = frame1->pixels;
             item1.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
             batch_input.batch.push_back(item1);
         }
 
-        // Measurement 2
+        // Measurement 2 (heap-allocated to avoid loopTask stack overflow)
         if (motion_ != nullptr) motion_->moveToXCm(x2);
-        ThermalFrame frame2{};
-        bool valid2 = (camera_ != nullptr) ? camera_->captureFrame(frame2) : false;
+        std::unique_ptr<ThermalFrame> frame2(new ThermalFrame());
+        bool valid2 = (camera_ != nullptr) ? camera_->captureFrame(*frame2) : false;
         PowerSnapshot power2{};
         if (power_meter_ != nullptr) power_meter_->readSnapshotForPanel(qh.panel_index, power2);
 
         float max_t2 = -999.0f;
         int row2 = 0;
         if (valid2) {
-            valid2 = findPeakInFrame(frame2, max_t2, row2);
+            valid2 = findPeakInFrame(*frame2, max_t2, row2);
         }
 
         TelemetryMeasurementItem item2;
@@ -486,7 +498,7 @@ void ThermoscanApp::handleVerifying() {
                 item2.current_a = nullptr;
                 item2.power_w = nullptr;
             }
-            item2.thermal_frame = frame2.pixels;
+            item2.thermal_frame = frame2->pixels;
             item2.thermal_frame_size = ThermalFrame::PIXEL_COUNT;
             batch_input.batch.push_back(item2);
         }
@@ -494,6 +506,8 @@ void ThermoscanApp::handleVerifying() {
         if (cloud_ != nullptr && !batch_input.batch.empty()) {
             cloud_->ingestTelemetryBatch(batch_input);
         }
+        frame1.reset();
+        frame2.reset();
 
         if (cloud_ != nullptr) {
             bool heap_ok = true;
@@ -532,7 +546,7 @@ void ThermoscanApp::handleVerifying() {
             last_spray_end);
 
         domain::AnomalyResult result = cleaning_sm_.processVerificationResult(hotspot_still_present, (valid1 || valid2));
-        if (result == domain::AnomalyResult::OPEN || result == domain::AnomalyResult::PENDING_EVALUATION) {
+        if (result == domain::AnomalyResult::OPEN && qh.attempts < MAX_CLEANING_ATTEMPTS) {
             any_retry_allowed = true;
         }
 
@@ -599,7 +613,7 @@ void ThermoscanApp::handleVerifying() {
         }
     }
 
-    if (!any_retry_allowed && cleaning_queue_.empty()) {
+    if (cleaning_queue_.empty()) {
         const uint32_t now = getCurrentTime();
         if (now > 0 && next_inspection_time_ <= now) {
             next_inspection_time_ = now + static_cast<uint32_t>(config_.interval_days * 86400);
@@ -612,7 +626,7 @@ void ThermoscanApp::handleVerifying() {
     quantized_frames_.clear();
     quantized_frames_.shrink_to_fit();
     saveCurrentStateToNvs();
-    transitionTo(any_retry_allowed ? AppState::IDLE : AppState::SYNCING);
+    transitionTo((!cleaning_queue_.empty() && any_retry_allowed) ? AppState::IDLE : AppState::SYNCING);
 }
 
 

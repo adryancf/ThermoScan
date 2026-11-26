@@ -45,12 +45,13 @@ public:
 
     String getLogs() {
         String res;
+        // Pre-allocate outside critical section to avoid heap malloc with interrupts disabled
+        res.reserve(BUFFER_SIZE + 1);
         portENTER_CRITICAL(&mux_);
         if (count_ == 0) {
             portEXIT_CRITICAL(&mux_);
             return res;
         }
-        res.reserve(count_ + 1);
         if (count_ < BUFFER_SIZE) {
             for (size_t i = 0; i < write_pos_; ++i) {
                 res += buf_[i];
@@ -138,7 +139,10 @@ static int web_log_vprintf_hook(const char *fmt, va_list args) {
     int len = vsnprintf(buf, sizeof(buf), fmt, copy);
     va_end(copy);
     if (len > 0) {
-        getGlobalLogBuffer().append(buf, static_cast<size_t>(len));
+        const size_t safe_len = (static_cast<size_t>(len) < sizeof(buf))
+                                    ? static_cast<size_t>(len)
+                                    : (sizeof(buf) - 1);
+        getGlobalLogBuffer().append(buf, safe_len);
     }
     if (s_orig_vprintf) {
         return s_orig_vprintf(fmt, args);

@@ -90,14 +90,18 @@ float Mlx90640Camera::getTiltAngle() const {
 }
 
 bool Mlx90640Camera::captureFrame(ThermalFrame& out) {
-    if (!initialized_ && !recoverI2cBus()) {
-        out.valid = false;
-        return false;
+    bool recovered_this_call = false;
+    if (!initialized_) {
+        recovered_this_call = true;
+        if (!recoverI2cBus()) {
+            out.valid = false;
+            return false;
+        }
     }
 
-    // mlx.getFrame returns 0 on success; attempt automatic I2C bus recovery once on failure
+    // mlx.getFrame returns 0 on success; attempt automatic I2C bus recovery at most once per call
     if (mlx_.getFrame(out.pixels) != 0) {
-        if (!recoverI2cBus() || mlx_.getFrame(out.pixels) != 0) {
+        if (recovered_this_call || !recoverI2cBus() || mlx_.getFrame(out.pixels) != 0) {
             initialized_ = false;
             out.valid = false;
             return false;

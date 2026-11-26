@@ -81,6 +81,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         if (isActive || justFinished) {
           ref.invalidate(latestInspectionProvider(widget.moduleId));
         }
+        if (justFinished) {
+          ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+          ref.invalidate(moduleInspectionsProvider(widget.moduleId));
+          ref.invalidate(moduleCleaningsProvider(widget.moduleId));
+          ref.invalidate(alertsSummaryProvider);
+        }
         _lastObservedFirmwareState = curState;
       },
     );
@@ -114,10 +120,34 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       final normState = (newStatus.firmwareState ?? '').trim().toUpperCase();
       final normDetail =
           (newStatus.firmwareStateDetail ?? '').trim().toLowerCase();
+      final isTerminalFailure = normState == 'CLEANING_REFUSED' ||
+          normState == 'ERROR_HALT' ||
+          normState == 'RESET_REQUESTED';
       final isActive = newStatus.manualCleaningPending ||
           (normState == 'CLEANING' && normDetail == 'manual_cleaning') ||
           normState == 'CLEANING';
-      if (isActive) {
+      if (isTerminalFailure) {
+        _manualCleaningTimeoutTimer?.cancel();
+        _manualCleaningTimeoutTimer = null;
+        setState(() {
+          _awaitingManualCleaning = false;
+          _manualCleaningSawActive = false;
+          _pendingManualCleaningTargetXCm = null;
+        });
+        ref.invalidate(moduleCleaningsProvider(widget.moduleId));
+        if (mounted) {
+          final reasonLabel = normDetail.isNotEmpty
+              ? normDetail.replaceAll('_', ' ')
+              : normState.toLowerCase().replaceAll('_', ' ');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Manual cleaning stopped ($reasonLabel).'),
+              backgroundColor: AppColors.warning,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      } else if (isActive) {
         _manualCleaningSawActive = true;
       } else if (_manualCleaningSawActive && normState == 'IDLE') {
         _manualCleaningTimeoutTimer?.cancel();
@@ -190,9 +220,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       await ref
           .read(moduleRepositoryProvider)
           .triggerManualInspection(moduleId: moduleId);
+      if (!mounted) return;
       ref.invalidate(moduleDeviceStatusProvider(moduleId));
       ref.invalidate(latestInspectionProvider(moduleId));
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -333,9 +363,9 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
             moduleId: widget.moduleId,
             operationalEmailEnabled: enabled,
           );
+      if (!mounted) return;
       ref.invalidate(moduleDetailsProvider(widget.moduleId));
       ref.invalidate(modulesListProvider);
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -391,10 +421,23 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
 
     try {
       await ref.read(moduleRepositoryProvider).resetRoutine(widget.moduleId);
+      if (!mounted) return;
+      _manualCleaningTimeoutTimer?.cancel();
+      _manualCleaningTimeoutTimer = null;
+      _localizedReadingTimeoutTimer?.cancel();
+      _localizedReadingTimeoutTimer = null;
+      if (_awaitingManualCleaning || _awaitingLocalizedReading) {
+        setState(() {
+          _awaitingManualCleaning = false;
+          _manualCleaningSawActive = false;
+          _pendingManualCleaningTargetXCm = null;
+          _awaitingLocalizedReading = false;
+          _pendingLocalizedTargetXCm = null;
+        });
+      }
       ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
       ref.invalidate(moduleDetailsProvider(widget.moduleId));
       ref.invalidate(latestInspectionProvider(widget.moduleId));
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Reset routine requested. Module will return to IDLE.'),
@@ -491,8 +534,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       await ref
           .read(moduleRepositoryProvider)
           .deleteModule(moduleId: widget.moduleId);
-      ref.invalidate(modulesListProvider);
       if (!mounted) return;
+      ref.invalidate(modulesListProvider);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Module deleted successfully.'),
@@ -970,44 +1013,47 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   const SizedBox(height: 6),
 
                   if (!mod.isPendingConfiguration) ...[
-                    _buildActionSheetSectionHeader('ROBOT CONTROLS'),
-                    const SizedBox(height: 6),
-                    _buildActionSheetItem(
-                      key: const Key('action_sheet_run_scan'),
-                      icon: Icons.radar_rounded,
-                      label: _isTriggeringInspection
-                          ? 'Sending Scan Request...'
-                          : 'Run Scan Now',
-                      subtitle: 'Start a full panel thermal inspection',
-                      enabled: !_isTriggeringInspection,
-                      onTap: () {
-                        Navigator.of(sheetCtx).pop();
-                        _triggerManualScan(mod.id);
-                      },
-                    ),
-                    const SizedBox(height: 6),
-                    _buildLocalizedReadingActionRow(
-                      sheetCtx: sheetCtx,
-                      mod: mod,
-                      deviceStatus: deviceStatus,
-                      hasLastLocalized: hasLastLocalized,
-                      lastLocalizedX: lastLocalizedX,
-                    ),
-                    const SizedBox(height: 6),
-                    _buildActionSheetItem(
-                      key: const Key('action_sheet_manual_cleaning'),
-                      icon: Icons.cleaning_services_outlined,
-                      label: _isTriggeringCleaning
-                          ? 'Sending Cleaning Request...'
-                          : 'Manual Cleaning',
-                      subtitle: 'Spot-wash a specific rail coordinate',
-                      enabled: !_isTriggeringCleaning,
-                      onTap: () {
-                        Navigator.of(sheetCtx).pop();
-                        _promptAndTriggerManualCleaning(mod);
-                      },
-                    ),
-                    const SizedBox(height: 12),
+                    if (!(ref.read(authControllerProvider).user?.isClient ??
+                        false)) ...[
+                      _buildActionSheetSectionHeader('ROBOT CONTROLS'),
+                      const SizedBox(height: 6),
+                      _buildActionSheetItem(
+                        key: const Key('action_sheet_run_scan'),
+                        icon: Icons.radar_rounded,
+                        label: _isTriggeringInspection
+                            ? 'Sending Scan Request...'
+                            : 'Run Scan Now',
+                        subtitle: 'Start a full panel thermal inspection',
+                        enabled: !_isTriggeringInspection,
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          _triggerManualScan(mod.id);
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      _buildLocalizedReadingActionRow(
+                        sheetCtx: sheetCtx,
+                        mod: mod,
+                        deviceStatus: deviceStatus,
+                        hasLastLocalized: hasLastLocalized,
+                        lastLocalizedX: lastLocalizedX,
+                      ),
+                      const SizedBox(height: 6),
+                      _buildActionSheetItem(
+                        key: const Key('action_sheet_manual_cleaning'),
+                        icon: Icons.cleaning_services_outlined,
+                        label: _isTriggeringCleaning
+                            ? 'Sending Cleaning Request...'
+                            : 'Manual Cleaning',
+                        subtitle: 'Spot-wash a specific rail coordinate',
+                        enabled: !_isTriggeringCleaning,
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          _promptAndTriggerManualCleaning(mod);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     _buildActionSheetSectionHeader('REPORTS'),
                     const SizedBox(height: 6),
                     _buildActionSheetItem(
@@ -1057,23 +1103,30 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     },
                   ),
 
-                  const SizedBox(height: 12),
-                  const Divider(height: 1, color: AppColors.border),
-                  const SizedBox(height: 10),
-
-                  _buildActionSheetSectionHeader('DANGER ZONE', isDanger: true),
-                  const SizedBox(height: 6),
-                  _buildActionSheetItem(
-                    key: const Key('action_sheet_reset_routine'),
-                    icon: Icons.restart_alt_rounded,
-                    label: 'Abort & Reset Routine',
-                    subtitle: 'Stop active task and return robot to IDLE',
-                    isDanger: true,
-                    onTap: () {
-                      Navigator.of(sheetCtx).pop();
-                      _confirmAndResetRoutine();
-                    },
-                  ),
+                  if (!(ref.read(authControllerProvider).user?.isClient ??
+                          false) ||
+                      perms.canDelete) ...[
+                    const SizedBox(height: 12),
+                    const Divider(height: 1, color: AppColors.border),
+                    const SizedBox(height: 10),
+                    _buildActionSheetSectionHeader('DANGER ZONE',
+                        isDanger: true),
+                    if (!(ref.read(authControllerProvider).user?.isClient ??
+                        false)) ...[
+                      const SizedBox(height: 6),
+                      _buildActionSheetItem(
+                        key: const Key('action_sheet_reset_routine'),
+                        icon: Icons.restart_alt_rounded,
+                        label: 'Abort & Reset Routine',
+                        subtitle: 'Stop active task and return robot to IDLE',
+                        isDanger: true,
+                        onTap: () {
+                          Navigator.of(sheetCtx).pop();
+                          _confirmAndResetRoutine();
+                        },
+                      ),
+                    ],
+                  ],
                   if (perms.canDelete) ...[
                     const SizedBox(height: 6),
                     _buildActionSheetItem(
@@ -1490,6 +1543,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         ref.invalidate(moduleDetailsProvider(widget.moduleId));
         ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
         ref.invalidate(moduleMeasurementsProvider(widget.moduleId));
+        ref.invalidate(moduleInspectionsProvider(widget.moduleId));
         ref.invalidate(latestInspectionProvider(widget.moduleId));
         ref.invalidate(moduleCleaningsProvider(widget.moduleId));
         ref.invalidate(alertsSummaryProvider);
@@ -1710,7 +1764,10 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     double? fallbackBaselineTempC,
     List<ConfirmedAnomaly>? fallbackConfirmedAnomalies,
   }) {
-    final isInspScheduled = latestInspection?.inspection.status == 'scheduled';
+    final inspStatus = latestInspection?.inspection.status;
+    final isInspScheduled = inspStatus == 'scheduled';
+    final isInspFailedOrCancelled =
+        inspStatus == 'failed' || inspStatus == 'cancelled';
     final rawConfirmedAnomalies = (!isInspScheduled && latestInspection != null)
         ? latestInspection.confirmedAnomalies
         : (fallbackConfirmedAnomalies ??
@@ -1719,9 +1776,12 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
     final confirmedAnomalies =
         rawConfirmedAnomalies.where((a) => !a.isCleared).toList();
     final hasHotspot = confirmedAnomalies.isNotEmpty;
-    final hasTelemetry = latestInspection != null ||
-        latestMeasurement != null ||
-        measurements.isNotEmpty;
+    final hasTelemetry =
+        (latestInspection != null &&
+                !isInspScheduled &&
+                !isInspFailedOrCancelled) ||
+            latestMeasurement != null ||
+            measurements.isNotEmpty;
 
     final double? baseline = (!isInspScheduled &&
             latestInspection?.inspection.baselineTemperatureC != null)
@@ -1812,6 +1872,22 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       badgeBg = AppColors.errorBackground;
       badgeBorder = AppColors.errorBorder;
       heroIcon = Icons.warning_amber_rounded;
+    } else if (isInspFailedOrCancelled) {
+      final isCancelled = inspStatus == 'cancelled';
+      title = isCancelled ? 'Inspection Cancelled' : 'Inspection Failed';
+      subtitle = isCancelled
+          ? 'The latest inspection routine was aborted and reset. Run a new scan when ready.'
+          : 'The latest inspection did not complete normally. Check robot status and retry when ready.';
+      badgeText = isCancelled ? 'ABORTED' : 'INSPECTION FAILED';
+      statusColor = isCancelled ? AppColors.warning : AppColors.error;
+      badgeBg = isCancelled
+          ? AppColors.warningBackground
+          : AppColors.errorBackground;
+      badgeBorder =
+          isCancelled ? AppColors.warningBorder : AppColors.errorBorder;
+      heroIcon = isCancelled
+          ? Icons.cancel_outlined
+          : Icons.error_outline_rounded;
     } else if (hasTelemetry) {
       title = 'Solar Array Healthy';
       if (baseline != null) {

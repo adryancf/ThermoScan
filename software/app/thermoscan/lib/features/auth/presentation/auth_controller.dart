@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:thermoscan/core/notifications/local_notification_service.dart';
 import 'package:thermoscan/core/storage/token_storage.dart';
 import 'package:thermoscan/features/auth/data/auth_repository.dart';
 import 'package:thermoscan/features/auth/domain/auth_user.dart';
@@ -160,6 +161,7 @@ class AuthController extends StateNotifier<AuthState> {
     final refreshToken = await tokenStorage.getRefreshToken();
     await repository.logout(refreshToken: refreshToken);
     await tokenStorage.clearTokens();
+    LocalNotificationService.instance.clearNotifiedAlerts();
     state = const AuthState.unauthenticated();
   }
 

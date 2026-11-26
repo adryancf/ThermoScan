@@ -325,10 +325,13 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 			lastOccurredAt = occurredAt
 		}
 		if input.FirmwareState != nil && strings.TrimSpace(*input.FirmwareState) != "" {
-			lastState = strings.TrimSpace(*input.FirmwareState)
-			if input.FirmwareStateDetail != nil {
+			nextState := strings.TrimSpace(*input.FirmwareState)
+			if nextState != lastState {
+				lastDetail = input.FirmwareStateDetail
+			} else if input.FirmwareStateDetail != nil {
 				lastDetail = input.FirmwareStateDetail
 			}
+			lastState = nextState
 			if lastOccurredAt.IsZero() {
 				lastOccurredAt = now
 			}

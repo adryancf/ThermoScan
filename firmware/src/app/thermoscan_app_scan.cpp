@@ -148,6 +148,15 @@ void ThermoscanApp::handleIdle() {
 
     if (manual_reading_requested_) {
         manual_reading_requested_ = false;
+        if (cloud_ != nullptr) {
+            cloud_->clearManualReadingPending();
+            cloud_->setManualReadingAckPending(true);
+            cloud_->sendPing();
+            if (cloud_->isResetPending()) {
+                executeFullReset();
+                return;
+            }
+        }
         executeLocalizedReading(manual_reading_target_x_);
         return;
     }
@@ -263,9 +272,11 @@ void ThermoscanApp::executeLocalizedReading(float target_x_cm) {
         cloud_->setManualReadingAckPending(true);
     }
 
-    // ALWAYS return carriage to start (X = 0.0f) and disable stepper, even on failure
+    // ALWAYS return carriage to start (X = 0.0f) when homed, and disable stepper even on failure
     if (motion_ != nullptr) {
-        motion_->moveToXCm(0.0f);
+        if (motion_ok) {
+            motion_->moveToXCm(0.0f);
+        }
         motion_->disableMotor();
     }
 
@@ -800,7 +811,15 @@ void ThermoscanApp::handleAnalyzing() {
 
     bool fin_ok = true;
     if (cloud_ != nullptr) {
-        fin_ok = cloud_->finalizeInspection(inspection_source_event_id_, fin);
+        fin_ok = false;
+        for (int fin_attempt = 0; fin_attempt < 3 && !fin_ok; ++fin_attempt) {
+            if (fin_attempt > 0) {
+#if defined(ARDUINO) || defined(ESP32)
+                delay(500);
+#endif
+            }
+            fin_ok = cloud_->finalizeInspection(inspection_source_event_id_, fin);
+        }
         active_anomaly_id_ = cloud_->getLastConfirmedAnomalyId();
         auto fin_anoms = cloud_->getLastConfirmedAnomalies();
         for (const auto& rec : fin_anoms) {
@@ -819,14 +838,23 @@ void ThermoscanApp::handleAnalyzing() {
 
     if (fin_ok) {
         pending_sync_backup_id_ = inspection_source_event_id_;
-        inspection_source_event_id_.clear();
-        last_completed_panel_ = 0;
-        inspection_crash_retries_ = 0;
+    } else if (!inspection_source_event_id_.empty()) {
+        pending_abort_insp_id_ = inspection_source_event_id_;
+        pending_abort_reason_ = "finalize_failed";
         if (storage_ != nullptr) {
-            storage_->clearInspectionProgress();
+            storage_->savePendingAbort(pending_abort_insp_id_, pending_abort_reason_);
         }
-        saveCurrentStateToNvs();
+        if (backup_storage_ != nullptr && backup_storage_->isAvailable()) {
+            backup_storage_->removeScanBackup(inspection_source_event_id_);
+        }
     }
+    inspection_source_event_id_.clear();
+    last_completed_panel_ = 0;
+    inspection_crash_retries_ = 0;
+    if (storage_ != nullptr) {
+        storage_->clearInspectionProgress();
+    }
+    saveCurrentStateToNvs();
 
     utils::HeapTracker::stop();
 

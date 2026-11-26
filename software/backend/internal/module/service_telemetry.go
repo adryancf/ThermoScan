@@ -630,7 +630,7 @@ func (s *Service) IngestTelemetry(ctx context.Context, principal auth.Principal,
 			_ = qtx.ClearPendingScheduledInspections(ctx, moduleID)
 		}
 	} else {
-		return nil, err
+		return nil, inspErr
 	}
 
 	// 3. Ingest each measurement frame (chunked upload, idempotent via ON CONFLICT)
@@ -1543,15 +1543,50 @@ func (s *Service) AbortInspection(
 		return err
 	}
 
+	failReason := strings.TrimSpace(input.FailureReason)
+	if failReason == "" {
+		failReason = "aborted_by_device"
+	}
+
+	now := time.Now().UTC()
+
 	insp, err := qtx.GetInspectionBySourceEventID(ctx, db.GetInspectionBySourceEventIDParams{
 		ModuleID:      moduleID,
 		SourceEventID: inspSourceEventID,
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
+			hasPending, pErr := qtx.HasPendingScheduledInspection(ctx, moduleID)
+			if pErr != nil {
+				return pErr
+			}
+			if !hasPending && failReason != "camera_recovery_failed" {
+				return ErrNotFound
+			}
+			// Early abort before the first telemetry batch was uploaded (e.g., camera_recovery_failed):
+			// materialize the inspection row so it can be finalized as failed and clear pending manual trigger.
+			created, cErr := qtx.CreateInspection(ctx, db.CreateInspectionParams{
+				ModuleID:            moduleID,
+				SourceEventID:       inspSourceEventID,
+				Type:                "scheduled",
+				CleaningOperationID: pgtype.UUID{Valid: false},
+				ScheduledFor:        now,
+				StartedAt:           &now,
+				FinishedAt:          nil,
+				Status:              "in_progress",
+			})
+			if cErr != nil {
+				return cErr
+			}
+			insp = db.GetInspectionBySourceEventIDRow{
+				ID:        created.ID,
+				ModuleID:  created.ModuleID,
+				Status:    created.Status,
+				StartedAt: created.StartedAt,
+			}
+		} else {
+			return err
 		}
-		return err
 	}
 
 	// Idempotency check: if inspection is already completed, failed, or cancelled, return idempotently
@@ -1559,15 +1594,9 @@ func (s *Service) AbortInspection(
 		return nil
 	}
 
-	now := time.Now().UTC()
 	finAt := now
 	if insp.StartedAt != nil && finAt.Before(*insp.StartedAt) {
 		finAt = *insp.StartedAt
-	}
-
-	failReason := strings.TrimSpace(input.FailureReason)
-	if failReason == "" {
-		failReason = "aborted_by_device"
 	}
 
 	_, err = qtx.FinalizeInspection(ctx, db.FinalizeInspectionParams{

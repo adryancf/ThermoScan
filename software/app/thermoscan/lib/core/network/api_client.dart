@@ -110,8 +110,13 @@ Dio createConfiguredDio({
                   await tokenStorage.clearTokens();
                   refreshCompleter!.complete(null);
                 }
+              } on DioException catch (refreshErr) {
+                final refreshStatus = refreshErr.response?.statusCode;
+                if (refreshStatus == 401 || refreshStatus == 403) {
+                  await tokenStorage.clearTokens();
+                }
+                refreshCompleter!.complete(null);
               } catch (_) {
-                await tokenStorage.clearTokens();
                 refreshCompleter!.complete(null);
               } finally {
                 refreshCompleter = null;
@@ -122,11 +127,15 @@ Dio createConfiguredDio({
               final retryOptions = err.requestOptions;
               retryOptions.extra['retried'] = true;
               retryOptions.headers['Authorization'] = 'Bearer $newAccessToken';
-              final response = await refreshDio.fetch<dynamic>(retryOptions);
-              return handler.resolve(response);
+              try {
+                final response = await refreshDio.fetch<dynamic>(retryOptions);
+                return handler.resolve(response);
+              } on DioException catch (retryErr) {
+                return handler.next(retryErr);
+              }
             }
           } catch (_) {
-            await tokenStorage.clearTokens();
+            // Preserve tokens on unexpected non-auth failures
           }
         }
 

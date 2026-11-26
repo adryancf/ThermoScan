@@ -64,6 +64,7 @@ LEFT JOIN companies c ON c.id = u.company_id
 WHERE s.refresh_token_hash = $1
   AND s.revoked_at IS NULL
   AND s.expires_at > now()
+FOR UPDATE OF s
 `
 
 type GetActiveAuthSessionByTokenHashRow struct {

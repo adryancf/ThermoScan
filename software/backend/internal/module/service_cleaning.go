@@ -408,19 +408,22 @@ func (s *Service) IngestCleaning(ctx context.Context, principal auth.Principal, 
 		return nil, err
 	}
 
-	if clean.FailureReason.Valid && strings.Contains(strings.ToLower(clean.FailureReason.String), "reservoir") {
-		s.notifyClientsOperationalAlert(
-			principal.CompanyID,
-			moduleID,
-			row.Name,
-			fmt.Sprintf("[ThermoScan] Low Water Alert - %s", row.Name),
-			fmt.Sprintf(
-				"An automatic cleaning operation at X = %s cm was %s because the cleaning fluid reservoir is depleted (%s). Please refill the water tank to resume automatic washing.",
-				clean.TargetXPositionCm,
-				clean.Status,
-				clean.FailureReason.String,
-			),
-		)
+	if clean.FailureReason.Valid {
+		lowerReason := strings.ToLower(clean.FailureReason.String)
+		if strings.Contains(lowerReason, "reservoir") || strings.Contains(lowerReason, "water") {
+			s.notifyClientsOperationalAlert(
+				principal.CompanyID,
+				moduleID,
+				row.Name,
+				fmt.Sprintf("[ThermoScan] Low Water Alert - %s", row.Name),
+				fmt.Sprintf(
+					"An automatic cleaning operation at X = %s cm was %s because the cleaning fluid reservoir is depleted (%s). Please refill the water tank to resume automatic washing.",
+					clean.TargetXPositionCm,
+					clean.Status,
+					clean.FailureReason.String,
+				),
+			)
+		}
 	}
 
 	return cleaningRowToDTO(

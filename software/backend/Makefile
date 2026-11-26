@@ -66,18 +66,19 @@ MODULE ?= Demo Thermoscan
 db-clean-history: ## Limpa leituras, limpezas, anomalias e logs de um painel (padrão: MODULE="Demo Thermoscan")
 	@echo "==> Limpando histórico operacional do painel: $(MODULE)..."
 	@SQL="BEGIN; \
+		UPDATE inspections SET type = 'scheduled', cleaning_operation_id = NULL, verification_result = NULL \
+		WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)') AND cleaning_operation_id IS NOT NULL; \
 		DELETE FROM notifications WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
-		DELETE FROM inspection_panel_results WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
-		DELETE FROM measurements WHERE inspection_id IN (SELECT id FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)') AND cleaning_operation_id IS NOT NULL); \
-		DELETE FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)') AND cleaning_operation_id IS NOT NULL; \
+		DELETE FROM reservoir_readings WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM cleaning_operations WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM anomaly_events WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM inspection_panel_results WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM measurements WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM module_state_logs WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
-		DELETE FROM reservoir_readings WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM interval_change_logs WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		UPDATE modules SET firmware_state = 'IDLE', firmware_state_detail = NULL, verification_ready_at = NULL, \
+			next_inspection_at = NULL, localized_reading_at = NULL, localized_reading_result = NULL, \
 			manual_cleaning_pending = false, manual_cleaning_target_x_cm = NULL, \
 			manual_reading_pending = false, manual_reading_target_x_cm = NULL, reset_pending = false \
 		WHERE name = '$(MODULE)'; \

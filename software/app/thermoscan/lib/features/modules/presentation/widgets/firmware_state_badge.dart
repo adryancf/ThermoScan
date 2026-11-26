@@ -86,7 +86,11 @@ FirmwareStateDisplayInfo firmwareStateDisplayInfo(
       final label = switch (normalizedDetail) {
         'limits_check_failed' || 'homing_failed' => 'Error (Homing / Limits Failed)',
         'thermal_sensor_failed' => 'Error (Thermal Sensor Failed)',
-        'water_depleted' => 'Error (Water Depleted)',
+        'camera_recovery_failed' => 'Error (Camera Recovery Failed)',
+        'cleaning_crash_loop' => 'Error (Cleaning Crash Loop)',
+        'water_depleted' ||
+        'water_depleted_during_cleaning' =>
+          'Error (Water Depleted)',
         _ => 'Error (Halted)',
       };
       return FirmwareStateDisplayInfo(

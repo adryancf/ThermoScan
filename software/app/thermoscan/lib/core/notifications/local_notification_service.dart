@@ -60,7 +60,7 @@ class LocalNotificationService {
     final unseen = <FieldAlert>[];
     for (final alert in alerts) {
       final key = '${alert.type}:${alert.id}';
-      if (_notifiedAlertIds.add(key)) {
+      if (!_notifiedAlertIds.contains(key)) {
         unseen.add(alert);
       }
     }
@@ -104,6 +104,7 @@ class LocalNotificationService {
             body,
             details,
           );
+          _notifiedAlertIds.add('${alert.type}:${alert.id}');
         }
       } else {
         await _plugin.show(
@@ -112,10 +113,17 @@ class LocalNotificationService {
           'Open the Alerts tab to review active hotspots and robot reservoir warnings.',
           details,
         );
+        for (final alert in unseen) {
+          _notifiedAlertIds.add('${alert.type}:${alert.id}');
+        }
       }
     } catch (_) {
       // Never crash app flow if native notification channel is unavailable.
     }
+  }
+
+  void clearNotifiedAlerts() {
+    _notifiedAlertIds.clear();
   }
 
   @visibleForTesting

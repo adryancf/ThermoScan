@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:thermoscan/core/theme/app_colors.dart';
@@ -504,7 +506,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
 
       widgets.add(
         Positioned(
-          left: leftPx.clamp(4.0, totalWidth - 60.0),
+          left: leftPx.clamp(4.0, math.max(4.0, totalWidth - 60.0)),
           bottom: 6,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -552,7 +554,7 @@ class CleanThermalPreviewCard extends StatelessWidget {
 
       widgets.add(
         Positioned(
-          left: (xPx - 30).clamp(4.0, totalWidth - 64.0),
+          left: (xPx - 30).clamp(4.0, math.max(4.0, totalWidth - 64.0)),
           top: 10,
           child: Column(
             mainAxisSize: MainAxisSize.min,

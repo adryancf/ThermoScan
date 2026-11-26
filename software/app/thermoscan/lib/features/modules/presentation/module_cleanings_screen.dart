@@ -731,11 +731,27 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
       statusBorder = AppColors.warningBorder;
       statusText = AppColors.warning;
       statusLabel = 'PAUSED (SAFETY CHECK)';
+    } else if (c.status == 'cancelled') {
+      statusBg = AppColors.warningBackground;
+      statusBorder = AppColors.warningBorder;
+      statusText = AppColors.warning;
+      statusLabel = 'ABORTED';
     } else if (c.status == 'failed') {
       statusBg = AppColors.errorBackground;
       statusBorder = AppColors.errorBorder;
       statusText = AppColors.error;
       statusLabel = 'INTERRUPTED';
+    } else if (c.postCleaningResult == 'unresolved' ||
+        c.postCleaningResult == 'verified_unresolved') {
+      statusBg = AppColors.errorBackground;
+      statusBorder = AppColors.errorBorder;
+      statusText = AppColors.error;
+      statusLabel = 'UNRESOLVED';
+    } else if (c.postCleaningResult == 'skipped') {
+      statusBg = AppColors.primarySoft.withValues(alpha: 0.3);
+      statusBorder = AppColors.primary.withValues(alpha: 0.3);
+      statusText = AppColors.primary;
+      statusLabel = 'COMPLETED (MANUAL)';
     } else if (c.postCleaningResult == 'pending') {
       statusBg = AppColors.primarySoft.withValues(alpha: 0.3);
       statusBorder = AppColors.primary.withValues(alpha: 0.3);
@@ -862,7 +878,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Associated Hotspot: ${panelPrefix}X = ${c.targetXPositionCm.toStringAsFixed(1)} cm${c.localXPositionCm != null ? " (Local: ${c.localXPositionCm!.toStringAsFixed(1)} cm)" : ""} (Anomaly ${c.anomalyEventId.length > 8 ? c.anomalyEventId.substring(0, 8) : c.anomalyEventId})',
+                    'Associated Hotspot: ${panelPrefix}X = ${c.targetXPositionCm.toStringAsFixed(1)} cm${c.localXPositionCm != null ? " (Local: ${c.localXPositionCm!.toStringAsFixed(1)} cm)" : ""}${c.anomalyEventId.isNotEmpty ? " (Anomaly ${c.anomalyEventId.length > 8 ? c.anomalyEventId.substring(0, 8) : c.anomalyEventId})" : ""}',
                     style: AppTypography.caption.copyWith(
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w600,

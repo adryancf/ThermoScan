@@ -2098,6 +2098,8 @@ const updateAnomalyEventStatus = `-- name: UpdateAnomalyEventStatus :one
 UPDATE anomaly_events
 SET status = $1,
     actuated_attempts_count = actuated_attempts_count + $2,
+    retry_pending = false,
+    retry_reason = NULL,
     closed_at = $3,
     updated_at = now()
 WHERE id = $4 AND module_id = $5

@@ -150,6 +150,16 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		localizedReadingXCm = &x
 	}
 
+	var latestPowerAtStr *string
+	if row.LatestPowerAt != nil {
+		lp := row.LatestPowerAt.UTC().Format(time.RFC3339)
+		latestPowerAtStr = &lp
+	}
+	var latestPowerReadings []LivePowerReadingDTO
+	if len(row.LatestPowerReadings) > 0 {
+		_ = json.Unmarshal(row.LatestPowerReadings, &latestPowerReadings)
+	}
+
 	dto := &DeviceStatusDTO{
 		ModuleID:            auth.FormatUUID(row.ID),
 		MACAddress:          row.MacAddress,
@@ -174,6 +184,8 @@ func (s *Service) GetDeviceStatus(ctx context.Context, principal auth.Principal,
 		FirmwareState:           row.FirmwareState,
 		FirmwareStateDetail:     pgTextToStringPtr(row.FirmwareStateDetail),
 		FirmwareStateUpdatedAt:  firmwareStateUpdatedAtStr,
+		LatestPowerReadings:     latestPowerReadings,
+		LatestPowerAt:           latestPowerAtStr,
 	}
 
 	if hasPending, err := s.queries.HasPendingScheduledInspection(ctx, moduleID); err == nil && hasPending {
@@ -362,6 +374,12 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 			FirmwareStateDetail:    stringPtrToPgText(input.FirmwareStateDetail),
 			FirmwareStateUpdatedAt: &now,
 		}); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(input.PowerReadings) > 0 {
+		if err := s.recordPowerReadingsTx(ctx, qtx, moduleID, input.PowerReadings); err != nil {
 			return nil, err
 		}
 	}

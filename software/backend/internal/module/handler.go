@@ -85,6 +85,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Patch("/{moduleID}/configuration", h.handleUpdateConfiguration)
 		r.Get("/{moduleID}/interval-logs", h.handleListIntervalChangeLogs)
 		r.Get("/{moduleID}/measurements", h.handleListMeasurements)
+		r.Get("/{moduleID}/power-readings", h.handleListPowerReadings)
+		r.Get("/{moduleID}/power-readings/series", h.handleGetPowerReadingsSeries)
 		r.Get("/{moduleID}/cleanings", h.handleListCleanings)
 		r.Get("/{moduleID}/inspections", h.handleListInspections)
 		r.Get("/{moduleID}/latest-inspection", h.handleGetLatestInspection)

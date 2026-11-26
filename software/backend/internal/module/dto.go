@@ -347,6 +347,69 @@ type DeviceStatusDTO struct {
 	FirmwareState           string               `json:"firmware_state"`
 	FirmwareStateDetail     *string              `json:"firmware_state_detail,omitempty"`
 	FirmwareStateUpdatedAt  *string              `json:"firmware_state_updated_at,omitempty"`
+	LatestPowerReadings     []LivePowerReadingDTO `json:"latest_power_readings,omitempty"`
+	LatestPowerAt           *string              `json:"latest_power_at,omitempty"`
+}
+
+type LivePowerReadingDTO struct {
+	PanelIndex int32    `json:"panel_index"`
+	VoltageV   *float64 `json:"voltage_v"`
+	CurrentA   *float64 `json:"current_a"`
+	PowerW     *float64 `json:"power_w"`
+	MeasuredAt string   `json:"measured_at"`
+}
+
+type PowerReadingInput struct {
+	PanelIndex int32     `json:"panel_index"`
+	VoltageV   *float64  `json:"voltage_v"`
+	CurrentA   *float64  `json:"current_a"`
+	PowerW     *float64  `json:"power_w"`
+	MeasuredAt FlexEpoch `json:"measured_at,omitempty"`
+}
+
+type PowerReadingDTO struct {
+	ID         string   `json:"id"`
+	ModuleID   string   `json:"module_id"`
+	PanelIndex int32    `json:"panel_index"`
+	VoltageV   *float64 `json:"voltage_v"`
+	CurrentA   *float64 `json:"current_a"`
+	PowerW     *float64 `json:"power_w"`
+	MeasuredAt string   `json:"measured_at"`
+	ReceivedAt string   `json:"received_at"`
+}
+
+type PowerSeriesPointDTO struct {
+	BucketAt    string   `json:"bucket_at"`
+	VoltageV    *float64 `json:"voltage_v"`
+	CurrentA    *float64 `json:"current_a"`
+	PowerW      *float64 `json:"power_w"`
+	PeakPowerW  *float64 `json:"peak_power_w"`
+	SampleCount int64    `json:"sample_count"`
+}
+
+type PowerSeriesSummaryDTO struct {
+	TotalReadings  int64    `json:"total_readings"`
+	PeakPowerW     *float64 `json:"peak_power_w"`
+	AvgPowerW      *float64 `json:"avg_power_w"`
+	AvgVoltageV    *float64 `json:"avg_voltage_v"`
+	AvgCurrentA    *float64 `json:"avg_current_a"`
+	FirstReadingAt *string  `json:"first_reading_at,omitempty"`
+	LastReadingAt  *string  `json:"last_reading_at,omitempty"`
+}
+
+type PowerReadingsSeriesDTO struct {
+	Range         string                `json:"range"`
+	PanelIndex    *int32                `json:"panel_index,omitempty"`
+	BucketSeconds int64                 `json:"bucket_seconds"`
+	Summary       PowerSeriesSummaryDTO `json:"summary"`
+	Points        []PowerSeriesPointDTO `json:"points"`
+}
+
+type PowerReadingsListDTO struct {
+	Range      string                `json:"range"`
+	PanelIndex *int32                `json:"panel_index,omitempty"`
+	Items      []PowerReadingDTO     `json:"items"`
+	Pagination PaginationMetadataDTO `json:"pagination"`
 }
 
 // FlexEpoch accepts either a Unix epoch integer or an RFC3339 timestamp string.
@@ -415,6 +478,7 @@ type RecordDevicePingInput struct {
 	FirmwareState       *string                `json:"firmware_state,omitempty"`
 	FirmwareStateDetail *string                `json:"firmware_state_detail,omitempty"`
 	StateTransitions    []StateTransitionInput `json:"state_transitions,omitempty"`
+	PowerReadings       []PowerReadingInput    `json:"power_readings,omitempty"`
 }
 
 type ClaimDeviceInput struct {

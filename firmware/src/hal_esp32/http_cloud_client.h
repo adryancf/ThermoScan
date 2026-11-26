@@ -14,6 +14,7 @@
 #include "hal/i_water_sensor.h"
 #include "hal/i_motion_controller.h"
 #include "hal/i_thermal_camera.h"
+#include "hal/i_power_meter.h"
 #include "hal/i_storage.h"
 
 namespace hal_esp32 {
@@ -28,12 +29,16 @@ public:
                     IStorage* storage = nullptr,
                     IWaterSensor* water_sensor = nullptr,
                     IMotionController* motion = nullptr,
-                    IThermalCamera* camera = nullptr);
+                    IThermalCamera* camera = nullptr,
+                    IPowerMeter* power_meter = nullptr);
     ~HttpCloudClient() override = default;
 
     bool init() override;
     bool claimDevice(const std::string& claim_token = "") override;
     bool sendPing() override;
+    void setPanelCount(uint8_t panel_count) override {
+        panel_count_ = (panel_count < 1) ? 1 : (panel_count > 3 ? 3 : panel_count);
+    }
     bool getConfiguration(std::string& out_config_json) override;
     bool ackConfiguration(uint32_t config_version) override;
     bool ingestTelemetryBatch(const IngestTelemetryBatchInput& input) override;
@@ -108,12 +113,16 @@ public:
                                      size_t transition_count = 0,
                                      bool reset_ack = false,
                                      const std::string& verification_ready_at = "",
-                                     bool manual_reading_ack = false);
+                                     bool manual_reading_ack = false,
+                                     const PingPowerReading* power_readings = nullptr,
+                                     size_t power_reading_count = 0);
     std::string buildPingPayload(bool water_ok, bool limits_ok, bool thermal_ok,
                                  const std::string& next_inspection_at = "",
                                  bool manual_cleaning_ack = false,
                                  bool reset_ack = false,
-                                 bool manual_reading_ack = false) const;
+                                 bool manual_reading_ack = false,
+                                 const PingPowerReading* power_readings = nullptr,
+                                 size_t power_reading_count = 0) const;
     bool parsePingResponse(const std::string& response_json);
 
     // Advanced & Diagnostic helpers
@@ -137,6 +146,8 @@ private:
     IWaterSensor* water_sensor_{nullptr};
     IMotionController* motion_{nullptr};
     IThermalCamera* camera_{nullptr};
+    IPowerMeter* power_meter_{nullptr};
+    uint8_t panel_count_{1};
 
     bool initialized_{false};
     bool auth_error_{false};

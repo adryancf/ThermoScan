@@ -197,6 +197,9 @@ void ThermoscanApp::handleSyncing() {
     config_.tilt = tilt;
     config_.hotspot_threshold_delta_c = hs_delta;
     thermal_analyzer_.setHotspotThresholdDeltaC(hs_delta);
+    if (cloud_ != nullptr) {
+        cloud_->setPanelCount(static_cast<uint8_t>(count));
+    }
 
     // Apply to NVS Flash
     if (storage_ != nullptr) {

@@ -99,6 +99,8 @@ CREATE TABLE modules (
     firmware_state text NOT NULL DEFAULT 'UNKNOWN',
     firmware_state_detail text NULL,
     firmware_state_updated_at timestamptz NULL,
+    latest_power_readings jsonb NULL,
+    latest_power_at timestamptz NULL,
     configured_at timestamptz,
     next_inspection_at timestamptz,
     verification_ready_at timestamptz,
@@ -432,5 +434,22 @@ CREATE TABLE module_state_logs (
 
 CREATE INDEX idx_module_state_logs_module_occurred_seq
     ON module_state_logs (module_id, occurred_at DESC, seq DESC);
+
+CREATE TABLE power_readings (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    module_id uuid NOT NULL REFERENCES modules(id) ON DELETE CASCADE,
+    panel_index integer NOT NULL CHECK (panel_index >= 1),
+    voltage_v double precision,
+    current_a double precision,
+    power_w double precision,
+    measured_at timestamptz NOT NULL,
+    received_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_power_readings_module_measured_at
+    ON power_readings (module_id, measured_at DESC);
+
+CREATE INDEX idx_power_readings_module_panel_measured_at
+    ON power_readings (module_id, panel_index, measured_at DESC);
 
 COMMIT;

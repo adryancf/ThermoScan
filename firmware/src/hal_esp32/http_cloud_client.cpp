@@ -90,12 +90,14 @@ HttpCloudClient::HttpCloudClient(const std::string& base_url,
                                  IStorage* storage,
                                  IWaterSensor* water_sensor,
                                  IMotionController* motion,
-                                 IThermalCamera* camera)
+                                 IThermalCamera* camera,
+                                 IPowerMeter* power_meter)
     : base_url_(base_url),
       storage_(storage),
       water_sensor_(water_sensor),
       motion_(motion),
-      camera_(camera) {}
+      camera_(camera),
+      power_meter_(power_meter) {}
 
 bool HttpCloudClient::init() {
     if (storage_ != nullptr) {
@@ -271,9 +273,37 @@ bool HttpCloudClient::sendPingWithDiagnostics(bool water_ok, bool limits_ok, boo
         }
     }
 
+    PingPowerReading power_readings[3]{};
+    size_t power_reading_count = 0;
+    const bool is_idle_state = (current_firmware_state_ == nullptr ||
+                                std::strcmp(current_firmware_state_, "IDLE") == 0);
+    if (power_meter_ != nullptr && is_idle_state) {
+        uint8_t panels = (panel_count_ >= 1 && panel_count_ <= 3) ? panel_count_ : 1;
+        uint32_t now_epoch = 0;
+#if defined(ARDUINO) || defined(ESP32)
+        time_t now_t = 0;
+        time(&now_t);
+        if (now_t > 1700000000) {
+            now_epoch = static_cast<uint32_t>(now_t);
+        }
+#endif
+        for (uint8_t p = 1; p <= panels; ++p) {
+            PowerSnapshot snap{};
+            const bool ok = power_meter_->readSnapshotForPanel(p, snap) && snap.valid;
+            PingPowerReading& entry = power_readings[power_reading_count++];
+            entry.panel_index = p;
+            entry.valid = ok;
+            entry.voltage_v = ok ? snap.voltage_v : 0.0f;
+            entry.current_a = ok ? snap.current_a : 0.0f;
+            entry.power_w = ok ? snap.power_w : 0.0f;
+            entry.measured_at = now_epoch;
+        }
+    }
+
     std::string requestBody = buildPingPayload(
         water_ok, limits_ok, thermal_ok, next_insp_str,
-        manual_cleaning_ack_pending_, reset_ack_pending_, manual_reading_ack_pending_);
+        manual_cleaning_ack_pending_, reset_ack_pending_, manual_reading_ack_pending_,
+        power_reading_count > 0 ? power_readings : nullptr, power_reading_count);
 
     int httpCode = http.POST(String(requestBody.c_str()));
 

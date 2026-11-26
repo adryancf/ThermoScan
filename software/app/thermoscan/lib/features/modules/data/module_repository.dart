@@ -449,4 +449,50 @@ class ModuleRepository {
       throw ApiException.fromDioException(err);
     }
   }
+
+  Future<PowerReadingsSeries> getPowerReadingsSeries({
+    required String moduleId,
+    String range = '24h',
+    int? panelIndex,
+  }) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/power-readings/series',
+        queryParameters: {
+          'range': range,
+          'panel_index': ?panelIndex,
+        },
+      );
+      return PowerReadingsSeries.fromJson(
+        response.data ?? const <String, dynamic>{},
+      );
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
+
+  Future<PowerReadingsPage> listPowerReadings({
+    required String moduleId,
+    String range = '24h',
+    int? panelIndex,
+    int page = 1,
+    int limit = 20,
+  }) async {
+    try {
+      final response = await dio.get<Map<String, dynamic>>(
+        '/modules/$moduleId/power-readings',
+        queryParameters: {
+          'range': range,
+          'page': page,
+          'limit': limit,
+          'panel_index': ?panelIndex,
+        },
+      );
+      return PowerReadingsPage.fromJson(
+        response.data ?? const <String, dynamic>{},
+      );
+    } on DioException catch (err) {
+      throw ApiException.fromDioException(err);
+    }
+  }
 }

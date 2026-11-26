@@ -76,8 +76,10 @@ db-clean-history: ## Limpa leituras, limpezas, anomalias e logs de um painel (pa
 		DELETE FROM inspections WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM module_state_logs WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM reservoir_readings WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
+		DELETE FROM power_readings WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		DELETE FROM interval_change_logs WHERE module_id IN (SELECT id FROM modules WHERE name = '$(MODULE)'); \
 		UPDATE modules SET firmware_state = 'IDLE', firmware_state_detail = NULL, verification_ready_at = NULL, \
+			latest_power_readings = NULL, latest_power_at = NULL, \
 			manual_cleaning_pending = false, manual_cleaning_target_x_cm = NULL, \
 			manual_reading_pending = false, manual_reading_target_x_cm = NULL, reset_pending = false \
 		WHERE name = '$(MODULE)'; \

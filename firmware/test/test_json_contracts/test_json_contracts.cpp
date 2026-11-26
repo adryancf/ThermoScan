@@ -739,6 +739,41 @@ void test_ping_manual_reading_ack_cleared_only_on_http_200() {
     TEST_ASSERT_TRUE(captured_bodies[2].find("\"manual_reading_ack\"") == std::string::npos);
 }
 
+void test_ping_power_readings_serialization() {
+    PingPowerReading readings[2]{};
+    readings[0].panel_index = 1;
+    readings[0].voltage_v = 18.5f;
+    readings[0].current_a = 1.25f;
+    readings[0].power_w = 23.125f;
+    readings[0].valid = true;
+    readings[0].measured_at = 1730721600;
+
+    readings[1].panel_index = 2;
+    readings[1].valid = false; // disconnected sensor -> must serialize as null
+    readings[1].measured_at = 1730721600;
+
+    std::string json_str = HttpCloudClient::buildPingJson(
+        true, true, true, "", false, "IDLE", nullptr, nullptr, 0, false, "", false, readings, 2);
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, json_str);
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, err.code());
+    TEST_ASSERT_TRUE(doc["power_readings"].is<JsonArray>());
+    JsonArray arr = doc["power_readings"].as<JsonArray>();
+    TEST_ASSERT_EQUAL(2, arr.size());
+
+    TEST_ASSERT_EQUAL(1, arr[0]["panel_index"].as<int>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 18.5f, arr[0]["voltage_v"].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 1.25f, arr[0]["current_a"].as<float>());
+    TEST_ASSERT_FLOAT_WITHIN(0.01f, 23.125f, arr[0]["power_w"].as<float>());
+    TEST_ASSERT_TRUE(isValidRFC3339(arr[0]["measured_at"].as<std::string>()));
+
+    TEST_ASSERT_EQUAL(2, arr[1]["panel_index"].as<int>());
+    TEST_ASSERT_TRUE(arr[1]["voltage_v"].isNull());
+    TEST_ASSERT_TRUE(arr[1]["current_a"].isNull());
+    TEST_ASSERT_TRUE(arr[1]["power_w"].isNull());
+}
+
 int main(int argc, char** argv) {
     UNITY_BEGIN();
     RUN_TEST(test_telemetry_batch_json_contract);
@@ -756,5 +791,6 @@ int main(int argc, char** argv) {
     RUN_TEST(test_localized_reading_json_contract);
     RUN_TEST(test_ping_manual_reading_status_and_ack_contract);
     RUN_TEST(test_ping_manual_reading_ack_cleared_only_on_http_200);
+    RUN_TEST(test_ping_power_readings_serialization);
     return UNITY_END();
 }

@@ -43,7 +43,7 @@ static hal_esp32::PumpServoSpray g_spray(PUMP_MOSFET_PIN, SERVO_PWM_PIN, &g_wate
 static hal_esp32::Mlx90640Camera g_camera(I2C_SDA_PIN, I2C_SCL_PIN, 0x33, CAMERA_SERVO_PWM_PIN);
 static hal_esp32::Ina228Meter g_ina228(getInaAddressForPanel(1));
 static hal_esp32::Esp32TimeProvider g_time_provider("pool.ntp.org", "time.nist.gov");
-static hal_esp32::HttpCloudClient g_cloud(BACKEND_URL, &g_storage, &g_water, &g_stepper, &g_camera);
+static hal_esp32::HttpCloudClient g_cloud(BACKEND_URL, &g_storage, &g_water, &g_stepper, &g_camera, &g_ina228);
 
 // Application Domain Orchestrator Instantiation
 static app::ThermoscanApp g_app(&g_camera,

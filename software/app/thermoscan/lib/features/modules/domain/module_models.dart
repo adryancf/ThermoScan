@@ -109,6 +109,8 @@ class PvModule {
     this.manualReadingTargetXCm,
     this.localizedReadingAt,
     this.localizedReadingXCm,
+    this.latestPowerReadings = const [],
+    this.latestPowerAt,
   }) : _explicitIsOnline = isOnline;
 
   final String id;
@@ -157,6 +159,8 @@ class PvModule {
   final double? manualReadingTargetXCm;
   final String? localizedReadingAt;
   final double? localizedReadingXCm;
+  final List<LivePowerReading> latestPowerReadings;
+  final String? latestPowerAt;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -354,6 +358,15 @@ class PvModule {
       localizedReadingXCm: _parseDouble(
         json['localized_reading_x_cm'] ?? json['localizedReadingXCm'],
       ),
+      latestPowerReadings:
+          ((json['latest_power_readings'] ?? json['latestPowerReadings'])
+                      as List<dynamic>? ??
+                  const [])
+              .whereType<Map<String, dynamic>>()
+              .map(LivePowerReading.fromJson)
+              .toList(),
+      latestPowerAt:
+          (json['latest_power_at'] ?? json['latestPowerAt']) as String?,
     );
   }
 
@@ -404,6 +417,10 @@ class PvModule {
       if (manualReadingPending) 'manual_reading_pending': manualReadingPending,
       if (manualReadingTargetXCm != null)
         'manual_reading_target_x_cm': manualReadingTargetXCm,
+      if (latestPowerReadings.isNotEmpty)
+        'latest_power_readings':
+            latestPowerReadings.map((e) => e.toJson()).toList(),
+      if (latestPowerAt != null) 'latest_power_at': latestPowerAt,
       if (localizedReadingAt != null)
         'localized_reading_at': localizedReadingAt,
       if (localizedReadingXCm != null)
@@ -1208,6 +1225,8 @@ class DeviceStatus {
     this.manualReadingTargetXCm,
     this.localizedReadingAt,
     this.localizedReadingXCm,
+    this.latestPowerReadings = const [],
+    this.latestPowerAt,
   }) : _explicitIsOnline = isOnline;
 
   final String moduleId;
@@ -1239,6 +1258,8 @@ class DeviceStatus {
   final double? manualReadingTargetXCm;
   final String? localizedReadingAt;
   final double? localizedReadingXCm;
+  final List<LivePowerReading> latestPowerReadings;
+  final String? latestPowerAt;
 
   bool get isOnline {
     if (lastPingAt != null &&
@@ -1335,6 +1356,15 @@ class DeviceStatus {
       localizedReadingXCm: _parseDouble(
         json['localized_reading_x_cm'] ?? json['localizedReadingXCm'],
       ),
+      latestPowerReadings:
+          ((json['latest_power_readings'] ?? json['latestPowerReadings'])
+                      as List<dynamic>? ??
+                  const [])
+              .whereType<Map<String, dynamic>>()
+              .map(LivePowerReading.fromJson)
+              .toList(),
+      latestPowerAt:
+          (json['latest_power_at'] ?? json['latestPowerAt']) as String?,
     );
   }
 
@@ -1373,6 +1403,10 @@ class DeviceStatus {
       'manual_reading_pending': manualReadingPending,
       if (manualReadingTargetXCm != null)
         'manual_reading_target_x_cm': manualReadingTargetXCm,
+      if (latestPowerReadings.isNotEmpty)
+        'latest_power_readings':
+            latestPowerReadings.map((e) => e.toJson()).toList(),
+      if (latestPowerAt != null) 'latest_power_at': latestPowerAt,
       if (localizedReadingAt != null)
         'localized_reading_at': localizedReadingAt,
       if (localizedReadingXCm != null)
@@ -1489,6 +1523,263 @@ class ModuleStateLog {
       state: json['state'] as String? ?? '',
       detail: json['detail'] as String?,
       occurredAt: DateTime.tryParse(rawOccurredAt) ?? DateTime.fromMillisecondsSinceEpoch(0),
+    );
+  }
+}
+
+/// Formats electrical current with automatic unit switching:
+/// values < 1.0 A are formatted in mA, values >= 1.0 A in A.
+String formatElectricalCurrent(double? currentA) {
+  if (currentA == null || currentA.isNaN || currentA.isInfinite) {
+    return 'N/A';
+  }
+  if (currentA.abs() < 1.0) {
+    return '${(currentA * 1000).toStringAsFixed(1)} mA';
+  }
+  return '${currentA.toStringAsFixed(2)} A';
+}
+
+String formatElectricalVoltage(double? voltageV) {
+  if (voltageV == null || voltageV.isNaN || voltageV.isInfinite) {
+    return 'N/A';
+  }
+  return '${voltageV.toStringAsFixed(2)} V';
+}
+
+String formatElectricalPower(double? powerW) {
+  if (powerW == null || powerW.isNaN || powerW.isInfinite) {
+    return 'N/A';
+  }
+  if (powerW.abs() < 10.0) {
+    return '${powerW.toStringAsFixed(2)} W';
+  }
+  return '${powerW.toStringAsFixed(1)} W';
+}
+
+class LivePowerReading {
+  const LivePowerReading({
+    required this.panelIndex,
+    this.voltageV,
+    this.currentA,
+    this.powerW,
+    required this.measuredAt,
+  });
+
+  final int panelIndex;
+  final double? voltageV;
+  final double? currentA;
+  final double? powerW;
+  final String measuredAt;
+
+  bool get hasAnyValue => voltageV != null || currentA != null || powerW != null;
+
+  factory LivePowerReading.fromJson(Map<String, dynamic> json) {
+    return LivePowerReading(
+      panelIndex:
+          ((json['panel_index'] ?? json['panelIndex']) as num?)?.toInt() ?? 1,
+      voltageV: _parseDouble(json['voltage_v'] ?? json['voltageV']),
+      currentA: _parseDouble(json['current_a'] ?? json['currentA']),
+      powerW: _parseDouble(json['power_w'] ?? json['powerW']),
+      measuredAt:
+          (json['measured_at'] ?? json['measuredAt']) as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'panel_index': panelIndex,
+        'voltage_v': voltageV,
+        'current_a': currentA,
+        'power_w': powerW,
+        'measured_at': measuredAt,
+      };
+}
+
+class PowerReadingItem {
+  const PowerReadingItem({
+    required this.id,
+    required this.moduleId,
+    required this.panelIndex,
+    this.voltageV,
+    this.currentA,
+    this.powerW,
+    required this.measuredAt,
+    required this.receivedAt,
+  });
+
+  final String id;
+  final String moduleId;
+  final int panelIndex;
+  final double? voltageV;
+  final double? currentA;
+  final double? powerW;
+  final String measuredAt;
+  final String receivedAt;
+
+  factory PowerReadingItem.fromJson(Map<String, dynamic> json) {
+    return PowerReadingItem(
+      id: (json['id'] ?? '').toString(),
+      moduleId: (json['module_id'] ?? json['moduleId'] ?? '').toString(),
+      panelIndex:
+          ((json['panel_index'] ?? json['panelIndex']) as num?)?.toInt() ?? 1,
+      voltageV: _parseDouble(json['voltage_v'] ?? json['voltageV']),
+      currentA: _parseDouble(json['current_a'] ?? json['currentA']),
+      powerW: _parseDouble(json['power_w'] ?? json['powerW']),
+      measuredAt:
+          (json['measured_at'] ?? json['measuredAt']) as String? ?? '',
+      receivedAt:
+          (json['received_at'] ?? json['receivedAt']) as String? ?? '',
+    );
+  }
+}
+
+class PowerSeriesPoint {
+  const PowerSeriesPoint({
+    required this.bucketAt,
+    this.voltageV,
+    this.currentA,
+    this.powerW,
+    this.peakPowerW,
+    required this.sampleCount,
+  });
+
+  final DateTime bucketAt;
+  final double? voltageV;
+  final double? currentA;
+  final double? powerW;
+  final double? peakPowerW;
+  final int sampleCount;
+
+  factory PowerSeriesPoint.fromJson(Map<String, dynamic> json) {
+    final rawAt = (json['bucket_at'] ?? json['bucketAt']) as String? ?? '';
+    return PowerSeriesPoint(
+      bucketAt:
+          DateTime.tryParse(rawAt) ?? DateTime.fromMillisecondsSinceEpoch(0),
+      voltageV: _parseDouble(json['voltage_v'] ?? json['voltageV']),
+      currentA: _parseDouble(json['current_a'] ?? json['currentA']),
+      powerW: _parseDouble(json['power_w'] ?? json['powerW']),
+      peakPowerW: _parseDouble(json['peak_power_w'] ?? json['peakPowerW']),
+      sampleCount:
+          ((json['sample_count'] ?? json['sampleCount']) as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class PowerSeriesSummary {
+  const PowerSeriesSummary({
+    required this.totalReadings,
+    this.peakPowerW,
+    this.avgPowerW,
+    this.avgVoltageV,
+    this.avgCurrentA,
+    this.firstReadingAt,
+    this.lastReadingAt,
+  });
+
+  final int totalReadings;
+  final double? peakPowerW;
+  final double? avgPowerW;
+  final double? avgVoltageV;
+  final double? avgCurrentA;
+  final String? firstReadingAt;
+  final String? lastReadingAt;
+
+  factory PowerSeriesSummary.fromJson(Map<String, dynamic> json) {
+    return PowerSeriesSummary(
+      totalReadings:
+          ((json['total_readings'] ?? json['totalReadings']) as num?)
+                  ?.toInt() ??
+              0,
+      peakPowerW: _parseDouble(json['peak_power_w'] ?? json['peakPowerW']),
+      avgPowerW: _parseDouble(json['avg_power_w'] ?? json['avgPowerW']),
+      avgVoltageV: _parseDouble(json['avg_voltage_v'] ?? json['avgVoltageV']),
+      avgCurrentA: _parseDouble(json['avg_current_a'] ?? json['avgCurrentA']),
+      firstReadingAt:
+          (json['first_reading_at'] ?? json['firstReadingAt']) as String?,
+      lastReadingAt:
+          (json['last_reading_at'] ?? json['lastReadingAt']) as String?,
+    );
+  }
+}
+
+class PowerReadingsSeries {
+  const PowerReadingsSeries({
+    required this.range,
+    this.panelIndex,
+    required this.bucketSeconds,
+    required this.summary,
+    required this.points,
+  });
+
+  final String range;
+  final int? panelIndex;
+  final int bucketSeconds;
+  final PowerSeriesSummary summary;
+  final List<PowerSeriesPoint> points;
+
+  factory PowerReadingsSeries.fromJson(Map<String, dynamic> json) {
+    final summaryRaw = json['summary'];
+    final pointsRaw = json['points'] as List<dynamic>? ?? const [];
+    return PowerReadingsSeries(
+      range: (json['range'] as String?) ?? '24h',
+      panelIndex:
+          ((json['panel_index'] ?? json['panelIndex']) as num?)?.toInt(),
+      bucketSeconds:
+          ((json['bucket_seconds'] ?? json['bucketSeconds']) as num?)
+                  ?.toInt() ??
+              600,
+      summary: summaryRaw is Map<String, dynamic>
+          ? PowerSeriesSummary.fromJson(summaryRaw)
+          : const PowerSeriesSummary(totalReadings: 0),
+      points: pointsRaw
+          .whereType<Map<String, dynamic>>()
+          .map(PowerSeriesPoint.fromJson)
+          .toList(),
+    );
+  }
+}
+
+class PowerReadingsPage {
+  const PowerReadingsPage({
+    required this.range,
+    this.panelIndex,
+    required this.items,
+    required this.page,
+    required this.limit,
+    required this.totalCount,
+    required this.totalPages,
+    required this.hasNextPage,
+  });
+
+  final String range;
+  final int? panelIndex;
+  final List<PowerReadingItem> items;
+  final int page;
+  final int limit;
+  final int totalCount;
+  final int totalPages;
+  final bool hasNextPage;
+
+  factory PowerReadingsPage.fromJson(Map<String, dynamic> json) {
+    final itemsRaw = json['items'] as List<dynamic>? ?? const [];
+    final pag = json['pagination'] is Map<String, dynamic>
+        ? json['pagination'] as Map<String, dynamic>
+        : const <String, dynamic>{};
+    return PowerReadingsPage(
+      range: (json['range'] as String?) ?? '24h',
+      panelIndex:
+          ((json['panel_index'] ?? json['panelIndex']) as num?)?.toInt(),
+      items: itemsRaw
+          .whereType<Map<String, dynamic>>()
+          .map(PowerReadingItem.fromJson)
+          .toList(),
+      page: (pag['page'] as num?)?.toInt() ?? 1,
+      limit: (pag['limit'] as num?)?.toInt() ?? 20,
+      totalCount:
+          ((pag['total_count'] ?? pag['totalCount']) as num?)?.toInt() ?? 0,
+      totalPages:
+          ((pag['total_pages'] ?? pag['totalPages']) as num?)?.toInt() ?? 1,
+      hasNextPage:
+          (pag['has_next_page'] ?? pag['hasNextPage']) as bool? ?? false,
     );
   }
 }

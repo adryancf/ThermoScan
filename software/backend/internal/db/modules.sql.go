@@ -635,7 +635,7 @@ func (q *Queries) GetLocalizedReading(ctx context.Context, arg GetLocalizedReadi
 }
 
 const getModuleByDeviceToken = `-- name: GetModuleByDeviceToken :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, latest_power_readings, latest_power_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE device_token = $1
 `
 
@@ -684,6 +684,8 @@ func (q *Queries) GetModuleByDeviceToken(ctx context.Context, deviceToken pgtype
 		&i.FirmwareState,
 		&i.FirmwareStateDetail,
 		&i.FirmwareStateUpdatedAt,
+		&i.LatestPowerReadings,
+		&i.LatestPowerAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.VerificationReadyAt,
@@ -741,7 +743,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -801,6 +805,8 @@ type GetModuleByIDRow struct {
 	FirmwareState              string
 	FirmwareStateDetail        pgtype.Text
 	FirmwareStateUpdatedAt     *time.Time
+	LatestPowerReadings        []byte
+	LatestPowerAt              *time.Time
 }
 
 func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (GetModuleByIDRow, error) {
@@ -854,12 +860,14 @@ func (q *Queries) GetModuleByID(ctx context.Context, arg GetModuleByIDParams) (G
 		&i.FirmwareState,
 		&i.FirmwareStateDetail,
 		&i.FirmwareStateUpdatedAt,
+		&i.LatestPowerReadings,
+		&i.LatestPowerAt,
 	)
 	return i, err
 }
 
 const getModuleByIDForDevice = `-- name: GetModuleByIDForDevice :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, latest_power_readings, latest_power_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE id = $1
 `
 
@@ -908,6 +916,8 @@ func (q *Queries) GetModuleByIDForDevice(ctx context.Context, id pgtype.UUID) (M
 		&i.FirmwareState,
 		&i.FirmwareStateDetail,
 		&i.FirmwareStateUpdatedAt,
+		&i.LatestPowerReadings,
+		&i.LatestPowerAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.VerificationReadyAt,
@@ -1077,7 +1087,7 @@ func (q *Queries) GetModuleByIDForUpdate(ctx context.Context, arg GetModuleByIDF
 }
 
 const getModuleByMACAddress = `-- name: GetModuleByMACAddress :one
-SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
+SELECT id, company_id, installer_technician_id, name, mac_address, device_token, limits_check_passed, thermal_sensor_active, last_ping_at, config_version, config_applied_version, config_applied_at, config_apply_error, is_active, monitoring_status, panel_length_cm, panel_width_cm, panel_count, panel_spacing_cm, latitude, longitude, elevation_m, azimuth_deg, tilt_deg, azimuth_source, tilt_source, minimum_solar_angle_deg, inspection_interval_days, reservoir_nominal_capacity_ml, hotspot_threshold_delta_c, power_sensors, manual_cleaning_pending, manual_cleaning_target_x_cm, manual_reading_pending, manual_reading_target_x_cm, localized_reading_at, localized_reading_result, reset_pending, firmware_state, firmware_state_detail, firmware_state_updated_at, latest_power_readings, latest_power_at, configured_at, next_inspection_at, verification_ready_at, created_at, updated_at FROM modules
 WHERE mac_address = $1::macaddr
 `
 
@@ -1126,6 +1136,8 @@ func (q *Queries) GetModuleByMACAddress(ctx context.Context, dollar_1 net.Hardwa
 		&i.FirmwareState,
 		&i.FirmwareStateDetail,
 		&i.FirmwareStateUpdatedAt,
+		&i.LatestPowerReadings,
+		&i.LatestPowerAt,
 		&i.ConfiguredAt,
 		&i.NextInspectionAt,
 		&i.VerificationReadyAt,
@@ -1619,7 +1631,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_clients mc ON mc.company_id = m.company_id AND mc.module_id = m.id
@@ -1675,6 +1689,8 @@ type ListModulesForClientRow struct {
 	FirmwareState              string
 	FirmwareStateDetail        pgtype.Text
 	FirmwareStateUpdatedAt     *time.Time
+	LatestPowerReadings        []byte
+	LatestPowerAt              *time.Time
 }
 
 func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForClientParams) ([]ListModulesForClientRow, error) {
@@ -1730,6 +1746,8 @@ func (q *Queries) ListModulesForClient(ctx context.Context, arg ListModulesForCl
 			&i.FirmwareState,
 			&i.FirmwareStateDetail,
 			&i.FirmwareStateUpdatedAt,
+			&i.LatestPowerReadings,
+			&i.LatestPowerAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1789,7 +1807,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -1851,6 +1871,8 @@ type ListModulesForManagerRow struct {
 	FirmwareState              string
 	FirmwareStateDetail        pgtype.Text
 	FirmwareStateUpdatedAt     *time.Time
+	LatestPowerReadings        []byte
+	LatestPowerAt              *time.Time
 }
 
 func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForManagerParams) ([]ListModulesForManagerRow, error) {
@@ -1910,6 +1932,8 @@ func (q *Queries) ListModulesForManager(ctx context.Context, arg ListModulesForM
 			&i.FirmwareState,
 			&i.FirmwareStateDetail,
 			&i.FirmwareStateUpdatedAt,
+			&i.LatestPowerReadings,
+			&i.LatestPowerAt,
 		); err != nil {
 			return nil, err
 		}
@@ -1969,7 +1993,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_technicians mt ON mt.company_id = m.company_id AND mt.module_id = m.id
@@ -2035,6 +2061,8 @@ type ListModulesForTechnicianRow struct {
 	FirmwareState              string
 	FirmwareStateDetail        pgtype.Text
 	FirmwareStateUpdatedAt     *time.Time
+	LatestPowerReadings        []byte
+	LatestPowerAt              *time.Time
 }
 
 func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesForTechnicianParams) ([]ListModulesForTechnicianRow, error) {
@@ -2099,6 +2127,8 @@ func (q *Queries) ListModulesForTechnician(ctx context.Context, arg ListModulesF
 			&i.FirmwareState,
 			&i.FirmwareStateDetail,
 			&i.FirmwareStateUpdatedAt,
+			&i.LatestPowerReadings,
+			&i.LatestPowerAt,
 		); err != nil {
 			return nil, err
 		}

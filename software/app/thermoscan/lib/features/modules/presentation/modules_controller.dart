@@ -98,3 +98,29 @@ final inspectionMeasurementsPagedProvider = FutureProvider.autoDispose
       );
     });
 
+final powerReadingsSeriesProvider = FutureProvider.autoDispose.family<
+  PowerReadingsSeries,
+  ({String moduleId, String range, int? panelIndex})
+>((ref, params) async {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.getPowerReadingsSeries(
+    moduleId: params.moduleId,
+    range: params.range,
+    panelIndex: params.panelIndex,
+  );
+});
+
+final powerReadingsPageProvider = FutureProvider.autoDispose.family<
+  PowerReadingsPage,
+  ({String moduleId, String range, int? panelIndex, int page, int limit})
+>((ref, params) async {
+  final repo = ref.watch(moduleRepositoryProvider);
+  return repo.listPowerReadings(
+    moduleId: params.moduleId,
+    range: params.range,
+    panelIndex: params.panelIndex,
+    page: params.page,
+    limit: params.limit,
+  );
+});
+

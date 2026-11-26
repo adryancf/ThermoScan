@@ -65,7 +65,8 @@ bool Ina228Meter::readFromIna(Adafruit_INA228& ina, PowerSnapshot& out) {
 
     if (std::isnan(bus_voltage_mv) || std::isnan(current_ma) || std::isnan(power_mw) ||
         std::isinf(bus_voltage_mv) || std::isinf(current_ma) || std::isinf(power_mw) ||
-        bus_voltage_mv < 0.0f) {
+        bus_voltage_mv < 0.0f || bus_voltage_mv > 85000.0f ||
+        power_mw < 0.0f || power_mw > 10000000.0f) {
         out.valid = false;
         out.voltage_v = 0.0f;
         out.current_a = 0.0f;
@@ -81,15 +82,7 @@ bool Ina228Meter::readFromIna(Adafruit_INA228& ina, PowerSnapshot& out) {
 }
 
 bool Ina228Meter::readSnapshot(PowerSnapshot& out) {
-    if (!channels_[0].ready && !initChannel(channels_[0])) {
-        out.valid = false;
-        out.voltage_v = 0.0f;
-        out.current_a = 0.0f;
-        out.power_w = 0.0f;
-        return false;
-    }
-
-    return readFromIna(channels_[0].ina, out);
+    return readSnapshotForPanel(1, out);
 }
 
 bool Ina228Meter::readSnapshotForPanel(uint8_t panel_index, PowerSnapshot& out) {
@@ -102,15 +95,47 @@ bool Ina228Meter::readSnapshotForPanel(uint8_t panel_index, PowerSnapshot& out) 
     }
 
     PanelChannel& ch = channels_[panel_index - 1];
+    bool bus_recovered = false;
+    if (ch.ready) {
+        // Fast I2C ACK probe before reading registers to detect bus/sensor dropouts (avoids 0xFFFFFF garbage)
+        Wire.beginTransmission(ch.addr);
+        if (Wire.endTransmission() != 0) {
+            ch.ready = false;
+        }
+    }
     if (!ch.ready && !initChannel(ch)) {
-        out.valid = false;
-        out.voltage_v = 0.0f;
-        out.current_a = 0.0f;
-        out.power_w = 0.0f;
-        return false;
+        // Attempt a single clean I2C bus reset and channel re-init
+        Wire.end();
+        delay(5);
+        Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+        Wire.setClock(200000);
+        delay(10);
+        bus_recovered = true;
+        if (!initChannel(ch)) {
+            out.valid = false;
+            out.voltage_v = 0.0f;
+            out.current_a = 0.0f;
+            out.power_w = 0.0f;
+            return false;
+        }
     }
 
-    return readFromIna(ch.ina, out);
+    if (!readFromIna(ch.ina, out)) {
+        ch.ready = false;
+        if (!bus_recovered) {
+            Wire.end();
+            delay(5);
+            Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+            Wire.setClock(200000);
+            delay(10);
+            if (initChannel(ch) && readFromIna(ch.ina, out)) {
+                return true;
+            }
+            ch.ready = false;
+        }
+        return false;
+    }
+    return true;
 }
 
 } // namespace hal_esp32

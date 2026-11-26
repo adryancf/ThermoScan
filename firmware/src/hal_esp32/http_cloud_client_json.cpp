@@ -39,7 +39,9 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
                                          size_t transition_count,
                                          bool reset_ack,
                                          const std::string& verification_ready_at,
-                                         bool manual_reading_ack) {
+                                         bool manual_reading_ack,
+                                         const PingPowerReading* power_readings,
+                                         size_t power_reading_count) {
     JsonDocument doc;
     doc["water_available"] = water_ok;
     doc["limits_check_passed"] = limits_ok;
@@ -86,6 +88,36 @@ std::string HttpCloudClient::buildPingJson(bool water_ok, bool limits_ok, bool t
             }
         }
     }
+    if (power_readings != nullptr && power_reading_count > 0) {
+        JsonArray parr = doc["power_readings"].to<JsonArray>();
+        for (size_t i = 0; i < power_reading_count; ++i) {
+            const PingPowerReading& pr = power_readings[i];
+            if (pr.panel_index < 1) {
+                continue;
+            }
+            JsonObject item = parr.add<JsonObject>();
+            item["panel_index"] = pr.panel_index;
+            if (pr.valid && !std::isnan(pr.voltage_v) && !std::isinf(pr.voltage_v)) {
+                item["voltage_v"] = pr.voltage_v;
+            } else {
+                item["voltage_v"] = nullptr;
+            }
+            if (pr.valid && !std::isnan(pr.current_a) && !std::isinf(pr.current_a)) {
+                item["current_a"] = pr.current_a;
+            } else {
+                item["current_a"] = nullptr;
+            }
+            if (pr.valid && !std::isnan(pr.power_w) && !std::isinf(pr.power_w)) {
+                item["power_w"] = pr.power_w;
+            } else {
+                item["power_w"] = nullptr;
+            }
+            char buf[25];
+            if (pr.measured_at > 1700000000UL && formatEpochToBuf(pr.measured_at, buf)) {
+                item["measured_at"] = buf;
+            }
+        }
+    }
 
     std::string requestBody;
     requestBody.reserve(512);
@@ -97,7 +129,9 @@ std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, boo
                                             const std::string& next_inspection_at,
                                             bool manual_cleaning_ack,
                                             bool reset_ack,
-                                            bool manual_reading_ack) const {
+                                            bool manual_reading_ack,
+                                            const PingPowerReading* power_readings,
+                                            size_t power_reading_count) const {
     StateTransitionEntry ordered[STATE_RING_CAPACITY];
     const size_t count = (state_ring_count_ <= STATE_RING_CAPACITY) ? state_ring_count_ : STATE_RING_CAPACITY;
     for (size_t i = 0; i < count; ++i) {
@@ -116,7 +150,9 @@ std::string HttpCloudClient::buildPingPayload(bool water_ok, bool limits_ok, boo
                          count,
                          reset_ack,
                          verification_ready_at,
-                         manual_reading_ack);
+                         manual_reading_ack,
+                         power_readings,
+                         power_reading_count);
 }
 
 bool HttpCloudClient::parsePingResponse(const std::string& response_json) {

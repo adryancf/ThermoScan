@@ -159,7 +159,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -265,7 +267,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 WHERE m.company_id = $1
@@ -320,7 +324,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_technicians mt ON mt.company_id = m.company_id AND mt.module_id = m.id
@@ -369,7 +375,9 @@ SELECT
     m.config_apply_error,
     m.firmware_state,
     m.firmware_state_detail,
-    m.firmware_state_updated_at
+    m.firmware_state_updated_at,
+    m.latest_power_readings,
+    m.latest_power_at
 FROM modules m
 JOIN users u ON u.company_id = m.company_id AND u.id = m.installer_technician_id
 JOIN module_clients mc ON mc.company_id = m.company_id AND mc.module_id = m.id

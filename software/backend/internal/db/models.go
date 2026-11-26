@@ -167,6 +167,8 @@ type Module struct {
 	FirmwareState              string
 	FirmwareStateDetail        pgtype.Text
 	FirmwareStateUpdatedAt     *time.Time
+	LatestPowerReadings        []byte
+	LatestPowerAt              *time.Time
 	ConfiguredAt               *time.Time
 	NextInspectionAt           *time.Time
 	VerificationReadyAt        *time.Time
@@ -223,6 +225,17 @@ type Notification struct {
 	DeduplicationKey pgtype.Text
 	ReadAt           *time.Time
 	CreatedAt        time.Time
+}
+
+type PowerReading struct {
+	ID         pgtype.UUID
+	ModuleID   pgtype.UUID
+	PanelIndex int32
+	VoltageV   pgtype.Float8
+	CurrentA   pgtype.Float8
+	PowerW     pgtype.Float8
+	MeasuredAt time.Time
+	ReceivedAt time.Time
 }
 
 type ReservoirReading struct {

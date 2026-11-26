@@ -86,6 +86,16 @@ struct StateTransitionEntry {
     uint32_t occurred_at{0};
 };
 
+// Continuous electrical reading attached to device ping
+struct PingPowerReading {
+    uint8_t panel_index{1};
+    float voltage_v{0.0f};
+    float current_a{0.0f};
+    float power_w{0.0f};
+    bool valid{false};
+    uint32_t measured_at{0};
+};
+
 // Legacy structs for backward compatibility
 struct TelemetryPayload {
     float ambient_temp_c{0.0f};
@@ -118,6 +128,7 @@ public:
     virtual bool init() = 0;
     virtual bool claimDevice(const std::string& claim_token = "") = 0;
     virtual bool sendPing() = 0;
+    virtual void setPanelCount(uint8_t panel_count) { (void)panel_count; }
     virtual bool getConfiguration(std::string& out_config_json) = 0;
     virtual bool ackConfiguration(uint32_t config_version) = 0;
     virtual bool ingestTelemetryBatch(const IngestTelemetryBatchInput& input) = 0;

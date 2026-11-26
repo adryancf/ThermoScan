@@ -54,6 +54,9 @@ void ThermoscanApp::restoreStateFromNvs() {
             config_.panel_width_cm = g_wid;
             config_.panel_count = g_cnt;
             config_.panel_spacing_cm = g_spc;
+            if (cloud_ != nullptr) {
+                cloud_->setPanelCount(static_cast<uint8_t>(g_cnt));
+            }
         }
     }
 

@@ -10,6 +10,7 @@ import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/electrical_history_view.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/module_sub_nav_bar.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
@@ -48,11 +49,78 @@ class ModuleMeasurementsView extends StatelessWidget {
 
 class _ModuleMeasurementsScreenState
     extends ConsumerState<ModuleMeasurementsScreen> {
+  int _activeSubTab = 0; // 0 = Thermal, 1 = Electrical
+  int _electricalRefreshTick = 0;
   int _currentPage = 1;
   int? _selectedPanelFilter;
   bool _showOnlyValid = true;
   bool _onlyWithHotspots = false;
   int _visibleBundlesCount = 8;
+
+  Widget _buildSubTabSwitcher() {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          _buildSubTabButton(
+            index: 0,
+            label: 'Thermal',
+            icon: Icons.thermostat_rounded,
+          ),
+          const SizedBox(width: 4),
+          _buildSubTabButton(
+            index: 1,
+            label: 'Electrical',
+            icon: Icons.bolt_rounded,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSubTabButton({
+    required int index,
+    required String label,
+    required IconData icon,
+  }) {
+    final selected = _activeSubTab == index;
+    return Expanded(
+      child: InkWell(
+        onTap: () => setState(() => _activeSubTab = index),
+        borderRadius: BorderRadius.circular(9),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                icon,
+                size: 16,
+                color: selected ? Colors.white : AppColors.textSecondary,
+              ),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: AppTypography.caption.copyWith(
+                  color: selected ? Colors.white : AppColors.textSecondary,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,6 +150,12 @@ class _ModuleMeasurementsScreenState
         ref.invalidate(moduleInspectionsProvider(widget.moduleId));
         ref.invalidate(moduleCleaningsProvider(widget.moduleId));
         ref.invalidate(inspectionMeasurementsPagedProvider);
+        ref.invalidate(moduleDeviceStatusProvider(widget.moduleId));
+        ref.invalidate(powerReadingsSeriesProvider);
+        ref.invalidate(powerReadingsPageProvider);
+        if (mounted) {
+          setState(() => _electricalRefreshTick++);
+        }
       },
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -89,76 +163,86 @@ class _ModuleMeasurementsScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Inspection History',
-                        style: AppTypography.h2,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Robotic thermal scans & post-cleaning results',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.textSecondary,
+            _buildSubTabSwitcher(),
+            const SizedBox(height: 16),
+            if (_activeSubTab == 1)
+              ElectricalHistoryView(
+                moduleId: widget.moduleId,
+                module: mod,
+                refreshToken: _electricalRefreshTick,
+              )
+            else ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Inspection History',
+                          style: AppTypography.h2,
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        Text(
+                          'Robotic thermal scans & post-cleaning results',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            latestInspectionAsync.when(
-              loading: () => const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40),
-                  child: CircularProgressIndicator(
-                    color: AppColors.primary,
-                  ),
-                ),
+                ],
               ),
-              error: (err, _) => Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Text(
-                  'Failed to load inspection telemetry: $err',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.error,
+              const SizedBox(height: 12),
+
+              latestInspectionAsync.when(
+                loading: () => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
+                    child: CircularProgressIndicator(
+                      color: AppColors.primary,
+                    ),
                   ),
                 ),
-              ),
-              data: (latestInspection) {
-                final allMeasurements =
-                    allMeasurementsAsync.valueOrNull ?? const <ModuleMeasurement>[];
-                final hasNonScheduledInspections =
-                    inspectionsList.any((i) => i.status != 'scheduled');
-                if ((latestInspection == null ||
-                        latestInspection.inspection.id.isEmpty) &&
-                    allMeasurements.isEmpty &&
-                    !hasNonScheduledInspections) {
-                  return _buildEmptyState();
-                }
+                error: (err, _) => Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    'Failed to load inspection telemetry: $err',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.error,
+                    ),
+                  ),
+                ),
+                data: (latestInspection) {
+                  final allMeasurements = allMeasurementsAsync.valueOrNull ??
+                      const <ModuleMeasurement>[];
+                  final hasNonScheduledInspections =
+                      inspectionsList.any((i) => i.status != 'scheduled');
+                  if ((latestInspection == null ||
+                          latestInspection.inspection.id.isEmpty) &&
+                      allMeasurements.isEmpty &&
+                      !hasNonScheduledInspections) {
+                    return _buildEmptyState();
+                  }
 
-                return _buildUnifiedInspectionTimeline(
-                  latestInspection: latestInspection,
-                  allMeasurements: allMeasurements,
-                  mod: mod,
-                  inspectionsMap: inspectionsMap,
-                  cleanings: cleaningsList,
-                );
-              },
-            ),
+                  return _buildUnifiedInspectionTimeline(
+                    latestInspection: latestInspection,
+                    allMeasurements: allMeasurements,
+                    mod: mod,
+                    inspectionsMap: inspectionsMap,
+                    cleanings: cleaningsList,
+                  );
+                },
+              ),
+            ],
           ],
         ),
       ),

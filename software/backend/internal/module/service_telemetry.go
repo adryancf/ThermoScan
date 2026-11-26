@@ -1695,7 +1695,7 @@ func (s *Service) RecordPanelThermalResult(
 		return nil, err
 	}
 
-	if insp.Status == "completed" {
+	if insp.Status == "completed" || insp.Status == "failed" || insp.Status == "cancelled" {
 		return nil, ErrInspectionCompleted
 	}
 

@@ -262,12 +262,14 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 	if input.ThermalSensorActive != nil {
 		thermalActive = pgtype.Bool{Bool: *input.ThermalSensorActive, Valid: true}
 	}
-	_, _ = qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
+	if _, err := qtx.UpdateModuleDeviceHealth(ctx, db.UpdateModuleDeviceHealthParams{
 		ID:                  moduleID,
 		LimitsCheckPassed:   limitsPassed,
 		ThermalSensorActive: thermalActive,
 		NextInspectionAt:    input.NextInspectionAt,
-	})
+	}); err != nil {
+		return nil, err
+	}
 	if err := qtx.UpdateModuleVerificationReadyAt(ctx, db.UpdateModuleVerificationReadyAtParams{
 		ID:                  moduleID,
 		VerificationReadyAt: input.VerificationReadyAt,
@@ -289,13 +291,19 @@ func (s *Service) RecordDevicePing(ctx context.Context, principal auth.Principal
 	}
 
 	if input.ManualCleaningAck != nil && *input.ManualCleaningAck {
-		_ = qtx.ClearManualCleaningPending(ctx, moduleID)
+		if err := qtx.ClearManualCleaningPending(ctx, moduleID); err != nil {
+			return nil, err
+		}
 	}
 	if input.ManualReadingAck != nil && *input.ManualReadingAck {
-		_ = qtx.ClearManualReadingPending(ctx, moduleID)
+		if err := qtx.ClearManualReadingPending(ctx, moduleID); err != nil {
+			return nil, err
+		}
 	}
 	if input.ResetAck != nil && *input.ResetAck {
-		_ = qtx.ClearResetPending(ctx, moduleID)
+		if err := qtx.ClearResetPending(ctx, moduleID); err != nil {
+			return nil, err
+		}
 	}
 
 	if len(input.StateTransitions) > 0 {

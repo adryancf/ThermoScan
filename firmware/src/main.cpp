@@ -105,6 +105,7 @@ static void updateStatusLed(unsigned long now_ms) {
 
 void setup() {
     g_dual_serial.begin(115200);
+    g_dual_serial.setTimeout(50);
     diagnostics::installEspLogHook();
     delay(500);
 

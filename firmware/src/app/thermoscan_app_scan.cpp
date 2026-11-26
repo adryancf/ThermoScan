@@ -402,6 +402,10 @@ void ThermoscanApp::handleScanning() {
 
     utils::HeapTracker::start();
 
+    if (camera_ != nullptr) {
+        camera_->setTiltAngle(CAMERA_DEFAULT_ANGLE);
+    }
+
     const uint8_t total_panels = (config_.panel_count > 0) ? static_cast<uint8_t>(config_.panel_count) : 1;
     panel_baselines_.assign(static_cast<size_t>(total_panels) + 1, 25.0f);
     Serial.printf("[SCAN] %s inspection scan cycle. Event ID: %s, Total Panels: %u, Resuming from Panel: %u\n",
@@ -713,6 +717,10 @@ void ThermoscanApp::handleScanning() {
         quantized_frames_.clear();
         quantized_frames_.shrink_to_fit();
         histogram_.reset();
+
+        if (!all_panels_accepted_) {
+            break;
+        }
 
         // Inter-panel gap traversal: move carriage across gap without capturing or spraying
         if (p < total_panels) {

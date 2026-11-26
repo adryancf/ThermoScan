@@ -61,9 +61,11 @@ void ThermoscanApp::handleCleaning() {
                 spray_->startPump();
                 constexpr uint32_t step_ms = thermoscan_config::SPRAY_STEP_MS;
                 const int total_steps = static_cast<int>(DEFAULT_SPRAY_DURATION_MS / step_ms);
+                bool manual_spray_interrupted = false;
                 for (int step = 0; step < total_steps; ++step) {
                     const bool fluid = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
                     if (!fluid) {
+                        manual_spray_interrupted = true;
                         Serial.println(F("[CLEANING] Manual spray interrupted: Water depletion detected!"));
                         break;
                     }
@@ -71,7 +73,7 @@ void ThermoscanApp::handleCleaning() {
                     delay(step_ms);
 #endif
                 }
-                if ((DEFAULT_SPRAY_DURATION_MS % step_ms) > 0) {
+                if (!manual_spray_interrupted && (DEFAULT_SPRAY_DURATION_MS % step_ms) > 0) {
 #if defined(ARDUINO) || defined(ESP32)
                     delay(DEFAULT_SPRAY_DURATION_MS % step_ms);
 #endif
@@ -370,24 +372,20 @@ void ThermoscanApp::handleWaitingVerification() {
             config_update_pending_ = true;
             config_sync_failed_waiting_ping_ = false;
         }
-        if (cloud_->isManualInspectionPending()) {
-            cloud_->clearManualInspectionPending();
-            triggerManualInspection();
-        }
-        if (cloud_->isManualCleaningPending()) {
-            const float target_x = cloud_->getManualCleaningTargetXCm();
-            cloud_->clearManualCleaningPending();
-            triggerManualCleaning(target_x);
-        }
-        if (cloud_->isManualReadingPending()) {
-            const float target_x = cloud_->getManualReadingTargetXCm();
-            cloud_->clearManualReadingPending();
-            triggerManualReading(target_x);
-        }
     }
 }
 
 void ThermoscanApp::handleVerifying() {
+    if (motion_ != nullptr && !motion_->isHomed()) {
+        if (!motion_->home()) {
+            executeEmergencyStop("homing_failed");
+            return;
+        }
+    }
+    if (camera_ != nullptr) {
+        camera_->setTiltAngle(CAMERA_DEFAULT_ANGLE);
+    }
+
     bool any_retry_allowed = false;
     uint32_t last_spray_end = cleaning_sm_.getSprayEndedTimestamp();
 

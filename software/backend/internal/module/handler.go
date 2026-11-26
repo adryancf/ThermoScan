@@ -486,6 +486,8 @@ func (h *Handler) handleTriggerManualInspection(w http.ResponseWriter, r *http.R
 			httpjson.WriteError(w, http.StatusNotFound, "module not found", "NOT_FOUND")
 		case errors.Is(err, ErrForbidden):
 			httpjson.WriteError(w, http.StatusForbidden, "forbidden", "FORBIDDEN")
+		case errors.Is(err, ErrInvalidInput):
+			httpjson.WriteError(w, http.StatusBadRequest, err.Error(), "INVALID_INPUT")
 		default:
 			httpjson.WriteError(w, http.StatusInternalServerError, "failed to trigger inspection", "INTERNAL_ERROR")
 		}

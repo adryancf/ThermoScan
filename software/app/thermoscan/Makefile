@@ -23,13 +23,13 @@ DEBUG_APK    ?= $(APK_DIR)/app-debug.apk
 BUILD_NUMBER ?= $(shell git rev-list --count HEAD 2>/dev/null || echo 1)
 BUILD_NAME   ?= 1.0.$(BUILD_NUMBER)
 
-.PHONY: help apk apk-debug serve-apk serve run-apk clean analyze test
+.PHONY: help apk apk-arm64 apk-debug serve-apk serve run-apk run-apk-arm64 clean analyze test
 
 help: ## Exibe a lista de comandos disponíveis
 	@echo "=================================================="
 	@echo "  ThermoScan Mobile - Comandos Disponíveis"
 	@echo "=================================================="
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
 	@echo "API_URL configurada: $(API_URL)"
 	@echo "Versão automática calculada: v$(BUILD_NAME)+$(BUILD_NUMBER)"
@@ -45,6 +45,17 @@ apk: ## Gera o APK de release injetando API_URL e auto-versionamento via Git
 	@if [ -d ../../../dist ]; then cp -f $(RELEASE_APK) ../../../dist/thermoscan.apk; fi
 	@echo ""
 	@echo "==> APK gerado em: $(RELEASE_APK)"
+	@echo "==> Cópia pronta em: $(DIST_DIR)/thermoscan.apk"
+
+apk-arm64: ## Gera APK release rápido apenas para Android ARM64 (celulares modernos)
+	@echo "==> Compilando APK Release ARM64 (v$(BUILD_NAME)+$(BUILD_NUMBER))..."
+	@echo "==> Usando API_BASE_URL: $(API_URL)"
+	@$(FLUTTER) build apk --release --target-platform android-arm64 --dart-define=API_BASE_URL=$(API_URL) --build-name=$(BUILD_NAME) --build-number=$(BUILD_NUMBER)
+	@mkdir -p $(DIST_DIR)
+	@cp -f $(RELEASE_APK) $(DIST_DIR)/thermoscan.apk
+	@if [ -d ../../../dist ]; then cp -f $(RELEASE_APK) ../../../dist/thermoscan.apk; fi
+	@echo ""
+	@echo "==> APK ARM64 gerado em: $(RELEASE_APK)"
 	@echo "==> Cópia pronta em: $(DIST_DIR)/thermoscan.apk"
 
 apk-debug: ## Gera o APK de debug injetando API_URL e auto-versionamento via Git
@@ -84,6 +95,8 @@ serve-apk: ## Inicia servidor HTTP Python para baixar o APK no celular via Wi-Fi
 serve: serve-apk ## Alias para serve-apk
 
 run-apk: apk serve-apk ## Gera o APK release e já sobe o servidor Python em seguida
+
+run-apk-arm64: apk-arm64 serve-apk ## Gera o APK release ARM64 (rápido) e já sobe o servidor Python em seguida
 
 analyze: ## Executa o linter do Flutter
 	@$(FLUTTER) analyze

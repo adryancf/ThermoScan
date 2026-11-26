@@ -43,7 +43,7 @@ constexpr uint32_t MAX_CLEANING_ATTEMPTS      = 3;        // Maximum consecutive
 #endif
 
 #ifndef SPRAY_DURATION_MS
-#define SPRAY_DURATION_MS 2500  // Default: 2.5 seconds (2500 ms)
+#define SPRAY_DURATION_MS 2000  // Default: 2.5 seconds (2500 ms)
 #endif
 constexpr uint32_t DEFAULT_SPRAY_DURATION_MS = SPRAY_DURATION_MS;
 
@@ -117,11 +117,11 @@ constexpr uint32_t STEPPER_NORMAL_DELAY_US  = STEPPER_SPEED_NORMAL_US;
 
 // Servo Default Angles
 #ifndef CAMERA_SERVO_DEFAULT_ANGLE_DEG
-#define CAMERA_SERVO_DEFAULT_ANGLE_DEG 110.0f
+#define CAMERA_SERVO_DEFAULT_ANGLE_DEG 79.0f
 #endif
 
 #ifndef NOZZLE_SERVO_DEFAULT_ANGLE_DEG
-#define NOZZLE_SERVO_DEFAULT_ANGLE_DEG 70.0f
+#define NOZZLE_SERVO_DEFAULT_ANGLE_DEG 0.0f
 #endif
 
 constexpr float CAMERA_DEFAULT_ANGLE = CAMERA_SERVO_DEFAULT_ANGLE_DEG;

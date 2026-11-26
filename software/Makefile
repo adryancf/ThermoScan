@@ -3,13 +3,13 @@
 
 SHELL := /bin/bash
 
-.PHONY: help backend-build backend-run backend-dev backend-db backend-clean-db backend-clean-history backend-docker backend-down backend-logs mobile-apk mobile-apk-debug mobile-serve mobile-all clean
+.PHONY: help backend-build backend-run backend-dev backend-db backend-clean-db backend-clean-history backend-docker backend-down backend-logs mobile-apk mobile-apk-arm64 mobile-apk-debug mobile-serve mobile-all mobile-all-arm64 clean
 
 help: ## Exibe a lista de comandos disponíveis
 	@echo "=================================================="
 	@echo "  ThermoScan - Comandos Principais (Root)"
 	@echo "=================================================="
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
 	@echo "Dica: Você também pode entrar diretamente em 'backend/' ou 'app/thermoscan/' e rodar 'make help'."
 	@echo ""
@@ -46,6 +46,9 @@ backend-logs: ## Acompanha os logs em tempo real do backend Docker
 mobile-apk: ## Gera o APK release para Android apontando para https://api-thermoscan.realan.space/api/v1
 	@$(MAKE) -C app/thermoscan apk
 
+mobile-apk-arm64: ## Gera o APK release rápido apenas para Android ARM64
+	@$(MAKE) -C app/thermoscan apk-arm64
+
 mobile-apk-debug: ## Gera o APK debug para Android apontando para https://api-thermoscan.realan.space/api/v1
 	@$(MAKE) -C app/thermoscan apk-debug
 
@@ -54,6 +57,9 @@ mobile-serve: ## Inicia servidor HTTP Python para baixar o APK no celular
 
 mobile-all: ## Gera o APK release e já sobe o servidor Python para download
 	@$(MAKE) -C app/thermoscan run-apk
+
+mobile-all-arm64: ## Gera o APK release ARM64 (rápido) e já sobe o servidor Python para download
+	@$(MAKE) -C app/thermoscan run-apk-arm64
 
 # --- CLEAN ---
 clean: ## Limpa artefatos temporários do backend e do app

@@ -65,7 +65,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
   void initState() {
     super.initState();
     _statusRefreshTimer = Timer.periodic(
-      const Duration(seconds: 4),
+      const Duration(seconds: 1),
       (_) {
         if (!mounted) return;
         final curStatus =

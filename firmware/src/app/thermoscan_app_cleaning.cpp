@@ -300,6 +300,7 @@ void ThermoscanApp::handleCleaning() {
         }
         if (!has_pending) {
             cleaning_queue_.clear();
+            active_cycle_is_manual_ = false;
             if (storage_ != nullptr) {
                 storage_->clearCleaningQueue();
             }
@@ -323,7 +324,7 @@ void ThermoscanApp::handleWaitingVerification() {
     }
 
     const uint32_t now = getCurrentTime();
-    const bool solar_ok = checkSolarWindow();
+    const bool solar_ok = active_cycle_is_manual_ || checkSolarWindow();
 
     // Strict 1800-second cooldown AND valid solar elevation window
     if (cleaning_sm_.canStartVerification(now, solar_ok)) {
@@ -600,6 +601,7 @@ void ThermoscanApp::handleVerifying() {
     }
 
     if (!any_retry_allowed && cleaning_queue_.empty()) {
+        active_cycle_is_manual_ = false;
         const uint32_t now = getCurrentTime();
         if (now > 0 && next_inspection_time_ <= now) {
             next_inspection_time_ = now + static_cast<uint32_t>(config_.interval_days * 86400);

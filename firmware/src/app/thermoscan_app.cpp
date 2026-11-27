@@ -182,6 +182,7 @@ void ThermoscanApp::executeFullReset() {
     pending_abort_insp_id_.clear();
     pending_abort_reason_.clear();
     manual_inspection_requested_ = false;
+    active_cycle_is_manual_ = false;
     manual_cleaning_requested_ = false;
     manual_cleaning_active_ = false;
     manual_cleaning_target_x_ = 0.0f;

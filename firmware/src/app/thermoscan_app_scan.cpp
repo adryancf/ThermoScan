@@ -126,6 +126,7 @@ void ThermoscanApp::handleIdle() {
     // 1. Manual commands have highest priority
     if (manual_inspection_requested_) {
         manual_inspection_requested_ = false;
+        active_cycle_is_manual_ = true;
         if (cloud_ != nullptr) {
             cloud_->clearManualInspectionPending();
         }
@@ -170,7 +171,7 @@ void ThermoscanApp::handleIdle() {
             }
         }
         const bool water_ok = (water_sensor_ != nullptr) ? water_sensor_->isWaterAvailable() : true;
-        if (has_pending_cleaning && water_ok && checkSolarWindow()) {
+        if (has_pending_cleaning && water_ok && (active_cycle_is_manual_ || checkSolarWindow())) {
             Serial.println(F("[APP] State transition: IDLE -> CLEANING (Resuming pending cleaning queue)"));
             transitionTo(AppState::CLEANING);
             return;
@@ -180,6 +181,7 @@ void ThermoscanApp::handleIdle() {
     // 4. Scheduled inspection evaluation (deferred while pending cleanings await recovery)
     if (!has_pending_cleaning && now > 0 && next_inspection_time_ > 0 && now >= next_inspection_time_) {
         if (checkSolarWindow()) {
+            active_cycle_is_manual_ = false;
             Serial.println(F("[APP] State transition: IDLE -> SCANNING (Starting scheduled inspection)"));
             transitionTo(AppState::SCANNING);
             return;

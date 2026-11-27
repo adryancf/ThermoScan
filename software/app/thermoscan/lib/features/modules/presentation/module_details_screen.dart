@@ -14,6 +14,7 @@ import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/domain/inspection_routine_bundle.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
+import 'package:thermoscan/features/modules/domain/solar_window_calculator.dart';
 import 'package:thermoscan/features/modules/presentation/module_cleanings_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_configuration_screen.dart';
 import 'package:thermoscan/features/modules/presentation/module_measurements_screen.dart';
@@ -24,6 +25,7 @@ import 'package:thermoscan/features/modules/presentation/widgets/clean_thermal_p
 import 'package:thermoscan/features/modules/presentation/widgets/export_pdf_report_sheet.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/firmware_state_badge.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/routine_progress_stepper.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/solar_window_widgets.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_matrix_inspector_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/thermal_panorama_painter.dart';
 
@@ -1596,6 +1598,43 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
               const SizedBox(height: 16),
             ],
 
+            // 2c. Unified slim Solar Window & Next Scan card
+            if (!mod.isPendingConfiguration &&
+                mod.latitude != null &&
+                mod.longitude != null) ...[
+              Builder(
+                builder: (context) {
+                  final solarWindow = SolarWindowCalculator.computeDailyWindow(
+                    latitude: mod.latitude!,
+                    longitude: mod.longitude!,
+                    minSolarAngleDeg: mod.minimumSolarAngleDeg ?? 15.0,
+                    azimuthDeg: mod.azimuthDeg,
+                    tiltDeg: mod.tiltDeg,
+                  );
+                  final nextScanLabel = _formatNextInspectionLabel(
+                    deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt,
+                    isPendingManual:
+                        deviceStatus?.manualInspectionPending == true,
+                  );
+                  return SolarWindowCompactCard(
+                    window: solarWindow,
+                    nextScanLabel: nextScanLabel,
+                    onTap: () => showSolarWindowSheet(
+                      context: context,
+                      module: mod,
+                      nextScanLabel: nextScanLabel,
+                      onOpenScheduleHistory: () => _showScanHistoryModal(
+                        context,
+                        mod,
+                        deviceStatus,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+
             // 3. Executive Health Hero Banner (com status de limpeza integrado)
             _buildExecutiveHealthBanner(
               mod: mod,
@@ -2045,63 +2084,22 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
           ),
           if (latestMeasurement?.measuredAt != null ||
               (measurements.isNotEmpty && measurements.first.measuredAt.isNotEmpty) ||
-              latestInspection?.inspection.createdAt != null ||
-              (deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt) != null) ...[
+              latestInspection?.inspection.createdAt != null) ...[
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 4,
+            Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (latestMeasurement?.measuredAt != null ||
-                    (measurements.isNotEmpty && measurements.first.measuredAt.isNotEmpty) ||
-                    latestInspection?.inspection.createdAt != null)
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.schedule_rounded,
-                        size: 13,
-                        color: AppColors.textSecondary,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        'Last inspected: ${_formatReadableTimestamp(latestMeasurement?.measuredAt ?? (measurements.isNotEmpty ? measurements.first.measuredAt : null) ?? latestInspection?.inspection.createdAt)}',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.textSecondary,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                  ),
-                InkWell(
-                  onTap: () => _showScanHistoryModal(context, mod, deviceStatus),
-                  borderRadius: BorderRadius.circular(4),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.event_repeat_rounded,
-                        size: 13,
-                        color: AppColors.primary,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        (deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt) != null
-                            ? 'Next scan: ${_formatReadableTimestamp(deviceStatus?.nextInspectionAt ?? mod.nextInspectionAt)}'
-                            : 'Scan history',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.primary,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(width: 2),
-                      const Icon(
-                        Icons.arrow_forward_ios_rounded,
-                        size: 9,
-                        color: AppColors.primary,
-                      ),
-                    ],
+                const Icon(
+                  Icons.schedule_rounded,
+                  size: 13,
+                  color: AppColors.textSecondary,
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  'Last inspected: ${_formatReadableTimestamp(latestMeasurement?.measuredAt ?? (measurements.isNotEmpty ? measurements.first.measuredAt : null) ?? latestInspection?.inspection.createdAt)}',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
                   ),
                 ),
               ],
@@ -3101,24 +3099,27 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                         isWarning: deviceStatus?.waterAvailable == false,
                         icon: Icons.water_drop_outlined,
                       ),
-                      _buildNextInspectionPill(
-                        label: _formatNextInspectionLabel(
-                          deviceStatus?.nextInspectionAt ??
-                              mod.nextInspectionAt,
-                          isPendingManual:
-                              deviceStatus?.manualInspectionPending == true,
+                      if (mod.isPendingConfiguration ||
+                          mod.latitude == null ||
+                          mod.longitude == null)
+                        _buildNextInspectionPill(
+                          label: _formatNextInspectionLabel(
+                            deviceStatus?.nextInspectionAt ??
+                                mod.nextInspectionAt,
+                            isPendingManual:
+                                deviceStatus?.manualInspectionPending == true,
+                          ),
+                          isScheduled: deviceStatus?.manualInspectionPending ==
+                                  true ||
+                              (deviceStatus?.nextInspectionAt ??
+                                      mod.nextInspectionAt) !=
+                                  null,
+                          onTap: () => _showScanHistoryModal(
+                            context,
+                            mod,
+                            deviceStatus,
+                          ),
                         ),
-                        isScheduled: deviceStatus?.manualInspectionPending ==
-                                true ||
-                            (deviceStatus?.nextInspectionAt ??
-                                    mod.nextInspectionAt) !=
-                                null,
-                        onTap: () => _showScanHistoryModal(
-                          context,
-                          mod,
-                          deviceStatus,
-                        ),
-                      ),
                     ],
                   ),
                 ],

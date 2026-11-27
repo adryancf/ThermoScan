@@ -10,11 +10,13 @@ import 'package:thermoscan/features/auth/presentation/auth_controller.dart';
 import 'package:thermoscan/features/modules/data/device_sensor_service.dart';
 import 'package:thermoscan/features/modules/data/module_repository.dart';
 import 'package:thermoscan/features/modules/domain/module_models.dart';
+import 'package:thermoscan/features/modules/domain/solar_window_calculator.dart';
 import 'package:thermoscan/features/modules/presentation/modules_controller.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/array_geometry_blueprint_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/orientation_calibration_modal.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/scan_frequency_selector_widget.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/solar_angle_selector_widget.dart';
+import 'package:thermoscan/features/modules/presentation/widgets/solar_window_widgets.dart';
 import 'package:thermoscan/features/modules/presentation/widgets/water_tank_capacity_selector_widget.dart';
 
 /// SCR-13: Module Configuration & Interval Change Log
@@ -753,6 +755,27 @@ class _ModuleConfigurationScreenState
                             });
                           },
                         ),
+                        if ((_parseDouble(_latCtrl.text) ?? mod.latitude) !=
+                                null &&
+                            (_parseDouble(_lngCtrl.text) ?? mod.longitude) !=
+                                null) ...[
+                          const SizedBox(height: 12),
+                          SolarWindowCurveChart(
+                            window: SolarWindowCalculator.computeDailyWindow(
+                              latitude:
+                                  (_parseDouble(_latCtrl.text) ?? mod.latitude)!,
+                              longitude: (_parseDouble(_lngCtrl.text) ??
+                                  mod.longitude)!,
+                              minSolarAngleDeg:
+                                  _parseDouble(_solarAngleCtrl.text) ?? 15.0,
+                              azimuthDeg: _parseDouble(_azimuthCtrl.text) ??
+                                  mod.azimuthDeg,
+                              tiltDeg:
+                                  _parseDouble(_tiltCtrl.text) ?? mod.tiltDeg,
+                            ),
+                            height: 132,
+                          ),
+                        ],
                         const SizedBox(height: 10),
                         Row(
                           children: [

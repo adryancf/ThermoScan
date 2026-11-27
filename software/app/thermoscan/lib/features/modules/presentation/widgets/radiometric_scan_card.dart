@@ -415,7 +415,7 @@ class _RadiometricScanCardState extends State<RadiometricScanCard> {
             summaries.every((s) => s.isResolvedLater);
         deltaText = onlyClearedLater
             ? 'After Cleaning · Cleared Later'
-            : 'After Cleaning · Hotspot Healed';
+            : 'After Cleaning · Hotspot Resolved';
       } else {
         deltaText = delta != null
             ? 'After Cleaning · Persistent (+${delta.toStringAsFixed(1)}°C)'

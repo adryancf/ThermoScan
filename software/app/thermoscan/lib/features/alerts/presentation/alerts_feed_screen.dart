@@ -528,7 +528,7 @@ class _AlertsFeedScreenState extends ConsumerState<AlertsFeedScreen> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Autonomous spray washing is paused until reservoir is manually refilled.',
+                            'Autonomous spray washing is paused until the reservoir is manually refilled.',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.textSecondary,
                               fontSize: 11,

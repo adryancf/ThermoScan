@@ -75,7 +75,7 @@ FirmwareStateDisplayInfo firmwareStateDisplayInfo(
         'solar_window_closed' => 'Waiting (Low Solar Angle)',
         'insufficient_water' => 'Waiting (Low Water)',
         'high_baseline_temp' => 'Waiting (High Baseline Temp)',
-        _ => 'Waiting Verification',
+        _ => 'Awaiting Verification',
       };
       return FirmwareStateDisplayInfo(
         label: label,

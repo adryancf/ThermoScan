@@ -1505,7 +1505,7 @@ class _ModuleMeasurementsScreenState
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Post-Cleaning · ${summaries.length} hotspots',
+                          'Post-Cleaning · ${summaries.length} ${summaries.length == 1 ? "hotspot" : "hotspots"}',
                           style: AppTypography.caption.copyWith(
                             fontWeight: FontWeight.w700,
                             color: AppColors.textPrimary,

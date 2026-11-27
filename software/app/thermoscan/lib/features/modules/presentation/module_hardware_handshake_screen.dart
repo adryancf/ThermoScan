@@ -793,7 +793,7 @@ class _ModuleHardwareHandshakeScreenState
                                     ? 'Failed: ${syncInfo.configApplyError ?? "Error applying configuration"}'
                                     : (subBLoading
                                         ? 'Connecting to device and applying settings...'
-                                        : 'Awaiting device to connect')),
+                                        : 'Waiting for device to connect')),
                             style: AppTypography.caption.copyWith(
                               fontSize: 10.5,
                               color: subBWarning

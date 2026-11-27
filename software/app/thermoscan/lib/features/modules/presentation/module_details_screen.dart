@@ -1926,7 +1926,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
       cleaningCardTitle = 'Cleaning in Progress';
       cleaningCardDescription =
-          'The robot is actively washing the panel area to wash away dirt.';
+          'The robot is actively washing the panel area to remove dirt.';
       cleaningCardIcon = Icons.precision_manufacturing_rounded;
     } else if (isCoolDownPending) {
       if (isCoolDownElapsed) {
@@ -1936,7 +1936,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
         cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
         cleaningCardTitle = 'Awaiting Post-Clean Verification';
         cleaningCardDescription =
-            'Cool-down period completed. Ready for thermal re-scan to verify if hotspot was resolved.';
+            'Cool-down period completed. Ready for a thermal re-scan to verify if the hotspot was resolved.';
         cleaningCardIcon = Icons.fact_check_outlined;
       } else {
         cleaningStatusBadge = 'COOL-DOWN (30M)';
@@ -1964,7 +1964,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
       cleaningBadgeBorder = AppColors.primary.withValues(alpha: 0.3);
       cleaningCardTitle = 'Automated Cleaning Scheduled';
       cleaningCardDescription =
-          'Water tank is ready. The robot will wash the hot spot automatically during the next safe window.';
+          'Water tank is ready. The robot will wash the hotspot automatically during the next safe window.';
       cleaningCardIcon = Icons.calendar_today_rounded;
     }
 
@@ -3219,7 +3219,7 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                     icon: Icons.grid_view_outlined,
                     label: 'Panel Count',
                     value: mod.panelCount != null
-                        ? '${mod.panelCount} panels'
+                        ? '${mod.panelCount} ${mod.panelCount == 1 ? "panel" : "panels"}'
                         : 'Not configured',
                     isMono: mod.panelCount != null,
                   ),
@@ -3263,7 +3263,8 @@ class _ModuleDetailsScreenState extends ConsumerState<ModuleDetailsScreen> {
                   _MetadataRow(
                     icon: Icons.update_outlined,
                     label: 'Scan Interval',
-                    value: 'Every ${mod.inspectionIntervalDays} days',
+                    value:
+                        'Every ${mod.inspectionIntervalDays} ${mod.inspectionIntervalDays == 1 ? "day" : "days"}',
                     isMono: true,
                   ),
                   const SizedBox(height: 8),

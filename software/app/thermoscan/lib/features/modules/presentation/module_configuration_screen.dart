@@ -339,7 +339,7 @@ class _ModuleConfigurationScreenState
                     _SectionCard(
                       title: 'Panel Dimensions & Array',
                       subtitle:
-                          'Physical panel dimensions in centimeters and number of panels in row.',
+                          'Physical panel dimensions in centimeters and number of panels in the row.',
                       editable: perms.canEditGeometryAndLocation,
                       children: [
                         ArrayGeometryBlueprintWidget(

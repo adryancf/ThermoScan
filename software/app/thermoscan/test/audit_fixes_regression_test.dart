@@ -897,7 +897,7 @@ void main() {
       expect(find.byKey(const Key('toggle_original_scan')), findsOneWidget);
       expect(find.text('After Cleaning'), findsOneWidget);
       expect(find.text('Before Cleaning'), findsOneWidget);
-      expect(find.text('After Cleaning · Hotspot Healed'), findsOneWidget);
+      expect(find.text('After Cleaning · Hotspot Resolved'), findsOneWidget);
 
       // Tapping Before Cleaning switches to pre-cleaning view
       await tester.tap(find.byKey(const Key('toggle_original_scan')));
@@ -909,7 +909,7 @@ void main() {
       await tester.tap(find.byKey(const Key('toggle_restored_view')));
       await tester.pumpAndSettle();
 
-      expect(find.text('After Cleaning · Hotspot Healed'), findsOneWidget);
+      expect(find.text('After Cleaning · Hotspot Resolved'), findsOneWidget);
     });
 
     testWidgets('12. ModuleMeasurementsScreen nests post-cleaning verifications under parent routine', (tester) async {

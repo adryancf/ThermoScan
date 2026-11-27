@@ -638,7 +638,7 @@ class _ModuleCleaningsScreenState extends ConsumerState<ModuleCleaningsScreen> {
                   childrenPadding: const EdgeInsets.only(top: 6),
                   dense: true,
                   title: Text(
-                    'Show ${cleanings.length} washes',
+                    'Show ${cleanings.length} ${cleanings.length == 1 ? "wash" : "washes"}',
                     style: AppTypography.bodySmall.copyWith(
                       fontWeight: FontWeight.w700,
                       fontSize: 12.5,

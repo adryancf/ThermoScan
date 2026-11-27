@@ -348,7 +348,7 @@ class _RoutineProgressStepperState extends State<RoutineProgressStepper> {
                 'Step 4/4 • Waiting for valid solar window to verify...';
           case 'insufficient_water':
             waitMsg =
-                'Step 4/4 • Waiting water refill before verification...';
+                'Step 4/4 • Waiting for water refill before verification...';
           case 'high_baseline_temp':
             waitMsg = 'Step 4/4 • Waiting for panel temperature to drop...';
           default:

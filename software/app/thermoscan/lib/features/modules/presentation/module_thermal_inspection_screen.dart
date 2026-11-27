@@ -1263,7 +1263,7 @@ class _ModuleThermalInspectionScreenState
                   _buildGuideItem(
                     title: 'Double-Checked Hotspot Detection',
                     description:
-                        'To avoid false alarms from passing clouds or sun glare, the robot checks if the hot spot appears in two overlapping scans.',
+                        'To avoid false alarms from passing clouds or sun glare, the robot checks if the hotspot appears in two overlapping scans.',
                   ),
                   const SizedBox(height: 12),
                   _buildGuideItem(
